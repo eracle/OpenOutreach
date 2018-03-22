@@ -1,19 +1,28 @@
-# Linkedin Scraping
+## Linkedin Scrapers
 
 [![built with Selenium](https://img.shields.io/badge/built%20with-Selenium-yellow.svg)](https://github.com/SeleniumHQ/selenium)
 [![built with Python3](https://img.shields.io/badge/built%20with-Python3-red.svg)](https://www.python.org/)
-
-
-Scraping software aimed to visit as more linkedin's user pages as possible :-D, the objective is to gain visibility with your account: since LinkedIn notifies the issued User when someone visits his page.
-
 Uses: Scrapy, Selenium web driver, Chromium headless, docker and python3.
 
+#### Linkedin spider:
+The first spider aims to visit as more linkedin's user pages as possible :-D, the objective is to gain visibility with your account: since LinkedIn notifies the issued User when someone visits his page.
+
+#### Companies spider:
+This spider aims to collect all the users working for a company on linkedin.
+1. It goes on the company's front-page;
+2. Clicks on "See all 1M employees" button;
+3. Starts collecting User related Scapy items.
 
 
-# Install
-Docker allows very easy and fast run without any pain and tears.
+### Install
+Needed:
+- docker;
+- docker-compose;
+- VNC viewer, like vinagre (ubuntu);
+- python3.6;
+- virtualenvs;
 
-### 0. Preparations
+###### 0. Preparations;
 
 Install docker from the official website [https://www.docker.com/](https://www.docker.com/)
 
@@ -25,53 +34,59 @@ sudo apt-get update
 sudo apt-get install vinagre
 ```
 
-Then connect to localhost:5900, password: secret
+###### 1. Set your Linkedin login and password;
+Copy `conf_template.py` in `conf.py` and fill the quotes with your credentials.
 
-### 1. Set your linkedin login and password
-
-Open `conf.py` and fill the quotes with your credentials.
-
-### 2. Run and build containers with docker-compose
-
-First you need to open your terminal, move to the root folder (usually with the `cd` command) of the project and then type:
+###### 2. Run and build containers with docker-compose;
+Only linkedin spider, not the companies spider.
+Open your terminal, move to the project folder and type:
 
 ```bash
 docker-compose up -d --build
 ```
 
 
-### 3. See what your bot can do right now
+###### 3. Take a look on the browser's activity:
 
-Run your VNC viewer, and type address and port `localhost:5900`. The password is `secret`.
+Open vinagre, and type address and port `localhost:5900`. The password is `secret`.
+or otherwise:
+```bash
+vinagre localhost:5900
+or
+make view
+```
 
-### 4. Stop the scraper
+###### 4. Stop the scraper;
 
 Use your terminal again, type in the same window:
+
 ```bash
 docker-compose down
 ```
 
 
-##### Test:
+###### Test & Development:
+Setup your python virtual environment (trivial but mandatory):
 
-Create the selenium server:
 ```bash
-docker run --name selenium -p 4444:4444 -p 5900:5900 --publish-all --shm-size="128M" selenium/standalone-chrome-debug
+    virtualenvs -p python3.6 .venv
+    source .venv/bin/activate
+    pip install -r requirements.txt
 ```
 
-
+Create the selenium server, open the VNC window and launch the tests, type those in three different terminals on the project folder:
 ```bash
-virtualenvs -p python .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-python -m unittest test.py
-
+    make dev
+    make view
+    make tests
 ```
 
-Stop and delete selenium server:
+For more details have a look at the Makefile (here is used to shortcut and not to build).
+- Development:
 ```bash
-docker stop $(docker ps -aq --filter name=selenium)
-
-docker rm $(docker ps -aq --filter name=selenium)
+    scrapy crawl companies -a selenium_hostname=localhost
+```
+or
+```bash
+    scrapy crawl linkedin -a selenium_hostname=localhost
 ```
