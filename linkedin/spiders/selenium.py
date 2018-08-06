@@ -119,9 +119,6 @@ def extracts_see_all_url(driver):
 
     a_elem = driver.find_element_by_link_text(see_all_ex_text)
     see_all_url = a_elem.get_attribute('href')
-    # see_all_url = 'https://www.linkedin.com/search/results/people/?company=&facetPastCompany=%5B%221235825%22%5D&firstName=&lastName=&origin=FACETED_SEARCH&school=&title='
-    # see_all_url = 'https://www.linkedin.com/search/results/people/?company=&facetPastCompany=%5B%222629565%22%5D&firstName=&lastName=&origin=FACETED_SEARCH&school=&title='
-    # see_all_url = 'https://www.linkedin.com/search/results/people/?company=&facetPastCompany=%5B%222379536%22%5D&firstName=&lastName=&origin=FACETED_SEARCH&school=&title='
     print(f'Found the following URL: {see_all_url}')
     return see_all_url
 
