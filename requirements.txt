@@ -20,7 +20,7 @@ pyOpenSSL==18.0.0
 pytest==3.7.4
 pytest-sugar==0.9.1
 queuelib==1.5.0
-Scrapy==1.5.0
+Scrapy==1.5.1
 selenium==3.9.0
 service-identity==17.0.0
 six==1.11.0
