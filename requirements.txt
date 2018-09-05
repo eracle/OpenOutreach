@@ -16,7 +16,7 @@ pyasn1==0.4.4
 pyasn1-modules==0.2.2
 pycparser==2.18
 PyDispatcher==2.0.5
-pyOpenSSL==17.5.0
+pyOpenSSL==18.0.0
 pytest==3.4.1
 pytest-sugar==0.9.1
 queuelib==1.4.2
