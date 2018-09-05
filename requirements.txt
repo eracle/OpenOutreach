@@ -10,7 +10,7 @@ idna==2.7
 incremental==17.5.0
 lxml==4.2.4
 parsel==1.5.0
-pluggy==0.6.0
+pluggy==0.7.1
 py==1.5.2
 pyasn1==0.4.2
 pyasn1-modules==0.2.1
