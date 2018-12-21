@@ -7,6 +7,10 @@ Uses: Scrapy, Selenium web driver, Chromium headless, docker and python3.
 #### Linkedin spider:
 The first spider aims to visit as more linkedin's user pages as possible :-D, the objective is to gain visibility with your account: since LinkedIn notifies the issued User when someone visits his page.
 
+## Support on Beerpay
+Hey dude! Help me out for a couple of :beers:!
+
+[![Beerpay](https://beerpay.io/eracle/linkedin/badge.svg?style=beer-square)](https://beerpay.io/eracle/linkedin)  [![Beerpay](https://beerpay.io/eracle/linkedin/make-wish.svg?style=flat-square)](https://beerpay.io/eracle/linkedin?focus=wish)
 #### Companies spider:
 This spider aims to collect all the users working for a company on linkedin.
 1. It goes on the company's front-page;
@@ -90,8 +94,3 @@ or
 ```bash
     scrapy crawl linkedin -a selenium_hostname=localhost
 ```
-
-## Support on Beerpay
-Hey dude! Help me out for a couple of :beers:!
-
-[![Beerpay](https://beerpay.io/eracle/linkedin/badge.svg?style=beer-square)](https://beerpay.io/eracle/linkedin)  [![Beerpay](https://beerpay.io/eracle/linkedin/make-wish.svg?style=flat-square)](https://beerpay.io/eracle/linkedin?focus=wish)
