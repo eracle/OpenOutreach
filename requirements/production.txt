@@ -6,5 +6,5 @@ selenium>=3.14.0 # pyup: < 4.0  # https://github.com/SeleniumHQ/selenium
 
 # Testing
 # todo: move them to a dedicated req file
-pytest==3.9.3
+pytest==4.0.2
 pytest-sugar==0.9.2
