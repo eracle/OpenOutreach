@@ -1,16 +1,22 @@
-## Linkedin Scrapers
 
-[![built with Selenium](https://img.shields.io/badge/built%20with-Selenium-yellow.svg)](https://github.com/SeleniumHQ/selenium)
 [![built with Python3](https://img.shields.io/badge/built%20with-Python3-red.svg)](https://www.python.org/)
-Uses: Scrapy, Selenium web driver, Chromium headless, docker and python3.
+[![built with Selenium](https://img.shields.io/badge/built%20with-Selenium-yellow.svg)](https://github.com/SeleniumHQ/selenium)
 
-#### Linkedin spider:
-The first spider aims to visit as more linkedin's user pages as possible :-D, the objective is to gain visibility with your account: since LinkedIn notifies the issued User when someone visits his page.
+[![forthebadge](https://forthebadge.com/images/badges/powered-by-electricity.svg)](https://forthebadge.com)
 
 ## Support on Beerpay
 Hey dude! Help me out for a couple of :beers:!
 
 [![Beerpay](https://beerpay.io/eracle/linkedin/badge.svg?style=beer-square)](https://beerpay.io/eracle/linkedin)  [![Beerpay](https://beerpay.io/eracle/linkedin/make-wish.svg?style=flat-square)](https://beerpay.io/eracle/linkedin?focus=wish)
+
+
+# Linkedin Automation:
+
+Uses: Scrapy, Selenium web driver, Chromium headless, docker and python3.
+
+#### Linkedin spider:
+The first spider aims to visit as more linkedin's user pages as possible :-D, the objective is to gain visibility with your account: since LinkedIn notifies the issued User when someone visits his page.
+
 #### Companies spider:
 This spider aims to collect all the users working for a company on linkedin.
 1. It goes on the company's front-page;
