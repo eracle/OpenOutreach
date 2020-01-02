@@ -15,9 +15,7 @@ class Linkedin(SeleniumSpiderMixin, CrawlSpider):
 
     rules = (
         # Extract links matching a single user
-        Rule(LinkExtractor(allow=('https:\/\/.*\/in\/.*',), deny=('https:\/\/.*\/in\/edit\/.*',)),
+        Rule(LinkExtractor(allow=('https:\/\/.*\/in\/\w*\/$',), deny=('https:\/\/.*\/in\/edit\/.*',)),
+             follow=True,
              ),
     )
-
-
-
