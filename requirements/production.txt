@@ -8,3 +8,6 @@ selenium>=3.14.0 # pyup: < 4.0  # https://github.com/SeleniumHQ/selenium
 # todo: move them to a dedicated req file
 pytest==5.3.1
 pytest-sugar==0.9.2
+
+# Linkedin API library
+-e git+https://github.com/tomquirk/linkedin-api.git@f5962d05e92d135b1be21146a5ce9d41eaf6d423#egg=linkedin_api

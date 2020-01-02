@@ -7,3 +7,5 @@ selenium_prototype.py
 .pytest_cache/
 interactive.py
 users.csv
+.vscode
+.dockerignore

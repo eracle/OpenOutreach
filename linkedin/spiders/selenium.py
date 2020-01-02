@@ -8,6 +8,7 @@ from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.wait import WebDriverWait
 
 from conf import EMAIL, PASSWORD
+from linkedin.integration import CustomLinkedinClient
 from linkedin.items import LinkedinUser
 
 """
@@ -176,10 +177,8 @@ class SeleniumSpiderMixin:
 
         self.driver = init_chromium(selenium_hostname)
 
-        # Stop web page from asking me if really want to leave - past implementation, FIREFOX
-        # profile = webdriver.FirefoxProfile()
-        # profile.set_preference('dom.disable_beforeunload', True)
-        # self.driver = webdriver.Firefox(profile)
+        # initializing also API's client
+        self.api_client = CustomLinkedinClient(EMAIL, PASSWORD, debug=True)
 
         login(self.driver)
 
