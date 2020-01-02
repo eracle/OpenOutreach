@@ -86,9 +86,9 @@ Create the selenium server, open the VNC window and launch the tests, type those
 For more details have a look at the Makefile (here is used to shortcut and not to build).
 - Development:
 ```bash
-    scrapy crawl companies -a selenium_hostname=localhost
+    scrapy crawl companies -a selenium_hostname=localhost -o output.csv
 ```
 or
 ```bash
-    scrapy crawl linkedin -a selenium_hostname=localhost
+    scrapy crawl linkedin -a selenium_hostname=localhost -o output.csv
 ```
