@@ -119,7 +119,6 @@ def extracts_see_all_url(driver):
 
     a_elem = driver.find_element_by_link_text(see_all_ex_text)
     see_all_url = a_elem.get_attribute('href')
-
     print(f'Found the following URL: {see_all_url}')
     return see_all_url
 
@@ -140,13 +139,17 @@ def extracts_linkedin_users(driver, company):
         result = get_by_xpath_or_none(driver, last_result_xpath)
         if result is not None:
 
+
+            link_elem = get_by_xpath_or_none(result, './/*[@class="search-result__result-link ember-view"]')
+            link = link_elem.get_attribute('href') if link_elem is not None else None
+
             name_elem = get_by_xpath_or_none(result, './/*[@class="name actor-name"]')
             name = name_elem.text if name_elem is not None else None
 
             title_elem = get_by_xpath_or_none(result, './/p')
             title = title_elem.text if name_elem is not None else None
 
-            user = LinkedinUser(name=name, title=title, company=company)
+            user = LinkedinUser(name=name, title=title, company=company, link=link)
 
             yield user
 
