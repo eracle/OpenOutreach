@@ -94,6 +94,6 @@ or
 ```
 ## Legal
 
-This code is in no way affiliated with, authorized, maintained, sponsored or endorsed by Linkedin or any of its affiliates or subsidiaries. This is an independent and unofficial API. Use at your own risk.
+This code is in no way affiliated with, authorized, maintained, sponsored or endorsed by Linkedin or any of its affiliates or subsidiaries. This is an independent and unofficial project. Use at your own risk.
 
 This project violates Linkedin's User Agreement Section 8.2, and because of this, Linkedin may (and will) temporarily or permantly ban your account. We are not responsible for your account being banned.
