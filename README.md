@@ -1,5 +1,5 @@
 “Linkedin is being sponsored by the following tool; please help to support us by taking a look and signing up to a free trial”
-<a href="https://tracking.gitads.io/?repo=linkedin"> <img src="https://images.gitads.io/linkedin" alt="GitAds"/> </a>
+<a href="https://tracking.gitads.io/?repo=linkedin"> <img src="https://images.gitads.io/linkedin" alt="GitAds" width="100" /> </a>
 [![built with Python3](https://img.shields.io/badge/built%20with-Python3-red.svg)](https://www.python.org/)
 [![built with Selenium](https://img.shields.io/badge/built%20with-Selenium-yellow.svg)](https://github.com/SeleniumHQ/selenium)
 
