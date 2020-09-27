@@ -103,9 +103,11 @@ def init_chromium(selenium_host, cookies=None):
     driver = webdriver.Remote(command_executor=selenium_url,
                               desired_capabilities=chrome_options)
 
-    if cookies is not None:
+    if cookies:
         driver.get("https://www.linkedin.com/404error")
         for cookie in cookies:
+            if 'expiry' in cookie:
+                del cookie['expiry']
             driver.add_cookie(cookie)
 
     return driver
