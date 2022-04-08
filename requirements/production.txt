@@ -6,4 +6,4 @@ selenium>=3.14.0 # pyup: < 4.0  # https://github.com/SeleniumHQ/selenium
 
 # Linkedin API library
 linkedin-api>=2.0.0a # pyup: < 3.0
-beautifulsoup4==4.9.2 # pyup: < 5.0
+beautifulsoup4==4.11.1 # pyup: < 5.0
