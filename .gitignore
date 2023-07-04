@@ -1,11 +1,10 @@
 conf.py
 
 __pycache__/
-selenium_prototype.py
 .idea/
 .venv/
 .pytest_cache/
-interactive.py
-users.csv
 .vscode
 .dockerignore
+./data/users.csv
+./data/output.csv

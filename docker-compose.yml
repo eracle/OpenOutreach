@@ -9,7 +9,7 @@ x-scrapy-common: &scrapy-common
   depends_on:
     - selenium
   volumes:
-    - ./logs:/app/logs
+    - ./data:/app/data
 
 services:
   selenium:
@@ -41,5 +41,5 @@ services:
       - selenium
     volumes:
       - .:/app
-      - ./logs:/app/logs
+      - ./data:/app/data
     command: [ "py.test", "tests/companies.py", "tests/selenium.py"]
