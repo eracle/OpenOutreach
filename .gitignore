@@ -6,5 +6,5 @@ __pycache__/
 .pytest_cache/
 .vscode
 .dockerignore
-./data/users.csv
-./data/output.csv
+/data/output.csv
+/data/users.csv
