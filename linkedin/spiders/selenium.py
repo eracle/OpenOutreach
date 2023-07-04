@@ -61,7 +61,6 @@ def get_by_xpath_or_none(driver, xpath, wait_timeout=None):
     :param driver: Selenium Webdriver to use.
     :param xpath: String containing the xpath.
     :param wait_timeout: optional amounts of seconds before TimeoutException is raised, default WAIT_TIMEOUT is used otherwise.
-    :param logs: optional, prints a status message to stdout if an exception occures.
     :return: The web element or None if nothing found.
     """
     try:
