@@ -1,10 +1,12 @@
 import copy
+import logging
 import time
 
 from scrapy import Request
 from scrapy import Spider
 
-from linkedin.spiders.selenium import get_by_xpath_or_none, SeleniumSpiderMixin, init_chromium
+from linkedin.spiders.selenium import get_by_xpath_or_none, SeleniumSpiderMixin
+
 
 """
 Number of seconds to wait checking if the page is a "No Result" type.
@@ -14,7 +16,7 @@ NO_RESULT_WAIT_TIMEOUT = 3
 
 class SearchSpider(SeleniumSpiderMixin, Spider):
     """
-    Abstract class for for generic search on linkedin.
+    Abstract class for generic search on linkedin.
     """
 
     def wait_page_completion(self, driver):
@@ -47,28 +49,26 @@ class SearchSpider(SeleniumSpiderMixin, Spider):
 
         if no_result_response is not None:
             # no results message shown: stop crawling this company
+            logging.warning("no results message shown: stop crawling this company")
             driver.close()
             return
         else:
             users = extracts_linkedin_users(driver, api_client=self.api_client)
             for user in users:
-                if stop_criteria is not None:
-                    if stop_criteria(user, stop_criteria_args):
-                        # if stop criteria is matched stops the crawl, and also next pages
-                        driver.close()
-                        return
-                yield user
-
-            # incrementing the index at the end of the url
-            url = response.request.url
-            next_url_split = url.split('=')
-            index = int(next_url_split[-1])
-            next_url = '='.join(next_url_split[:-1]) + '=' + str(index + 1)
-
-            if max_page is not None:
-                if index >= max_page:
+                if stop_criteria is not None and stop_criteria(user, stop_criteria_args):
+                    # if stop criteria is matched stops the crawl, and also next pages
+                    logging.warning("stop criteria is matched stops the crawl, and also next pages")
                     driver.close()
                     return
+                else:
+                    yield user
+
+            index, next_url = self.increment_index_at_end_url(response)
+
+            if max_page is not None and index >= max_page:
+                logging.warning("index >= max_page: stops the crawl")
+                driver.close()
+                return
 
             driver.close()
             yield Request(url=next_url,
@@ -76,6 +76,14 @@ class SearchSpider(SeleniumSpiderMixin, Spider):
                           meta=copy.deepcopy(response.meta),
                           dont_filter=True,
                           )
+
+    def increment_index_at_end_url(self, response):
+        # incrementing the index at the end of the url
+        url = response.request.url
+        next_url_split = url.split('=')
+        index = int(next_url_split[-1])
+        next_url = '='.join(next_url_split[:-1]) + '=' + str(index + 1)
+        return index, next_url
 
 
 ######################
