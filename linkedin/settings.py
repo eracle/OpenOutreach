@@ -9,7 +9,7 @@
 #     http://scrapy.readthedocs.org/en/latest/topics/downloader-middleware.html
 #     http://scrapy.readthedocs.org/en/latest/topics/spider-middleware.html
 
-#BOT_NAME = 'companies'
+# BOT_NAME = 'companies'
 
 SPIDER_MODULES = ['linkedin.spiders']
 NEWSPIDER_MODULE = 'linkedin.spiders'
@@ -28,8 +28,8 @@ ROBOTSTXT_OBEY = False
 # See also autothrottle settings and docs
 DOWNLOAD_DELAY = 0.25
 # The download delay setting will honor only one of:
-#CONCURRENT_REQUESTS_PER_DOMAIN = 1
-#CONCURRENT_REQUESTS_PER_IP = 1
+# CONCURRENT_REQUESTS_PER_DOMAIN = 1
+# CONCURRENT_REQUESTS_PER_IP = 1
 
 # Disable cookies (enabled by default)
 COOKIES_ENABLED = False
@@ -63,18 +63,18 @@ TELNETCONSOLE_ENABLED = False
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See http://doc.scrapy.org/en/latest/topics/autothrottle.html
-#AUTOTHROTTLE_ENABLED = False
+# AUTOTHROTTLE_ENABLED = False
 # The initial download delay
-#AUTOTHROTTLE_START_DELAY = 5
+# AUTOTHROTTLE_START_DELAY = 5
 # The maximum download delay to be set in case of high latencies
-#AUTOTHROTTLE_MAX_DELAY = 60
+# AUTOTHROTTLE_MAX_DELAY = 60
 # The average number of requests Scrapy should be sending in parallel to
 # each remote server
-#AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
+# AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
 # Enable showing throttling stats for every response received:
 # AUTOTHROTTLE_DEBUG = False
 
-#REACTOR_THREADPOOL_MAXSIZE=1
+# REACTOR_THREADPOOL_MAXSIZE=1
 
 DOWNLOADER_MIDDLEWARES = {
     'linkedin.middlewares.SeleniumMiddleware': 200,
@@ -92,10 +92,13 @@ DOWNLOADER_MIDDLEWARES = {
 }
 
 # needed to avoid concurrency using the selenium driver
-#CONCURRENT_ITEMS = 1
-#REACTOR_THREADPOOL_MAXSIZE = 1
+# CONCURRENT_ITEMS = 1
+# REACTOR_THREADPOOL_MAXSIZE = 1
 
 AUTOTHROTTLE_DEBUG = True
 
 # with this a search result page will be paginated all, then the others companies pages
 DEPTH_PRIORITY = -1
+
+# https://docs.scrapy.org/en/latest/topics/request-response.html#request-fingerprinter-implementation
+REQUEST_FINGERPRINTER_IMPLEMENTATION = '2.7'

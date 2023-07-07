@@ -2,7 +2,6 @@ import logging
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException
-from selenium.webdriver import DesiredCapabilities
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.wait import WebDriverWait
@@ -66,7 +65,7 @@ def get_by_xpath_or_none(driver, xpath, wait_timeout=None):
     try:
         return get_by_xpath(driver, xpath, wait_timeout=wait_timeout)
     except (TimeoutException, StaleElementReferenceException, WebDriverException) as e:
-        logging.warning(f"Current URL:{driver.current_url}\nException Occurred:\nXPATH:{xpath}\nError:{e}")
+        logging.warning(f"Current URL:\n{driver.current_url}\nException Occurred:\nXPATH: {xpath}\nError:{e}")
         return None
 
 
@@ -87,19 +86,15 @@ def get_by_xpath(driver, xpath, wait_timeout=None):
 
 
 def init_chromium(selenium_host, cookies=None):
-    selenium_url = 'http://%s:4444/wd/hub' % selenium_host
+    selenium_url = f'http://{selenium_host}:4444/wd/hub'
 
     logger.debug(f'Initializing chromium, remote url: {selenium_url}')
 
-    chrome_options = DesiredCapabilities.CHROME
-    # chrome_options.add_argument('--disable-notifications')
-
-    prefs = {"credentials_enable_service": False, "profile.password_manager_enabled": False}
-
-    chrome_options['prefs'] = prefs
-
-    driver = webdriver.Remote(command_executor=selenium_url,
-                              desired_capabilities=chrome_options)
+    chrome_options = webdriver.ChromeOptions()
+    driver = webdriver.Remote(
+        command_executor=selenium_url,
+        options=chrome_options
+    )
 
     if cookies is not None:
         driver.get("https://www.linkedin.com/404error")
