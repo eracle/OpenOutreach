@@ -7,9 +7,9 @@ This tool is designed for automating tasks on LinkedIn. It leverages technologie
 
 ### Sponsor:
 
-[![Proxycurl APIs enrich people and company profiles with structured data](https://github.com/josephlimtech/linkedin/blob/master/Proxycurl%20logo.png?raw=true)](https://bit.ly/proxycurl-api)
+[![Proxycurl APIs enrich people and company profiles with structured data](https://github.com/josephlimtech/linkedin/blob/master/Proxycurl%20logo.png?raw=true)](https://bit.ly/proxycurl-a)
 
-Scrape public LinkedIn people and company profile data at scale with [Proxycurl APIs](https://bit.ly/proxycurl-api).
+Scrape public LinkedIn people and company profile data at scale with [Proxycurl APIs](https://bit.ly/proxycurl-a).
 
 - Scraping Public profiles are battle tested in court in HiQ VS LinkedIn case
 - GDPR, CCPA, SOC2 compliant
