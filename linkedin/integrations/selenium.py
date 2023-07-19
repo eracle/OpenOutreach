@@ -1,6 +1,7 @@
 import logging
 
-from selenium.common import TimeoutException, StaleElementReferenceException, WebDriverException
+from selenium.common import (StaleElementReferenceException, TimeoutException,
+                             WebDriverException)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.wait import WebDriverWait
@@ -13,7 +14,7 @@ Number of seconds used to wait the web page's loading.
 """
 WAIT_TIMEOUT = 10
 
-LINKEDIN_LOGIN_URL = 'https://www.linkedin.com/login'
+LINKEDIN_LOGIN_URL = "https://www.linkedin.com/login"
 
 
 def selenium_login(driver):
@@ -24,13 +25,13 @@ def selenium_login(driver):
     """
     driver.get(LINKEDIN_LOGIN_URL)
 
-    logger.debug('Searching for the Login btn')
+    logger.debug("Searching for the Login btn")
     get_by_xpath(driver, '//*[@id="username"]').send_keys(EMAIL)
 
-    logger.debug('Searching for the password btn')
+    logger.debug("Searching for the password btn")
     get_by_xpath(driver, '//*[@id="password"]').send_keys(PASSWORD)
 
-    logger.debug('Searching for the submit')
+    logger.debug("Searching for the submit")
     get_by_xpath(driver, '//*[@type="submit"]').click()
 
 
@@ -45,9 +46,8 @@ def get_by_xpath(driver, xpath, wait_timeout=None):
     if wait_timeout is None:
         wait_timeout = WAIT_TIMEOUT
     return WebDriverWait(driver, wait_timeout).until(
-        ec.presence_of_element_located(
-            (By.XPATH, xpath)
-        ))
+        ec.presence_of_element_located((By.XPATH, xpath))
+    )
 
 
 def get_by_xpath_or_none(driver, xpath, wait_timeout=None, log=False):
@@ -63,21 +63,9 @@ def get_by_xpath_or_none(driver, xpath, wait_timeout=None, log=False):
         return get_by_xpath(driver, xpath, wait_timeout=wait_timeout)
     except (TimeoutException, StaleElementReferenceException) as e:
         logger.info(
-            f"Current URL:\n{driver.current_url}\nTimeoutException:\nXPATH: {xpath}\nError:{e}") if log else None
+            f"Current URL:\n{driver.current_url}\nTimeoutException:\nXPATH: {xpath}\nError:{e}"
+        ) if log else None
     except WebDriverException as e:
         if hasattr(driver, "current_url"):
             logger.warning(f"Current URL:\n{driver.current_url}")
         logger.warning(f"WebDriverException:\nXPATH: {xpath}\nError:{e}")
-
-
-def add_cookies_to_selenium(cookies, driver):
-    if cookies is not None:
-        try:
-            _ = driver.current_url
-        except WebDriverException:
-            driver.get("https://www.linkedin.com/404error")
-
-        for cookie in cookies:
-            if 'expiry' in cookie:
-                del cookie['expiry']
-            driver.add_cookie(cookie)

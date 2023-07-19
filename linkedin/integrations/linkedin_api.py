@@ -7,8 +7,6 @@ from linkedin_api import Linkedin
 from linkedin_api.client import Client
 from linkedin_api.utils.helpers import get_id_from_urn
 
-from linkedin.spiders.search import extract_contact_info
-
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +15,9 @@ def my_default_evade():
     A catch-all method to try and evade suspension from Linkedin.
     Currenly, just delays the request by a random (bounded) time
     """
-    sleep(random.uniform(0.2, 0.7))  # sleep a random duration to try and evade suspention
+    sleep(
+        random.uniform(0.2, 0.7)
+    )  # sleep a random duration to try and evade suspention
 
 
 class CustomClient(Client):
@@ -26,7 +26,12 @@ class CustomClient(Client):
         Set cookies of the current session and save them to a file named as the username.
         """
         for cookie in cookies:
-            self.session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'], path=cookie['path'])
+            self.session.cookies.set(
+                cookie["name"],
+                cookie["value"],
+                domain=cookie["domain"],
+                path=cookie["path"],
+            )
         self.session.headers["csrf-token"] = self.session.cookies["JSESSIONID"].strip(
             '"'
         )
@@ -34,16 +39,16 @@ class CustomClient(Client):
 
 class CustomLinkedin(Linkedin):
     def __init__(
-            self,
-            username,
-            password,
-            *,
-            authenticate=True,
-            refresh_cookies=False,
-            debug=False,
-            proxies={},
-            cookies=None,
-            cookies_dir=None,
+        self,
+        username,
+        password,
+        *,
+        authenticate=True,
+        refresh_cookies=False,
+        debug=False,
+        proxies={},
+        cookies=None,
+        cookies_dir=None,
     ):
         """Constructor method"""
         self.client = CustomClient(
@@ -145,23 +150,74 @@ class CustomLinkedin(Linkedin):
 def extract_profile_id(response):
     logger.debug(f"Extracting profile info from: {response.url}")
     # initializing also API's client
-    driver = response.meta.pop('driver')
+    driver = response.meta.pop("driver")
     return extract_profile_id_from_url(response.url, driver.get_cookies())
 
 
 def extract_profile_id_from_url(url, cookies):
     logger.debug(f"extract_profile_id_from_url: {url}")
-    api_client = CustomLinkedin(username=None,
-                                password=None,
-                                authenticate=True,
-                                cookies=cookies,
-                                debug=True)
+    api_client = CustomLinkedin(
+        username=None, password=None, authenticate=True, cookies=cookies, debug=True
+    )
 
     # Parse the URL
     parsed_url = urlparse(url)
 
     # Split the path and get the second part
-    profile_id = parsed_url.path.split('/')[2]
+    profile_id = parsed_url.path.split("/")[2]
 
     logger.debug(f"profile_id: {profile_id}")
     return extract_contact_info(api_client, profile_id)
+
+
+def filter_istruction_dict(elem):
+    wanted_istr = {
+        "schoolName",
+        "degreeName",
+        "fieldOfStudy",
+        "timePeriod",
+        # 'description',
+        "grade",
+    }
+    return dict([(k, v) for k, v in elem.items() if k in wanted_istr])
+
+
+def filter_experience_dict(elem):
+    wanted_experience = {
+        "companyName",
+        "industries",
+        "title",
+        "startDate",
+        "timePeriod",
+        "geoLocationName",
+        # 'description',
+        "locationName",
+        "company",
+    }
+    return dict([(k, v) for k, v in elem.items() if k in wanted_experience])
+
+
+def extract_contact_info(api_client, contact_public_id):
+    contact_profile = api_client.get_profile(contact_public_id)
+    contact_info = api_client.get_profile_contact_info(contact_public_id)
+
+    lastName = contact_profile["lastName"]
+    firstName = contact_profile["firstName"]
+
+    email_address = contact_info["email_address"]
+    phone_numbers = contact_info["phone_numbers"]
+
+    education = list(map(filter_istruction_dict, contact_profile["education"]))
+    experience = list(map(filter_experience_dict, contact_profile["experience"]))
+
+    # current_work = [exp for exp in experience if exp.get('timePeriod', {}).get('endDate') is None]
+
+    return dict(
+        lastName=lastName,
+        firstName=firstName,
+        email_address=email_address,
+        phone_numbers=phone_numbers,
+        education=education,
+        experience=experience,
+        # current_work=current_work,
+    )

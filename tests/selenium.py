@@ -7,7 +7,6 @@ from linkedin.integrations.selenium import selenium_login
 
 @pytest.mark.skip
 class SeleniumTest(unittest.TestCase):
-
     def setUp(self):
         pass
         # self.driver = init_chromium('localhost')
@@ -18,7 +17,6 @@ class SeleniumTest(unittest.TestCase):
 
 
 class ChromiumTest(SeleniumTest):
-
     @pytest.mark.skip
     def test_init(self):
         self.assertIsNotNone(self.driver)
@@ -29,5 +27,5 @@ class ChromiumTest(SeleniumTest):
         selenium_login(self.driver)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -7,4 +7,3 @@ __pycache__/
 .vscode
 .dockerignore
 /data/output.csv
-/data/users.csv

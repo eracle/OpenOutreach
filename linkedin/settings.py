@@ -11,8 +11,8 @@
 
 # BOT_NAME = 'companies'
 
-SPIDER_MODULES = ['linkedin.spiders']
-NEWSPIDER_MODULE = 'linkedin.spiders'
+SPIDER_MODULES = ["linkedin.spiders"]
+NEWSPIDER_MODULE = "linkedin.spiders"
 
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
 # USER_AGENT = 'linkedin (+http://www.yourdomain.com)'
@@ -26,10 +26,10 @@ CONCURRENT_REQUESTS = 1
 # Configure a delay for requests for the same website (default: 0)
 # See http://scrapy.readthedocs.org/en/latest/topics/settings.html#download-delay
 # See also autothrottle settings and docs
-DOWNLOAD_DELAY = 5
+DOWNLOAD_DELAY = 4
 # The download delay setting will honor only one of:
-# CONCURRENT_REQUESTS_PER_DOMAIN = 1
-# CONCURRENT_REQUESTS_PER_IP = 1
+CONCURRENT_REQUESTS_PER_DOMAIN = 1
+CONCURRENT_REQUESTS_PER_IP = 1
 
 # Disable cookies (enabled by default)
 COOKIES_ENABLED = False
@@ -77,18 +77,18 @@ TELNETCONSOLE_ENABLED = False
 # REACTOR_THREADPOOL_MAXSIZE=1
 
 DOWNLOADER_MIDDLEWARES = {
-    'scrapy.downloadermiddlewares.httpauth.HttpAuthMiddleware': None,
-    'scrapy.downloadermiddlewares.downloadtimeout.DownloadTimeoutMiddleware': None,
-    'scrapy.downloadermiddlewares.defaultheaders.DefaultHeadersMiddleware': None,
-    'scrapy.downloadermiddlewares.useragent.UserAgentMiddleware': None,
-    'scrapy.downloadermiddlewares.retry.RetryMiddleware': None,
-    'scrapy.downloadermiddlewares.redirect.MetaRefreshMiddleware': None,
-    'scrapy.downloadermiddlewares.httpcompression.HttpCompressionMiddleware': None,
-    'scrapy.downloadermiddlewares.redirect.RedirectMiddleware': None,
-    'scrapy.downloadermiddlewares.cookies.CookiesMiddleware': None,
-    'scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware': None,
-    'scrapy.downloadermiddlewares.stats.DownloaderStats': 100,
-    'linkedin.middlewares.selenium.SeleniumMiddleware': 800,
+    "scrapy.downloadermiddlewares.httpauth.HttpAuthMiddleware": None,
+    "scrapy.downloadermiddlewares.downloadtimeout.DownloadTimeoutMiddleware": None,
+    "scrapy.downloadermiddlewares.defaultheaders.DefaultHeadersMiddleware": None,
+    "scrapy.downloadermiddlewares.useragent.UserAgentMiddleware": None,
+    "scrapy.downloadermiddlewares.retry.RetryMiddleware": None,
+    "scrapy.downloadermiddlewares.redirect.MetaRefreshMiddleware": None,
+    "scrapy.downloadermiddlewares.httpcompression.HttpCompressionMiddleware": None,
+    "scrapy.downloadermiddlewares.redirect.RedirectMiddleware": None,
+    "scrapy.downloadermiddlewares.cookies.CookiesMiddleware": None,
+    "scrapy.downloadermiddlewares.httpproxy.HttpProxyMiddleware": None,
+    "scrapy.downloadermiddlewares.stats.DownloaderStats": 100,
+    "linkedin.middlewares.selenium.SeleniumMiddleware": 800,
 }
 
 # needed to avoid concurrency using the selenium driver
@@ -101,4 +101,4 @@ AUTOTHROTTLE_DEBUG = True
 DEPTH_PRIORITY = -1
 
 # https://docs.scrapy.org/en/latest/topics/request-response.html#request-fingerprinter-implementation
-REQUEST_FINGERPRINTER_IMPLEMENTATION = '2.7'
+REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
