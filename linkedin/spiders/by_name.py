@@ -1,22 +1,14 @@
-import urllib.parse
+import logging
+from urllib.parse import urlencode
 
 from scrapy import Request
 
 from linkedin.spiders.search import SearchSpider
 
+logger = logging.getLogger(__name__)
+
 NAMES_FILE = "data/names.txt"
-
-
-def name_not_matching_stop_criteria(user, name):
-    name_set = set(name.lower().strip().split())
-
-    lastName = user["lastName"]
-    firstName = user["firstName"]
-    user_name_set = set(
-        lastName.lower().strip().split() + firstName.lower().strip().split()
-    )
-
-    return not name_set == user_name_set
+BASE_SEARCH_URL = "https://www.linkedin.com/search/results/people/"
 
 
 class ByNameSpider(SearchSpider):
@@ -26,21 +18,32 @@ class ByNameSpider(SearchSpider):
 
     name = "byname"
 
-    start_urls = []
-
-    names = filter(None, (line.rstrip() for line in open(NAMES_FILE, "rt")))
-
     def start_requests(self):
-        for name in self.names:
-            encoded_name = urllib.parse.quote(name.lower())
-            url = f"https://www.linkedin.com/search/results/people/?origin=GLOBAL_SEARCH_HEADER&keywords={encoded_name}&page=1"
+        with open(NAMES_FILE, "rt") as f:
+            names = [line.rstrip() for line in f]
+            if len(names) > 1:
+                logger.warning(f"At the moment accepting only one name in {NAMES_FILE}, ignoring the rest")
+
+            searched_name = names[0]
+            logging.debug(f"encoded_name: {searched_name.lower()}")
+            params = {
+                "origin": "GLOBAL_SEARCH_HEADER",
+                "keywords": searched_name.lower(),
+                "page": 1
+            }
+            search_url = BASE_SEARCH_URL + "?" + urlencode(params)
 
             yield Request(
-                url=url,
-                callback=super().parser_search_results_page,
-                dont_filter=True,
-                meta={
-                    "stop_criteria": name_not_matching_stop_criteria,
-                    "stop_criteria_args": name,
-                },
+                url=search_url,
+                callback=super().parse_search_list,
+                meta={"searched_name": searched_name},
             )
+
+    def should_stop(self, response):
+        name_set = set(response.meta['searched_name'].lower().strip().split())
+
+        last_name = self.user_profile["lastName"].lower().strip()
+        first_name = self.user_profile["firstName"].lower().strip()
+        user_name_set = set(last_name.split() + first_name.split())
+
+        return not name_set == user_name_set

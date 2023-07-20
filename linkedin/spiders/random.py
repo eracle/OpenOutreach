@@ -3,6 +3,7 @@ from scrapy.spiders import CrawlSpider, Rule
 
 from linkedin.integrations.linkedin_api import extract_profile_id
 from linkedin.integrations.selenium import get_by_xpath_or_none
+from linkedin.middlewares.selenium import SeleniumSpiderMixin
 
 """
 Variable holding where to search for first profiles to scrape.
@@ -10,7 +11,7 @@ Variable holding where to search for first profiles to scrape.
 NETWORK_URL = "https://www.linkedin.com/mynetwork/invite-connect/connections/"
 
 
-class RandomSpider(CrawlSpider):
+class RandomSpider(CrawlSpider, SeleniumSpiderMixin):
     name = "random"
     allowed_domains = ("linkedin.com",)
     start_urls = [
@@ -21,8 +22,8 @@ class RandomSpider(CrawlSpider):
         # Extract links matching a single user
         Rule(
             LinkExtractor(
-                allow=("https:\/\/.*\/in\/\w*\/$",),
-                deny=("https:\/\/.*\/in\/edit\/.*",),
+                allow=r"https:\/\/.*\.linkedin\.com\/in\/\w*\/$",
+                deny=r"https:\/\/.*\.linkedin\.com\/edit\/.*",
             ),
             callback=extract_profile_id,
             follow=True,

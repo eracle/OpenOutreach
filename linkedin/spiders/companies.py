@@ -30,8 +30,10 @@ class CompaniesSpider(SearchSpider):
 
     def start_requests(self):
         with open(URLS_FILE, "rt") as f:
-            for url in [url.strip() for url in f]:
-                yield Request(url, priority=-2, callback=self.parse_company)
+            urls = [url.strip() for url in f]
+            if len(urls) >= 1:
+                logger.warning(f"At the moment accepting only one company in {URLS_FILE}, ignoring the rest")
+            yield Request(urls[0], priority=-2, callback=self.parse_company)
 
     def parse_company(self, response):
         driver = response.meta.pop("driver")

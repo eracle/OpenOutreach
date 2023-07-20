@@ -1,12 +1,10 @@
 import logging
-from random import uniform
 
 from scrapy import Request, Spider
-from twisted.internet import reactor
-from twisted.internet.task import deferLater
 
 from linkedin.integrations.linkedin_api import extract_profile_id_from_url
 from linkedin.integrations.selenium import get_by_xpath_or_none
+from linkedin.middlewares.selenium import SeleniumSpiderMixin
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +18,16 @@ def increment_index_at_end_url(response):
     return index, next_url
 
 
-class SearchSpider(Spider):
+class SearchSpider(Spider, SeleniumSpiderMixin):
     """
     Abstract class for generic search on linkedin.
     """
 
     allowed_domains = ("linkedin.com",)
+
+    def __init__(self, name=None, **kwargs):
+        super().__init__(name, **kwargs)
+        self.user_profile = None
 
     def parse_search_list(self, response):
         logger.debug("parse search list")
@@ -41,27 +43,21 @@ class SearchSpider(Spider):
             logger.warning("no results message shown: stop crawling this company")
             return
         for user_profile_url in self.iterate_users(driver):
-            yield extract_profile_id_from_url(user_profile_url, driver.get_cookies())
+            self.user_profile = extract_profile_id_from_url(user_profile_url, driver.get_cookies())
+            if not self.should_stop(response):
+                yield self.user_profile
+            else:
+                break
 
         index, next_url = increment_index_at_end_url(response)
 
-        yield Request(url=next_url, priority=-1, callback=self.parse_search_list)
+        yield Request(url=next_url, priority=-1, callback=self.parse_search_list, meta=response.meta)
 
     def wait_page_completion(self, driver):
         """
         Abstract function, used to customize how the specific spider must wait for a search page completion.
         """
         get_by_xpath_or_none(driver, "//*[@id='global-nav']/div", wait_timeout=5)
-
-    def sleep(self, delay=None):
-        randomize_delay = self.settings.getbool("RANDOMIZE_DOWNLOAD_DELAY")
-        delay = delay or self.settings.getint("DOWNLOAD_DELAY")
-        if randomize_delay:
-            delay = uniform(0.5 * delay, 1.5 * delay)
-        logger.debug(f"sleeping for {delay}")
-        d = deferLater(reactor, delay, lambda: None)
-        d.addErrback(lambda err: logger.error(err))
-        return d
 
     def iterate_users(self, driver):
         for i in range(1, 11):
@@ -81,3 +77,6 @@ class SearchSpider(Spider):
                     user_url = link_elem.get_attribute("href")
                     logger.debug(f"Found user link:{user_url}")
                     yield user_url
+
+    def should_stop(self, response):
+        return False

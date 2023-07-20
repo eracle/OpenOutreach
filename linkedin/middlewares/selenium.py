@@ -1,14 +1,29 @@
 """This module contains the ``SeleniumMiddleware`` scrapy middleware"""
 
 import logging
+from random import uniform
 
 from scrapy import signals
 from scrapy.http import HtmlResponse
 from selenium import webdriver
+from twisted.internet import reactor
+from twisted.internet.task import deferLater
 
 from linkedin.integrations.selenium import selenium_login
 
 logger = logging.getLogger(__name__)
+
+
+class SeleniumSpiderMixin:
+    def sleep(self, delay=None):
+        randomize_delay = self.settings.getbool("RANDOMIZE_DOWNLOAD_DELAY")
+        delay = delay or self.settings.getint("DOWNLOAD_DELAY")
+        if randomize_delay:
+            delay = uniform(0.5 * delay, 1.5 * delay)
+        logger.debug(f"sleeping for {delay}")
+        d = deferLater(reactor, delay, lambda: None)
+        d.addErrback(lambda err: logger.error(err))
+        return d
 
 
 class SeleniumMiddleware:
@@ -36,6 +51,7 @@ class SeleniumMiddleware:
 
     def process_request(self, request, spider):
         """Process a request using the selenium driver if applicable"""
+        spider.sleep()
         self.driver.get(request.url)
 
         for cookie_name, cookie_value in request.cookies.items():
