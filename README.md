@@ -1,23 +1,19 @@
+# LinkedIn Data Scraper
+
 ![built with Python3](https://img.shields.io/badge/built%20with-Python3-red.svg)
 ![built with Selenium](https://img.shields.io/badge/built%20with-Selenium-yellow.svg)
 
-# LinkedIn Automation Tool
-
-This tool is designed for automating tasks on LinkedIn. It leverages technologies such as Scrapy, Selenium WebDriver, Chromium, Docker, and Python3.
+LinkedIn Data Scraper is a powerful open-source tool designed to extract valuable data from LinkedIn. It leverages technologies such as Scrapy, Selenium WebDriver, Chromium, Docker, and Python3 to navigate LinkedIn profiles and gather insightful information.
 
 ## Features
 
-### LinkedIn Spider
+### Profile Data Extraction
 
-The LinkedIn Spider is designed to visit as many LinkedIn user pages as possible. The goal is to increase the visibility of your account, as LinkedIn notifies users when their profile has been viewed.
+The tool is designed to visit LinkedIn user pages and extract valuable data. This includes phone numbers, emails, education, work experiences, and much more. The data is formatted in a CSV file, making it easy to use for further analysis or input for LinkedIn automation software like lemlist.
 
-### Companies Spider
+### Company Data Extraction
 
-The Companies Spider is designed to gather information about all users working for a specific company on LinkedIn. It operates by:
-
-1. Navigating to the company's LinkedIn page.
-2. Clicking on the "See all employees" button.
-3. Collecting user-related data.
+The tool can also gather information about all users working for a specific company on LinkedIn. It navigates to the company's LinkedIn page, clicks on the "See all employees" button, and collects user-related data.
 
 ## Installation and Setup
 
@@ -26,7 +22,6 @@ You will need the following:
 - Docker
 - Docker Compose
 - A VNC viewer (e.g., Vinagre for Ubuntu)
-
 
 ### Steps
 
