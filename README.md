@@ -15,6 +15,10 @@ The tool is designed to visit LinkedIn user pages and extract valuable data. Thi
 
 The tool can also gather information about all users working for a specific company on LinkedIn. It navigates to the company's LinkedIn page, clicks on the "See all employees" button, and collects user-related data.
 
+### Name-Based Data Extraction
+
+The tool also offers a unique feature that allows you to extract data based on a specific name. By having the name of a person on the names.txt file, the tool will navigate to the LinkedIn profiles associated with that name and extract the relevant data. This feature can be incredibly useful for targeted research or networking. To use this feature, simply use the `make byname` command and input the name when prompted.
+
 ## Installation and Setup
 
 You will need the following:
