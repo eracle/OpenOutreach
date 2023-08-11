@@ -1,3 +1,4 @@
+import logging
 import multiprocessing
 
 from scrapy.crawler import CrawlerProcess
@@ -7,6 +8,7 @@ from linkedin.spiders.companies import CompaniesSpider  # replace with your actu
 
 
 def run_spider(url):
+    logging.debug(f"Starting process for {url}")
     # Extract company name from the URL and use it as the file name
     company_name = url.strip().rstrip("/").split('/')[-1]
     file_name = f"data/companies/{company_name}.csv"

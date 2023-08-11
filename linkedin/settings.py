@@ -26,7 +26,7 @@ CONCURRENT_REQUESTS = 1
 # Configure a delay for requests for the same website (default: 0)
 # See http://scrapy.readthedocs.org/en/latest/topics/settings.html#download-delay
 # See also autothrottle settings and docs
-DOWNLOAD_DELAY = 4
+DOWNLOAD_DELAY = 2
 # The download delay setting will honor only one of:
 CONCURRENT_REQUESTS_PER_DOMAIN = 1
 CONCURRENT_REQUESTS_PER_IP = 1
@@ -103,16 +103,6 @@ DEPTH_PRIORITY = -1
 # https://docs.scrapy.org/en/latest/topics/request-response.html#request-fingerprinter-implementation
 REQUEST_FINGERPRINTER_IMPLEMENTATION = "2.7"
 
-# settings.py
-MAX_PROFILES_TO_SCRAPE = 20  # replace with your desired maximum
-
-# Feature Flag: SEND_CONNECTION_REQUESTS
-# If set to True, the spider will send connection requests to LinkedIn profiles
-# it visits during the scraping process. This can be useful for automating
-# networking on LinkedIn, but use it with caution. Excessive connection requests
-# can lead to your LinkedIn account being flagged or banned.
-# If set to False, the spider will only scrape data without sending any connection requests.
-SEND_CONNECTION_REQUESTS = True
 
 # List of roles to send connection requests to when SEND_CONNECTION_REQUESTS is enabled
 ROLES_FOR_CONNECTION_REQUESTS = [

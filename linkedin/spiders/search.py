@@ -1,8 +1,13 @@
 import logging
 from time import sleep
 
+from langchain.llms import OpenAI
 from scrapy import Request, Spider
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
 
+from conf import OPENAI_API_KEY, SEND_CONNECTION_REQUESTS, MAX_PROFILES_TO_SCRAPE, CONNECTION_REQUEST_LLM_PROMPT, \
+    MAX_PROFILES_TO_CONNECT
 from linkedin.integrations.linkedin_api import extract_profile_from_url
 from linkedin.integrations.selenium import get_by_xpath_or_none
 from linkedin.middlewares.selenium import SeleniumSpiderMixin
@@ -10,6 +15,94 @@ from linkedin.middlewares.selenium import SeleniumSpiderMixin
 logger = logging.getLogger(__name__)
 
 SLEEP_TIME_BETWEEN_CLICKS = 1.5
+
+
+def remove_non_bmp_characters(text):
+    return ''.join(c for c in text if 0x0000 <= ord(c) <= 0xFFFF)
+
+
+def remove_primary_language(text):
+    lines = text.split('\n')
+    filtered_lines = [line for line in lines if "primary language" not in line.lower()]
+    return '\n'.join(filtered_lines)
+
+
+def is_your_network_is_growing_present(driver):
+    got_it_button = get_by_xpath_or_none(
+        driver,
+        '//button[@aria-label="Got it"]',
+        wait_timeout=0.5,
+    )
+    return got_it_button is not None
+
+
+def is_email_verifier_present(driver):
+    email_verifier = get_by_xpath_or_none(
+        driver,
+        "//label[@for='email']",
+        wait_timeout=0.5,
+    )
+    return email_verifier is not None
+
+
+def send_connection_request(driver, message):
+    sleep(SLEEP_TIME_BETWEEN_CLICKS)
+
+    # Click the "Add a note" button
+    add_note_button = get_by_xpath_or_none(
+        driver,
+        "//button[contains(@aria-label, 'note')]",
+    )
+    click(driver, add_note_button) if add_note_button else logger.warning("Add note button unreachable")
+    sleep(SLEEP_TIME_BETWEEN_CLICKS)
+
+    # Write the message in the textarea
+    message_textarea = get_by_xpath_or_none(
+        driver,
+        "//textarea[@name='message' and @id='custom-message']",
+    )
+    message_textarea.send_keys(message[:300]) \
+        if message_textarea else logger.warning("Textarea unreachable")
+    sleep(SLEEP_TIME_BETWEEN_CLICKS)
+
+    # Click the "Send" button
+    send_button = get_by_xpath_or_none(
+        driver,
+        "//button[@aria-label='Send now']",
+    )
+    click(driver, send_button) if send_button else logger.warning("Send button unreachable")
+    sleep(SLEEP_TIME_BETWEEN_CLICKS)
+    return True
+
+
+def should_send_connection_request(connect_button):
+    return connect_button and SEND_CONNECTION_REQUESTS  # and role_filter()
+
+
+def generate_message(llm: OpenAI, user_profile):
+    from langchain import PromptTemplate
+
+    prompt_template = PromptTemplate.from_template(
+        CONNECTION_REQUEST_LLM_PROMPT
+    )
+
+    prompt = prompt_template.format(profile=user_profile)
+    logger.debug(f"Generate message with prompt:\n{prompt}:")
+    msg = llm.predict(prompt).strip()
+    msg = remove_primary_language(msg).strip()
+    msg = remove_non_bmp_characters(msg).strip()
+    logger.info(f"Generated Icebreaker:\n{msg}")
+    return msg
+
+
+def extract_connect_button(user_container):
+    connect_button = get_by_xpath_or_none(
+        user_container,
+        ".//button[contains(@aria-label, 'connect')]/span",
+        wait_timeout=5,
+    )
+    return connect_button if connect_button else logger.debug("Connect button not found")
+
 
 def increment_index_at_end_url(response):
     # incrementing the index at the end of the url
@@ -26,12 +119,23 @@ def extract_user_url(user_container):
         user_container,
         ".//a[contains(@class, 'app-aware-link') and contains(@href, '/in/')]",
     )
-    return link_elem.get_attribute("href") if link_elem else logger.warning("Can't extract user URL")
+
+    if not link_elem:
+        logger.warning("Can't extract user URL")
+        return None
+
+    user_url = link_elem.get_attribute("href")
+    logger.debug(f"Extracted user URL: {user_url}")
+    return user_url
 
 
 def click(driver, element):
     driver.execute_script("arguments[0].scrollIntoView();", element)
     driver.execute_script("arguments[0].click();", element)
+
+
+def press_exit(driver):
+    webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()
 
 
 class SearchSpider(Spider, SeleniumSpiderMixin):
@@ -45,52 +149,15 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
         super().__init__(name, **kwargs)
         self.user_profile = None
         self.profile_counter = 0
+        self.connections_sent_counter = 0
+        self.llm = OpenAI(max_tokens=90, model_name="text-davinci-003",
+                          openai_api_key=OPENAI_API_KEY) if SEND_CONNECTION_REQUESTS else None
 
     def wait_page_completion(self, driver):
         """
         Abstract function, used to customize how the specific spider must wait for a search page completion.
         """
         get_by_xpath_or_none(driver, "//*[@id='global-nav']/div", wait_timeout=5)
-
-    def send_connection_request(self, driver, user_container, message):
-        # Click the "Connect" button
-        connect_button = get_by_xpath_or_none(
-            user_container,
-            ".//button[contains(@aria-label, 'connect')]/span",
-            wait_timeout=5,
-        )
-        if not connect_button:
-            logger.debug("Connect button not found")
-            return False
-
-        click(driver, connect_button)
-        sleep(SLEEP_TIME_BETWEEN_CLICKS)
-
-        # Click the "Add a note" button
-        add_note_button = get_by_xpath_or_none(
-            driver,
-            "//button[contains(@aria-label, 'note')]",
-        )
-        click(driver, add_note_button) if add_note_button else logger.warning("Add note button unreachable")
-        sleep(SLEEP_TIME_BETWEEN_CLICKS)
-
-        # Write the message in the textarea
-        message_textarea = get_by_xpath_or_none(
-            driver,
-            "//textarea[@name='message' and @id='custom-message']",
-        )
-        message_textarea.send_keys(message) \
-            if message_textarea else logger.warning("Textarea unreachable")
-        sleep(SLEEP_TIME_BETWEEN_CLICKS)
-
-        # Click the "Send" button
-        send_button = get_by_xpath_or_none(
-            driver,
-            "//button[@aria-label='Send now']",
-        )
-        click(driver, send_button) if send_button else logger.warning("Send button unreachable")
-        sleep(SLEEP_TIME_BETWEEN_CLICKS)
-        return True
 
     def parse_search_list(self, response):
         continue_scrape = True
@@ -100,20 +167,32 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
             return
 
         for user_container in self.iterate_containers(driver):
+            if is_your_network_is_growing_present(driver):
+                press_exit(driver)
             user_profile_url = extract_user_url(user_container)
+            if user_profile_url is None:
+                continue
             logger.debug(f"Found user URL:{user_profile_url}")
             self.user_profile = extract_profile_from_url(user_profile_url, driver.get_cookies())
             if self.should_stop(response):
                 continue_scrape = False
                 break
 
+            connect_button = extract_connect_button(user_container)
+            if should_send_connection_request(connect_button):
+                click(driver, connect_button)
+                if is_email_verifier_present(driver):
+                    press_exit(driver)
+                else:
+                    message = generate_message(self.llm, self.user_profile)
+                    conn_sent = send_connection_request(driver, message=message)
+                    logger.info(
+                        f"Connection request sent to {user_profile_url}\n{message}") if conn_sent else None
+                    self.user_profile['connection_msg_sent'] = message
+                    self.connections_sent_counter += 1
+
             yield self.user_profile
             self.profile_counter += 1
-
-            if self.should_send_connection_request():
-                message = "I want to connect"
-                conn_sent = self.send_connection_request(driver, user_container, message=message)
-                logger.info(f"Connection request sent to {user_profile_url}\n Message:\n{message}") if conn_sent else None
 
         if continue_scrape:
             next_url = self.get_next_url(response)
@@ -134,9 +213,6 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
         ]
         return any(role in self.settings.get('ROLES_FOR_CONNECTION_REQUESTS') for role in current_roles)
 
-    def should_send_connection_request(self):
-        return self.settings.getbool('SEND_CONNECTION_REQUESTS')  # and self.role_filter()
-
     def get_next_url(self, response):
         index, next_url = increment_index_at_end_url(response)
         return next_url
@@ -146,16 +222,21 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
 
     def iterate_containers(self, driver):
         for i in range(1, 11):
-            self.sleep()
             container_xpath = f"//li[contains(@class, 'result-container')][{i}]"
-            container_elem = get_by_xpath_or_none(driver, container_xpath)
+            container_elem = get_by_xpath_or_none(driver, container_xpath, wait_timeout=2)
             if container_elem:
                 logger.debug(f"Loading {i}th user")
                 driver.execute_script("arguments[0].scrollIntoView();", container_elem)
+                self.sleep()
                 yield container_elem
 
     def should_stop(self, response):
-        max_num_profiles = self.profile_counter >= self.settings.getint('MAX_PROFILES_TO_SCRAPE')
+        max_num_profiles = self.profile_counter >= MAX_PROFILES_TO_SCRAPE
         if max_num_profiles:
             logger.info("Stopping Reached maximum number of profiles to scrape. Stopping crawl.")
+
+        max_num_connections = self.connections_sent_counter >= MAX_PROFILES_TO_CONNECT
+        if max_num_connections:
+            logger.info("Stopping Reached maximum number of profiles to connect. Stopping crawl.")
+
         return max_num_profiles

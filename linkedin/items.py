@@ -6,3 +6,4 @@ class LinkedinUser(scrapy.Item):
     title = scrapy.Field()
     company = scrapy.Field()
     link = scrapy.Field()
+    connection_msg_sent = scrapy.Field()

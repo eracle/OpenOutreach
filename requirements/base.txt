@@ -6,3 +6,6 @@ selenium==4.10.0 # https://github.com/SeleniumHQ/selenium
 
 # Linkedin API library
 linkedin-api<3.0.0
+
+langchain # https://pypi.org/project/langchain/
+openai # https://pypi.org/project/openai/
