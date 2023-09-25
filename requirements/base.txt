@@ -1,5 +1,5 @@
 # Scrapy
-Scrapy==2.9.0 # https://github.com/scrapy/scrapy
+Scrapy==2.11.0 # https://github.com/scrapy/scrapy
 
 # Selenium
 selenium==4.10.0 # https://github.com/SeleniumHQ/selenium
