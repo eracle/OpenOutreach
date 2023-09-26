@@ -18,6 +18,8 @@ services:
     ports:
       - "5900:5900"
     shm_size: 128M
+    environment:
+      - VNC_NO_PASSWORD=1
 
   scrapy_random:
     <<: *scrapy-common

@@ -25,7 +25,7 @@ def run_spider(url):
 
 
 if __name__ == "__main__":
-    with open('data/urls.txt', 'r') as file:
+    with open('data/companies.txt', 'r') as file:
         for url in file:
             url = url.strip()  # remove newline characters
             p = multiprocessing.Process(target=run_spider, args=(url,))
