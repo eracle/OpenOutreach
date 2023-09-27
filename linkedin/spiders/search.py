@@ -16,6 +16,7 @@ from conf import (
 )
 from linkedin.integrations.linkedin_api import extract_profile_from_url
 from linkedin.integrations.selenium import get_by_xpath_or_none
+from linkedin.items import LinkedinUser
 from linkedin.middlewares.selenium import SeleniumSpiderMixin
 
 logger = logging.getLogger(__name__)
@@ -211,7 +212,7 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
                     if OPENAI_API_KEY
                     else DEFAULT_CONNECTION_MESSAGE
                 )
-                self.user_profile["connection_msg_sent"] = (
+                self.user_profile["connection_msg"] = (
                     message if OPENAI_API_KEY else None
                 )
                 if skip_connection_request(connect_button):
@@ -227,7 +228,7 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
                         ) if conn_sent else None
                         self.connections_sent_counter += 1
 
-                yield self.user_profile
+                yield LinkedinUser(url=user_profile_url, **self.user_profile)
                 self.profile_counter += 1
 
         if continue_scrape:

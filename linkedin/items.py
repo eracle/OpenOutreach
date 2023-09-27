@@ -2,8 +2,16 @@ import scrapy
 
 
 class LinkedinUser(scrapy.Item):
-    name = scrapy.Field()
-    title = scrapy.Field()
-    company = scrapy.Field()
-    link = scrapy.Field()
-    connection_msg_sent = scrapy.Field()
+    lastName = scrapy.Field()
+    firstName = scrapy.Field()
+    locale = scrapy.Field()
+    headline = scrapy.Field()
+    url = scrapy.Field()
+    summary = scrapy.Field()
+    connection_msg = scrapy.Field()
+    email_address = scrapy.Field()
+    phone_numbers = scrapy.Field()
+    education = scrapy.Field()
+    experience = scrapy.Field()
+    industryName = scrapy.Field()
+    geoLocationName = scrapy.Field()

@@ -144,6 +144,8 @@ class CustomLinkedin(Linkedin):
 
         profile["education"] = education
 
+        # language
+        profile['locale'] = data['primaryLocale']["language"]
         return profile
 
 
@@ -190,11 +192,22 @@ def filter_experience_dict(elem):
         "startDate",
         "timePeriod",
         "geoLocationName",
-        # 'description',
+        'description',
         "locationName",
         "company",
     }
     return dict([(k, v) for k, v in elem.items() if k in wanted_experience])
+
+
+def filter_fields(contact_profile):
+    from linkedin.items import LinkedinUser
+    # Dynamically obtain allowed fields from LinkedinUser class
+    allowed_fields = list(LinkedinUser.fields.keys())
+
+    # Filter out the fields using dictionary comprehension
+    filtered_dict = {k: v for k, v in contact_profile.items() if k in allowed_fields}
+
+    return filtered_dict
 
 
 def extract_profile_info(api_client, contact_public_id):
@@ -211,22 +224,18 @@ def extract_profile_info(api_client, contact_public_id):
     contact_profile = api_client.get_profile(contact_public_id)
     contact_info = api_client.get_profile_contact_info(contact_public_id)
 
-    lastName = contact_profile.get("lastName")
-    firstName = contact_profile.get("firstName")
-
     email_address = contact_info.get("email_address")
     phone_numbers = contact_info.get("phone_numbers")
 
-    education = list(map(filter_istruction_dict, contact_profile.get("education", [])))
+    education = list(map(filter_istruction_dict, contact_profile.pop("education", [])))
     experience = list(
-        map(filter_experience_dict, contact_profile.get("experience", []))
+        map(filter_experience_dict, contact_profile.pop("experience", []))
     )
 
     return dict(
-        lastName=lastName,
-        firstName=firstName,
         email_address=email_address,
         phone_numbers=phone_numbers,
         education=education,
         experience=experience,
+        **filter_fields(contact_profile),
     )
