@@ -145,7 +145,7 @@ class CustomLinkedin(Linkedin):
         profile["education"] = education
 
         # language
-        profile['locale'] = data['primaryLocale']["language"]
+        profile["locale"] = data["primaryLocale"]["language"]
         return profile
 
 
@@ -192,7 +192,7 @@ def filter_experience_dict(elem):
         "startDate",
         "timePeriod",
         "geoLocationName",
-        'description',
+        "description",
         "locationName",
         "company",
     }
@@ -201,6 +201,7 @@ def filter_experience_dict(elem):
 
 def filter_fields(contact_profile):
     from linkedin.items import LinkedinUser
+
     # Dynamically obtain allowed fields from LinkedinUser class
     allowed_fields = list(LinkedinUser.fields.keys())
 

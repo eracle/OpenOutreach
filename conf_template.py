@@ -35,6 +35,10 @@ MAX_PROFILES_TO_CONNECT = 20
 # If set to False, the spider will only scrape data without sending any connection requests.
 SEND_CONNECTION_REQUESTS = True
 
+# Feature Flag: SELECTIVE_SCRAPING
+# If set to True, the scraper will ignore some profiles based on some role base filters
+SELECTIVE_SCRAPING = True
+
 # List of roles to select either in connection requests when
 # SEND_CONNECTION_REQUESTS is enabled or simply to scrape and enrich
 ROLES_FOR_CONNECTION_REQUESTS = [

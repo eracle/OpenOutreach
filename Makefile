@@ -27,3 +27,6 @@ stop: ## stop all services defined in Docker Compose
 build: ## build all services defined in Docker Compose
 	docker-compose build
 
+selenium: ## launches selenium
+	docker-compose up -d selenium
+

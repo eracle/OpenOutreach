@@ -12,6 +12,8 @@ from conf import (
     MAX_PROFILES_TO_CONNECT,
     MAX_PROFILES_TO_SCRAPE,
     OPENAI_API_KEY,
+    ROLES_KEYWORDS,
+    SELECTIVE_SCRAPING,
     SEND_CONNECTION_REQUESTS,
 )
 from linkedin.integrations.linkedin_api import extract_profile_from_url
@@ -22,6 +24,8 @@ from linkedin.middlewares.selenium import SeleniumSpiderMixin
 logger = logging.getLogger(__name__)
 
 SLEEP_TIME_BETWEEN_CLICKS = 1.5
+
+roles_keywords_lowercase = [role.lower() for role in ROLES_KEYWORDS]
 
 
 def remove_non_bmp_characters(text):
@@ -91,8 +95,13 @@ def skip_connection_request(connect_button):
     return not (connect_button and SEND_CONNECTION_REQUESTS)
 
 
+def contains_keywords(user_profile):
+    headline = user_profile["headline"].lower()
+    return any(role in headline for role in roles_keywords_lowercase)
+
+
 def skip_profile(user_profile):
-    return False
+    return SELECTIVE_SCRAPING and not contains_keywords(user_profile)
 
 
 def generate_connection_message(llm: OpenAI, user_profile):
@@ -228,7 +237,7 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
                         ) if conn_sent else None
                         self.connections_sent_counter += 1
 
-                yield LinkedinUser(url=user_profile_url, **self.user_profile)
+                yield LinkedinUser(linkedinUrl=user_profile_url, **self.user_profile)
                 self.profile_counter += 1
 
         if continue_scrape:
