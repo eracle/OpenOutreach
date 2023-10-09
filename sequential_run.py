@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.DEBUG)
 def run_spiders_sequentially(runner, urls, driver):
     for url in urls:
         yield runner.crawl(CompaniesSpider, start_url=url, driver=driver)
-     yield driver.close()
+    yield driver.close()
 
 
 if __name__ == "__main__":
