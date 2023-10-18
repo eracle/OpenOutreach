@@ -7,7 +7,7 @@ view: ## view the Selenium browser's activity
 	vinagre localhost:5900
 
 companies: build ## run the 'companies' Scrapy spider
-	docker-compose up scrapy_companies
+	docker-compose up --build scrapy_companies
 
 random: build ## run the 'random' Scrapy spider
 	docker-compose up scrapy_random

@@ -8,6 +8,8 @@ from twisted.internet import defer, reactor
 from linkedin.integrations.selenium import build_driver, is_security_check
 from linkedin.spiders.companies import CompaniesSpider
 
+# Define the number of seconds for the security check
+SECURITY_CHECK_DURATION = 30
 file_name = f"data/companies/data.csv"
 
 logging.basicConfig(level=logging.DEBUG)
@@ -17,15 +19,17 @@ logging.basicConfig(level=logging.DEBUG)
 def run_spiders_sequentially(runner, urls, driver):
     for url in urls:
         yield runner.crawl(CompaniesSpider, start_url=url, driver=driver)
+        try:
+            driver.get("https://www.google.com")
+            assert "Google" in driver.title
+        except Exception as e:
+            driver = build_driver(login=True)
+            perform_security_check(driver)
     yield driver.close()
 
 
-if __name__ == "__main__":
-    driver = build_driver(login=True)
+def perform_security_check(driver):
     if is_security_check(driver):
-        # Define the number of seconds for the security check
-        SECURITY_CHECK_DURATION = 30
-
         # Print instructions with fancy characters for user attention
         logging.info("***** SECURITY CHECK IN PROGRESS *****")
         logging.info(
@@ -38,6 +42,12 @@ if __name__ == "__main__":
         logging.info("***** SECURITY CHECK COMPLETED *****")
     else:
         logging.debug("Security check not asked, continuing")
+
+
+if __name__ == "__main__":
+    driver = build_driver(login=True)
+    perform_security_check(driver)
+
     # Erase the past content of the file
     open(file_name, "w").close()
 

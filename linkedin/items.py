@@ -7,7 +7,7 @@ class LinkedinUser(scrapy.Item):
     locale = scrapy.Field()
     headline = scrapy.Field()
     linkedinUrl = scrapy.Field()
-    summary = scrapy.Field()
+    # summary = scrapy.Field()
     connection_msg = scrapy.Field()
     email_address = scrapy.Field()
     phone_numbers = scrapy.Field()
