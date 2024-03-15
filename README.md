@@ -1,3 +1,19 @@
+### Sponsor:
+
+[![Proxycurl APIs enrich people and company profiles with structured data](https://github.com/josephlimtech/linkedin/blob/master/Proxycurl%20logo.png?raw=true)](https://bit.ly/proxycurl-a)
+
+Scrape public LinkedIn people and company profile data at scale with [Proxycurl APIs](https://bit.ly/proxycurl-a).
+
+- Scraping Public profiles are battle tested in court in HiQ VS LinkedIn case
+- GDPR, CCPA, SOC2 compliant
+- High rate limit - 300 requests/minute
+- Fast - APIs respond in ~2s
+- Fresh data - 88% of data is scraped real-time, other 12% are not older than 29 days
+- High accuracy
+- Tons of data points returned per profile
+
+Built for developers, by developers.
+
 # LinkedIn Data Scraper
 
 ![built with Python3](https://img.shields.io/badge/built%20with-Python3-red.svg)
