@@ -1,6 +1,8 @@
 ### Sponsor:
 
-[![Proxycurl APIs enrich people and company profiles with structured data](https://github.com/josephlimtech/linkedin/blob/master/Proxycurl%20logo.png?raw=true)](https://bit.ly/proxycurl-a)
+<a href="https://nubela.co/proxycurl?utm_campaign=influencer_marketing&utm_source=github&utm_medium=social&utm_content=antonio_ercole">
+  <img src="https://github.com/josephlimtech/linkedin-profile-scraper-api/blob/master/Proxycurl_scrape_LinkedIn.png" width="350px" height="100%" alt="Proxycurl APIs enrich people and company profiles with structured data" />
+</a><br><br/>
 
 Scrape public LinkedIn people and company profile data at scale with [Proxycurl APIs](https://bit.ly/proxycurl-a).
 
