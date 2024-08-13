@@ -77,3 +77,5 @@ This code is not affiliated with, authorized, maintained, sponsored, or endorsed
 This project violates LinkedIn's User Agreement Section 8.2. As a result, LinkedIn may temporarily or permanently ban your account. We are not responsible for any actions taken by LinkedIn in response to the use of this tool.
 
 ---
+## Newly created Telegram Group
+Used by the Mantainer to [receive feedback or discuss new ideas](https://t.me/+Y5bh9Vg8UVg5ODU0).
