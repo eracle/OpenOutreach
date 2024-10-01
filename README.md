@@ -1,3 +1,5 @@
+[![CapSolver Banner](docs/capsolver.png)](https://www.capsolver.com/?utm_source=github&utm_medium=ads&utm_campaign=scraping&utm_term=linkedinErcole)
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=eracle/linkedin&type=Date)](https://star-history.com/#eracle/linkedin&Date)
