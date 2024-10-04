@@ -76,10 +76,10 @@ def get_by_xpath_or_none(driver, xpath, wait_timeout=None, log=False):
 
 
 def is_security_check(driver):
-    return get_by_xpath_or_none(driver, f'//h1[contains(text(), "security check")]')
+    return get_by_xpath_or_none(driver, f'//h1[contains(text(), "security check")]', 3)
 
 
-def build_driver(login=False):
+def build_driver(login=True):
     SELENIUM_HOSTNAME = "selenium"
     selenium_url = f"http://{SELENIUM_HOSTNAME}:4444/wd/hub"
     chrome_options = webdriver.ChromeOptions()

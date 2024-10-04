@@ -6,5 +6,4 @@ set -o nounset
 
 /wait-for-selenium http://selenium:4444/wd/hub
 
-# Use $1 to get the first argument passed to the script
 python sequential_run.py

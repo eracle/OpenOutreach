@@ -1,13 +1,13 @@
 import logging
 from time import sleep
 
-from langchain.llms import OpenAI
+from langchain_community.llms.openai import OpenAI
 from scrapy import Request, Spider
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 
 from conf import (
-    CONNECTION_REQUEST_LLM_PROMPT,
+    CONNECTION_REQUEST_LLM_PROMPT_TEMPLATE,
     DEFAULT_CONNECTION_MESSAGE,
     MAX_PROFILES_TO_CONNECT,
     MAX_PROFILES_TO_SCRAPE,
@@ -107,7 +107,7 @@ def skip_profile(user_profile):
 def generate_connection_message(llm: OpenAI, user_profile):
     from langchain import PromptTemplate
 
-    prompt_template = PromptTemplate.from_template(CONNECTION_REQUEST_LLM_PROMPT)
+    prompt_template = PromptTemplate.from_template(CONNECTION_REQUEST_LLM_PROMPT_TEMPLATE)
 
     prompt = prompt_template.format(profile=user_profile)
     logger.debug(f"Generate message with prompt:\n{prompt}:")
@@ -254,10 +254,10 @@ class SearchSpider(Spider, SeleniumSpiderMixin):
             "//div[contains(@class, 'search-reusable-search-no-results')]"
         )
         return (
-            get_by_xpath_or_none(
-                driver=driver, xpath=no_result_found_xpath, wait_timeout=3
-            )
-            is not None
+                get_by_xpath_or_none(
+                    driver=driver, xpath=no_result_found_xpath, wait_timeout=3
+                )
+                is not None
         )
 
     def get_next_url(self, response):

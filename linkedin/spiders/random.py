@@ -2,7 +2,7 @@ from scrapy.linkextractors import LinkExtractor
 from scrapy.spiders import CrawlSpider, Rule
 
 from linkedin.integrations.linkedin_api import extract_profile_id
-from linkedin.integrations.selenium import get_by_xpath_or_none
+from linkedin.integrations.selenium import get_by_xpath_or_none, build_driver
 from linkedin.middlewares.selenium import SeleniumSpiderMixin
 
 """
@@ -12,6 +12,10 @@ NETWORK_URL = "https://www.linkedin.com/mynetwork/invite-connect/connections/"
 
 
 class RandomSpider(CrawlSpider, SeleniumSpiderMixin):
+    def __init__(self, driver=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.driver = driver or build_driver()
+
     name = "random"
     allowed_domains = ("linkedin.com",)
     start_urls = [

@@ -6,5 +6,6 @@ __pycache__/
 .pytest_cache/
 .vscode
 .dockerignore
+
+/data/companies.csv
 /data/output.csv
-/data/companies/

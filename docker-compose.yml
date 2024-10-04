@@ -1,9 +1,10 @@
-version: '3'
 
 x-scrapy-common: &scrapy-common
   build:
     context: .
-    dockerfile: compose/production/Dockerfile
+    dockerfile: compose/Dockerfile  # Use the merged Dockerfile
+    args:
+      BUILD_ENV: "production"  # Use production environment
   environment:
     - PYTHONUNBUFFERED=0
   depends_on:
@@ -36,12 +37,13 @@ services:
   scrapy_test:
     build:
       context: .
-      dockerfile: compose/local/Dockerfile
+      dockerfile: compose/Dockerfile  # Use the same merged Dockerfile
+      args:
+        BUILD_ENV: "local"  # Specify the local environment
     environment:
       - PYTHONUNBUFFERED=0
     depends_on:
       - selenium
     volumes:
       - .:/app
-      - ./data:/app/data
     command: [ "py.test", "tests/companies.py", "tests/selenium.py"]

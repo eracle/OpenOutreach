@@ -33,8 +33,7 @@ The software can be configured to send custom connection messages to LinkedIn us
 
 You will need the following:
 
-- Docker
-- Docker Compose
+- Docker, I am using version  27.3.1, be sure you have docker compose
 - A VNC viewer (e.g., Vinagre for Ubuntu)
 
 ### Steps

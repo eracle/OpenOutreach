@@ -7,26 +7,26 @@ view: ## view the Selenium browser's activity
 	vinagre localhost:5900
 
 companies: build ## run the 'companies' Scrapy spider
-	docker-compose up --build scrapy_companies
+	docker compose up --build scrapy_companies
 
 random: build ## run the 'random' Scrapy spider
-	docker-compose up scrapy_random
+	docker compose up scrapy_random
 
 byname: build ## run the 'byname' Scrapy spider
-	docker-compose up scrapy_byname
+	docker compose up scrapy_byname
 
 test: ## run Pytest on the 'tests/*' directory
-	docker-compose up scrapy_test
+	docker compose up scrapy_test
 
 attach: ## follow the logs of the 'scrapy' service
-	docker-compose logs -f
+	docker compose logs -f
 
 stop: ## stop all services defined in Docker Compose
-	docker-compose stop
+	docker compose stop
 
 build: ## build all services defined in Docker Compose
-	docker-compose build
+	docker compose build
 
 selenium: ## launches selenium
-	docker-compose up -d selenium
+	docker compose up -d selenium
 

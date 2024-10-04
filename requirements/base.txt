@@ -1,11 +1,14 @@
 # Scrapy
-Scrapy==2.11.0 # https://github.com/scrapy/scrapy
+Scrapy==2.11.2 # https://github.com/scrapy/scrapy
 
 # Selenium
 selenium==4.10.0 # https://github.com/SeleniumHQ/selenium
 
 # Linkedin API library
-linkedin-api<3.0.0
+linkedin-api==2.3.0
 
-langchain # https://pypi.org/project/langchain/
-openai # https://pypi.org/project/openai/
+# langchain
+langchain==0.3.2 # https://pypi.org/project/langchain/
+langchain-community==0.3.1
+
+openai==1.51.0 # https://pypi.org/project/openai/
