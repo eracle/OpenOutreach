@@ -48,7 +48,16 @@ sudo apt-get install vinagre
 
 2. **Set up LinkedIn login and password**: Copy `conf_template.py` to `conf.py` and fill in your LinkedIn credentials.
 
-3. **Run and build containers with Docker Compose**: Open your terminal, navigate to the project folder, and type:
+```bash
+cp conf_template.py conf.py
+
+cat <<EOL >> conf.py
+EMAIL = "YOUR LINKEDIN EMAIL"
+PASSWORD = "YOUR LINKEDIN PASSWORD"
+EOL
+```
+
+4. **Run and build containers with Docker Compose**: Open your terminal, navigate to the project folder, and type:
 
 ```bash
 make companies
