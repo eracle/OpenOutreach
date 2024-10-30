@@ -2,7 +2,7 @@
 Scrapy==2.11.2 # https://github.com/scrapy/scrapy
 
 # Selenium
-selenium==4.10.0 # https://github.com/SeleniumHQ/selenium
+selenium==4.26.0 # https://github.com/SeleniumHQ/selenium
 
 # Linkedin API library
 linkedin-api==2.3.0
