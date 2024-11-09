@@ -1,6 +1,4 @@
 ## Sponsors:
-[![CapSolver Banner](docs/capsolver.png)](https://www.capsolver.com/?utm_source=github&utm_medium=ads&utm_campaign=scraping&utm_term=linkedinErcole)
-
 [![Scrap.io Banner](docs/scrapio.webp)](https://scrap.id/s/91BR)
 
 ## Star History
