@@ -1,4 +1,7 @@
 ## Sponsors:
+Unlock Reliable Proxy Services with Swiftproxy
+With Swiftproxy, you can access high-performance, secure proxies to enhance your web automation, privacy, and data collection efforts. Our services are trusted by developers and businesses to scale scraping tasks and ensure a safe online experience. Get started today at Swiftproxy.net.
+Additionally, feel free to mention that anyone who signs up can use the discount code GHB5 to get 10% off their purchase at checkout!
 [![Scrap.io Banner](docs/scrapio.webp)](https://scrap.id/s/91BR)
 
 ## Star History
