@@ -1,5 +1,1 @@
 -r base.txt
-
-# Testing
-pytest
-pytest-sugar

@@ -7,5 +7,3 @@ __pycache__/
 .vscode
 .dockerignore
 
-/data/companies.csv
-/data/output.csv
