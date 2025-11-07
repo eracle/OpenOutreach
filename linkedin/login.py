@@ -6,7 +6,7 @@ from playwright.sync_api import Error, TimeoutError, sync_playwright
 
 from playwright_stealth import Stealth  # Updated for version 2.0.0 API
 
-from conf import EMAIL, PASSWORD
+from .conf import LINKEDIN_EMAIL, LINKEDIN_PASSWORD
 
 logger = logging.getLogger(__name__)
 """
@@ -26,10 +26,10 @@ def playwright_login(page):
     page.goto(LINKEDIN_LOGIN_URL)
 
     logger.debug("Searching for the Login field")
-    get_by_xpath(page, '//*[@id="username"]').fill(EMAIL)
+    get_by_xpath(page, '//*[@id="username"]').fill(LINKEDIN_EMAIL)
 
     logger.debug("Searching for the password field")
-    get_by_xpath(page, '//*[@id="password"]').fill(PASSWORD)
+    get_by_xpath(page, '//*[@id="password"]').fill(LINKEDIN_PASSWORD)
 
     logger.debug("Searching for the submit")
     get_by_xpath(page, '//*[@type="submit"]').click()

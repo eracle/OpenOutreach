@@ -3,7 +3,7 @@
 help:
 	@perl -nle'print $& if m{^[a-zA-Z_-]+:.*?## .*$$}' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-25s\033[0m %s\n", $$1, $$2}'
 
-attach: ## follow the logs of the 'scrapy' service
+attach: ## follow the logs of the service
 	docker compose logs -f
 
 stop: ## stop all services defined in Docker Compose
@@ -11,4 +11,7 @@ stop: ## stop all services defined in Docker Compose
 
 build: ## build all services defined in Docker Compose
 	docker compose build
+
+up: ## run the defined service in Docker Compose
+	docker compose up --build
 
