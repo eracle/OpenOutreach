@@ -3,10 +3,9 @@
 import logging
 
 from playwright.sync_api import Error, TimeoutError, sync_playwright
-
 from playwright_stealth import Stealth  # Updated for version 2.0.0 API
 
-from .conf import LINKEDIN_EMAIL, LINKEDIN_PASSWORD
+from conf import LINKEDIN_EMAIL, LINKEDIN_PASSWORD
 
 logger = logging.getLogger(__name__)
 """
@@ -91,7 +90,7 @@ def build_playwright(login=True):
     browser = playwright.chromium.launch(headless=False)  # Set to False for testing visibility
     context = browser.new_context()
     stealth = Stealth()
-    stealth.apply_stealth(context)  # Apply stealth to the context for sync API
+    stealth.apply_stealth_sync(context)  # Apply stealth to the context for sync API
     page = context.new_page()
     if login:
         playwright_login(page)

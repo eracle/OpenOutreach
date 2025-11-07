@@ -1,6 +1,9 @@
 # Use the official Playwright Python Docker image as base (pre-includes browsers and deps)
 FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
 
+# Install Xvfb and x11vnc for virtual display and VNC access
+RUN apt-get update && apt-get install -y xvfb x11vnc && rm -rf /var/lib/apt/lists/*
+
 # Define the application directory
 ARG APP_HOME=/app
 WORKDIR ${APP_HOME}
@@ -19,7 +22,7 @@ RUN uv pip install --system -r /requirements/${BUILD_ENV}.txt
 RUN uv pip install --system playwright playwright-stealth
 
 # Copy necessary startup scripts
-COPY ./compose/start /start
+COPY ./compose/linkedin/start /start
 RUN sed -i 's/\r$//g' /start && chmod +x /start
 
 # Copy the entire application code to the app directory

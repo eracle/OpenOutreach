@@ -1,0 +1,27 @@
+# local.yml
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ./compose/linkedin/Dockerfile
+      args:
+        - BUILD_ENV=local  # Or 'production' if needed
+    command: /start
+    volumes:
+      - .:/app  # Optional: For development hot-reloading
+    ports:
+      - "5900:5900"  # Expose VNC port for access from host or other containers
+
+  vinagre:
+    build:
+      context: .
+      dockerfile: ./compose/vinagre/Dockerfile
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix  # For X11 forwarding to display on host
+    environment:
+      - DISPLAY  # Pass host's DISPLAY variable
+    command: ["vinagre", "localhost::5900"]  # Auto-connect to the app's VNC server (adjust if password is set)
+    depends_on:
+      - app  # Ensure app (with VNC server) starts first
+    network_mode: host  # Use host network to easily connect to localhost:5900
