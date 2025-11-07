@@ -16,9 +16,11 @@ up: ## run the defined service in Docker Compose
 	docker compose -f local.yml up --build
 
 up-view: ## run the defined service in Docker Compose and open vinagre
-	$(MAKE) up &
-	sleep 5 && $(MAKE) view
+	docker compose -f local.yml up --build -d
+	sleep 4
+	$(MAKE) view
+	docker compose -f local.yml logs -f app
 
 view: ## open vinagre to view the app
-	vinagre localhost:5900
+	vinagre localhost:5900 &
 

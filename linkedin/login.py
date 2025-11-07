@@ -1,6 +1,8 @@
 # linkedin/login.py # noqa
 
 import logging
+import random
+import time
 
 from playwright.sync_api import Error, TimeoutError, sync_playwright
 from playwright_stealth import Stealth  # Updated for version 2.0.0 API
@@ -18,19 +20,29 @@ LINKEDIN_LOGIN_URL = "https://www.linkedin.com/login"
 
 def playwright_login(page):
     """
-    Logs in to LinkedIn.
+    Logs in to LinkedIn with human-like behavior.
     :param page: The Playwright page object.
     :return: Nothing
     """
     page.goto(LINKEDIN_LOGIN_URL)
 
-    logger.debug("Searching for the Login field")
-    get_by_xpath(page, '//*[@id="username"]').fill(LINKEDIN_EMAIL)
+    logger.debug("Typing email")
+    username_field = get_by_xpath(page, '//*[@id="username"]')
+    username_field.click()
+    for char in LINKEDIN_EMAIL:
+        username_field.press(char)
+        time.sleep(random.uniform(0.05, 0.2))
 
-    logger.debug("Searching for the password field")
-    get_by_xpath(page, '//*[@id="password"]').fill(LINKEDIN_PASSWORD)
+    logger.debug("Typing password")
+    password_field = get_by_xpath(page, '//*[@id="password"]')
+    password_field.click()
+    for char in LINKEDIN_PASSWORD:
+        password_field.press(char)
+        time.sleep(random.uniform(0.05, 0.2))
 
-    logger.debug("Searching for the submit")
+    time.sleep(random.uniform(0.5, 1.5))
+
+    logger.debug("Clicking submit")
     get_by_xpath(page, '//*[@type="submit"]').click()
 
 
@@ -104,23 +116,16 @@ if __name__ == "__main__":
     # Build the page with login
     page, context, browser, playwright = build_playwright(login=True)
 
-    try:
-        # Wait a bit after login to observe (e.g., for manual verification)
-        page.wait_for_timeout(5000)  # 5 seconds delay
+    # Wait a bit after login to observe
+    page.wait_for_timeout(5000)
 
-        # Optional: Check if login succeeded by looking for a post-login element
-        # For example, the feed or profile icon; adjust XPath as needed
-        if get_by_xpath_or_none(page, '//div[@id="global-nav"]', wait_timeout=10):
-            logger.info("Login appears successful (global nav found).")
-        else:
-            logger.warning("Login may have failed (global nav not found).")
+    # Optional: Check if login succeeded
+    if get_by_xpath_or_none(page, '//div[@id="global-nav"]', wait_timeout=10):
+        logger.info("Login appears successful (global nav found).")
+    else:
+        logger.warning("Login may have failed (global nav not found).")
 
-        # You can add more test actions here, like navigating to a page
-        # page.goto("https://www.linkedin.com/feed/")
-
-        input("Press Enter to close the browser...")  # Pause for manual inspection
-    finally:
-        # Clean up
-        context.close()
-        browser.close()
-        playwright.stop()
+    # Clean up
+    context.close()
+    browser.close()
+    playwright.stop()

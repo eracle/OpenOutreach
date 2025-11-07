@@ -5,6 +5,9 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
+# Clean up any leftover X server lock files
+rm -f /tmp/.X99-lock
+
 # Start Xvfb on display :99 with a reasonable resolution
 Xvfb :99 -screen 0 1920x1080x24 &
 
