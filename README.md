@@ -8,19 +8,50 @@
 
 ---
 
-# LinkedIn Automation Tool Functionalities
+- **Automation Engine**
+  - [x] Set up Playwright for browser automation
+  - [x] Implement login functionality on LinkedIn
+  - [x] Develop interaction features (e.g., clicking, typing) on LinkedIn elements
+  - [x] Integrate stealth features to mimic human behavior and avoid detection
 
-- **Automation Engine**: Using Playwright for browser automation, including login, navigation, and interactions on
-  LinkedIn, with stealth features to avoid detection.
-- **Campaigns**: Support creation and execution of action sequences (e.g., search profiles, send personalized
-  connections, follow-ups) via configurable YAML.
-- **Future Planning/Scheduling**: Implement time-based action queuing (e.g., drip campaigns, recurring tasks) using
-  async libraries, with persistence for resuming interrupted sessions.
-- **Local Database**: Use DuckDB (or fallback to SQLite) for storing scraped data, campaign logs, schedules, and
-  metrics; leverage DuckDB's analytical capabilities for queries.
-- **Personalized Messages with AI**: Integrate open AI models to generate customized messages based on scraped profile
-  data.
-- **Strong Analytics**: Track metrics like action success rates, engagement (accepts, replies), and errors dashboards.
+- **Campaigns**
+  - [ ] Support creation of action sequences
+  - [ ] Enable execution of action sequences
+  - [ ] Implement profile search functionality
+  - [ ] Add sending of personalized connection requests
+  - [ ] Develop follow-up message capabilities
+  - [ ] Configure campaigns using YAML files
+
+- **Future Planning/Scheduling**
+  - [ ] Implement time-based action queuing
+  - [ ] Set up drip campaigns
+  - [ ] Add support for recurring tasks
+  - [ ] Use async libraries for scheduling
+  - [ ] Add persistence mechanisms for resuming interrupted sessions
+
+- **Local Database**
+  - [ ] Integrate DuckDB as the primary database
+  - [ ] Set up fallback to SQLite if needed
+  - [ ] Store scraped data in the database
+  - [ ] Log campaign activities
+  - [ ] Store schedules and tasks
+  - [ ] Track metrics in the database
+  - [ ] Leverage DuckDB's analytical features for querying data
+
+- **Personalized Messages with AI**
+  - [ ] Integrate open AI models
+  - [ ] Scrape profile data for personalization
+  - [ ] Generate customized messages based on profile data
+
+- **Multi accounts support**
+  - [ ] Allow multiple accounts to be stored in the db
+  - [ ] Execute multiple accounts campaigns
+ 
+- **Strong Analytics**
+  - [ ] Track action success rates
+  - [ ] Monitor engagement metrics (e.g., connection accepts, replies)
+  - [ ] Log errors for analysis
+  - [ ] Develop dashboards for viewing metrics
 
 ## Installation and Setup
 
