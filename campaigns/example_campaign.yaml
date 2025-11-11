@@ -1,0 +1,115 @@
+# ----------------------------------------------------------------------
+# LinkedIn Automation – Campaign configuration (YAML)
+#
+# This file defines a *single* campaign.  A campaign is a linear sequence
+# of actions that will be executed for every LinkedIn profile found in the
+# input CSV.  No branching/conditions are supported yet – the actions run
+# one after another for each row.
+#
+# ----------------------------------------------------------------------
+campaign:
+  # --------------------------------------------------------------------
+  # Human‑readable name of the campaign.
+  # Used only for logging / folder naming – not required for execution.
+  # --------------------------------------------------------------------
+  name: example_campaign
+
+  # --------------------------------------------------------------------
+  # List of actions.  Order matters – the engine processes the list top‑to‑bottom
+  # for **each** profile (read URL → fetch info → connect → message).
+  # --------------------------------------------------------------------
+  actions:
+
+    # ------------------------------------------------------------------
+    # 1. READ_URLS
+    # ------------------------------------------------------------------
+    - type: read_urls                     # Fixed action identifier
+      csv_file: ./inputs/urls.csv         # **Full or relative path** to the input CSV.
+                                          # Must contain at least one column named as `url_column`.
+      url_column: linkedin_url            # Name of the column that holds the LinkedIn public URL.
+                                          # All other columns in this CSV are **ignored**.
+
+    # ------------------------------------------------------------------
+    # 2. GET_PROFILE_INFO
+    # ------------------------------------------------------------------
+    - type: get_profile_info
+      method: linkedin_api                # Only supported value for now (uses python‑linkedin‑api).
+      output_csv: ./output/profiles_{timestamp}.csv
+                                          # **Full or relative path** to the CSV that will receive
+                                          # *all* fields returned by the LinkedIn API.
+                                          # The placeholder `{timestamp}` is replaced at runtime
+                                          # (e.g. `profiles_20251111_162100.csv`) to guarantee uniqueness.
+                                          # A **new file is created on every run**; existing files are never overwritten.
+
+    # ------------------------------------------------------------------
+    # 3. CONNECT (send a connection request)
+    # ------------------------------------------------------------------
+    - type: connect
+      search_method: emulate_human        # Only supported value.  Playwright will:
+                                          #   • type the person’s name in the search bar,
+                                          #   • click the first result,
+                                          #   • click “Connect” and fill the note (if supplied).
+      note_template: ./templates/notes/connect_note.j2
+                                          # **Full or relative path** to a Jinja2 template file.
+                                          # The template receives **all columns** from the profile CSV.
+                                          # Example content:
+                                          #   Hi {{full_name}}, I noticed your work at {{current_company}}…
+                                          # If omitted → a connection request is sent **without** a note.
+
+    # ------------------------------------------------------------------
+    # 4. SEND_MESSAGE (follow‑up after the connection is accepted)
+    # ------------------------------------------------------------------
+    - type: send_message
+      template_type: ai_prompt            # Alternatives:
+                                          #   • `ai_prompt`  – the file is a prompt sent to the AI model.
+                                          #   • `fixed_message` – the file is the literal message (no AI).
+      template_file: ./templates/prompts/followup_prompt.j2
+                                          # **Full or relative path** to the Jinja2 file.
+                                          # For `ai_prompt` the content is the **full prompt** that will be
+                                          # sent to the LLM, e.g.:
+                                          #   Generate a friendly follow‑up for {{full_name}} who works as {{job_title}}…
+                                          # For `fixed_message` the content is the exact text to send.
+      ai_model: general                   # Name of the AI backend.  Only `general` is implemented now.
+                                          # Future values could be `openai`, `anthropic`, `groq`, etc.
+
+  # --------------------------------------------------------------------
+  # GLOBAL SETTINGS (apply to the whole campaign run)
+  # --------------------------------------------------------------------
+  settings:
+    limits:
+      # LinkedIn daily caps – adjust to stay under the platform limits.
+      # Values are **per account**; the scheduler respects them across runs.
+      daily_connections: 50             # Max connection requests per day
+      daily_messages: 20                # Max follow‑up messages per day
+
+      # Human‑like random delays between individual actions.
+      delay_min: 5                      # Minimum seconds to wait (int)
+      delay_max: 15                     # Maximum seconds to wait (int)
+
+# ----------------------------------------------------------------------
+# QUICK REFERENCE OF POSSIBLE VALUES
+# ----------------------------------------------------------------------
+# type                | allowed values
+# --------------------|---------------------------------
+# read_urls           | only `read_urls`
+# get_profile_info    | only `get_profile_info`
+# connect             | only `connect`
+# send_message        | only `send_message`
+#
+# search_method       | `emulate_human` (default & only)
+#
+# template_type       | `ai_prompt` | `fixed_message`
+#
+# ai_model            | `general` (future: `openai`, `anthropic`, …)
+#
+# placeholder syntax  | Jinja2 → `{{column_name}}`
+#                     (column names are exactly the CSV header names from the profile file)
+#
+# ----------------------------------------------------------------------
+# ERROR BEHAVIOUR
+# ----------------------------------------------------------------------
+# • If a placeholder references a column that does **not** exist → **hard error**, run stops.
+# • If a required file (csv_file, note_template, template_file) is missing → **hard error**.
+# • If any action fails for a single profile, the engine logs the failure and
+#   continues with the next profile (unless a global abort rule is added later).
+# ----------------------------------------------------------------------

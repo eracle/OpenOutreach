@@ -27,6 +27,7 @@ Join our Telegram group for discussions, and check the star history to see commu
     - [x] Integrate stealth features to mimic human behavior and avoid detection
 
 - **Campaigns**
+    - [x] Definition of action sequences
     - [ ] Support creation of action sequences
     - [ ] Enable execution of action sequences
     - [ ] Implement profile search functionality
