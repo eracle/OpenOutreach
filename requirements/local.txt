@@ -3,3 +3,4 @@
 # Testing
 pytest
 pytest-mock
+factory-boy
