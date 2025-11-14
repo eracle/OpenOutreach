@@ -5,3 +5,4 @@ APScheduler #==3.11.1
 pydantic
 python-dotenv
 SQLAlchemy
+jsonpath-ng

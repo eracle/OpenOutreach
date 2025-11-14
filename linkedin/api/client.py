@@ -1,60 +1,13 @@
 import logging
 import random
 from time import sleep
+from typing import Optional, Dict
 
+from jsonpath_ng import parse
 from linkedin_api import Linkedin
 from linkedin_api.client import Client
-from linkedin_api.utils.helpers import get_id_from_urn
 
-
-
-
-class CustomClient(Client):
-    def _set_session_cookies(self, cookies):
-        """
-        Set cookies of the current session and save them to a file named as the username.
-        """
-        for cookie in cookies:
-            self.session.cookies.set(
-                cookie.name,
-                cookie.value,
-                domain=cookie.domain,
-                path=cookie.path,
-            )
-        self.session.headers["csrf-token"] = self.session.cookies["JSESSIONID"].strip(
-            '"'
-        )
-
-
-def _authenticate_client(
-    username=None,
-    password=None,
-    *,
-    authenticate=True,
-    refresh_cookies=False,
-    debug=False,
-    proxies={},
-    cookies=None,
-    cookies_dir=None,
-):
-    """
-    Authenticates and returns a CustomClient instance.
-    """
-    client = CustomClient(
-        refresh_cookies=refresh_cookies,
-        debug=debug,
-        proxies=proxies,
-        cookies_dir=cookies_dir,
-    )
-    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    if authenticate:
-        if cookies:
-            client._set_session_cookies(cookies)
-        else:
-            client.authenticate(username, password)
-    return client
+logger = logging.getLogger(__name__)
 
 
 def my_default_evade():
@@ -67,136 +20,65 @@ def my_default_evade():
     )  # sleep a random duration to try and evade suspention
 
 
-def get_profile_data(client: Linkedin, public_id=None, urn_id=None, with_skills=True):
-    """
-    Return data for a single profile using a provided Linkedin client.
-
-    [public_id] - public identifier i.e. tom-quirk-1928345
-    [urn_id] - id provided by the related URN
-    """
-    res = client._fetch(f"/identity/profiles/{public_id or urn_id}/profileView")
-
-    data = res.json()
-    if data and "status" in data and data["status"] != 200:
-        client.logger.info(f"request failed: {data}")
-        return {}
-
-    # massage [profile] data
-    profile = data["profile"]
-    if "miniProfile" in profile:
-        if "picture" in profile["miniProfile"]:
-            profile["displayPictureUrl"] = profile["miniProfile"]["picture"][
-                "com.linkedin.common.VectorImage"
-            ]["rootUrl"]
-        profile["profile_id"] = get_id_from_urn(profile["miniProfile"]["entityUrn"])
-
-        del profile["miniProfile"]
-
-    del profile["defaultLocale"]
-    del profile["supportedLocales"]
-    del profile["versionTag"]
-    del profile["showEducationOnProfileTopCard"]
-
-    # massage [experience] data
-    experience = data["positionView"]["elements"]
-    for item in experience:
-        if "company" in item and "miniCompany" in item["company"]:
-            if "logo" in item["company"]["miniCompany"]:
-                logo = item["company"]["miniCompany"]["logo"].get(
-                    "com.linkedin.common.VectorImage"
-                )
-                if logo:
-                    item["companyLogoUrl"] = logo["rootUrl"]
-            del item["company"]["miniCompany"]
-
-    profile["experience"] = experience
-
-    # massage [skills] data
-    profile["skills"] = client.get_profile_skills(public_id=public_id, urn_id=urn_id)
-
-    # massage [education] data
-    education = data["educationView"]["elements"]
-    for item in education:
-        if "school" in item:
-            if "logo" in item["school"]:
-                item["school"]["logoUrl"] = item["school"]["logo"][
-                    "com.linkedin.common.VectorImage"
-                ]["rootUrl"]
-                del item["school"]["logo"]
-
-    profile["education"] = education
-
-    # language
-    profile["locale"] = data["primaryLocale"]["language"]
-    return profile
-
-
-def get_authenticated_linkedin_client(
-    username=None,
-    password=None,
-    *,
-    authenticate=True,
-    refresh_cookies=False,
-    debug=False,
-    proxies={},
-    cookies=None,
-    cookies_dir=None,
-):
-    """
-    Returns an authenticated Linkedin client instance.
-    """
-    client = CustomClient(
-        refresh_cookies=refresh_cookies,
-        debug=debug,
-        proxies=proxies,
-        cookies_dir=cookies_dir,
-    )
-    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    if authenticate:
+class CustomClient(Client):
+    def _set_session_cookies(self, cookies: list):
+        """
+        Set cookies of the current session and save them to a file named as the username.
+        """
+        for cookie in cookies:
+            self.session.cookies.set(
+                cookie['name'],
+                cookie['value'],
+                domain=cookie['domain'],
+                path=cookie['path'],
+            )
         if cookies:
-            client._set_session_cookies(cookies)
-        else:
-            client.authenticate(username, password)
-    return Linkedin(client=client)
+            self.session.headers["csrf-token"] = self.session.cookies["JSESSIONID"].strip('"')
 
 
-def get_profile(public_id=None, urn_id=None, with_skills=True, linkedin_client=None):
-    """
-    Public API function to get profile data.
-    If linkedin_client is not provided, a new CustomLinkedin instance is created.
-    """
-    if linkedin_client is None:
-        linkedin_client = CustomLinkedin()
-    return get_profile_data(linkedin_client, public_id, urn_id, with_skills)
+class PlaywrightLinkedinAPI(Linkedin):
 
-
-class CustomLinkedin(Linkedin):
     def __init__(
             self,
-            username=None,
-            password=None,
+            username: str = None,
+            password: str = None,
+            resources=None,
             *,
             authenticate=True,
             refresh_cookies=False,
             debug=False,
             proxies={},
             cookies=None,
-            cookies_dir=None,
+            cookies_dir: str = "",
     ):
         """Constructor method"""
-        self.client = _authenticate_client(
-            username=username,
-            password=password,
-            authenticate=authenticate,
+        if resources:
+            # Extract cookies from Playwright resources
+            page, context, browser, playwright = resources  # Unpack for clarity
+            logger.info("Extracting cookies from provided Playwright resources.")
+
+            # Extract cookies from the browser context
+            cookies = context.cookies()
+            logger.info(f"Extracted {len(cookies)} cookies from Playwright session.")
+
+        """Constructor method"""
+        self.client = CustomClient(
+            # self.client = Client(
             refresh_cookies=refresh_cookies,
             debug=debug,
             proxies=proxies,
-            cookies=cookies,
             cookies_dir=cookies_dir,
         )
         logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
+        self.logger = logger
+
+        if authenticate:
+            if cookies:
+                # If the cookies are expired, the API won't work anymore since
+                # `username` and `password` are not used at all in this case.
+                self.client._set_session_cookies(cookies)
+            else:
+                self.client.authenticate(username, password)
 
     def _fetch(self, uri, evade=my_default_evade, **kwargs):
         """
@@ -210,70 +92,180 @@ class CustomLinkedin(Linkedin):
         """
         return super()._post(uri, evade, **kwargs)
 
-    def get_profile(self, public_id=None, urn_id=None, with_skills=True):
-        """
-        Return data for a single profile.
+    def get_profile(
+            self, public_id: Optional[str] = None, urn_id: Optional[str] = None
+    ) -> Dict:
+        """Fetch data for a given LinkedIn profile.
 
-        [public_id] - public identifier i.e. tom-quirk-1928345
-        [urn_id] - id provided by the related URN
+        :param public_id: LinkedIn public ID for a profile
+        :type public_id: str, optional
+        :param urn_id: LinkedIn URN ID for a profile
+        :type urn_id: str, optional
+
+        :return: Profile data
+        :rtype: dict
         """
         # NOTE this still works for now, but will probably eventually have to be converted to
         # https://www.linkedin.com/voyager/api/identity/profiles/ACoAAAKT9JQBsH7LwKaE9Myay9WcX8OVGuDq9Uw
-        res = self._fetch(f"/identity/profiles/{public_id or urn_id}/profileView")
+
+        member_identity = public_id if public_id else urn_id
+        params = {
+            'decorationId': 'com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-91',
+            'memberIdentity': member_identity,
+            'q': 'memberIdentity',
+        }
+        res = self._fetch("/identity/dash/profiles", params=params)
 
         data = res.json()
+
         if data and "status" in data and data["status"] != 200:
-            self.logger.info(f"request failed: {data}")
+            self.logger.info(f"request failed: {res.content}")
             return {}
 
-        # massage [profile] data
-        profile = data["profile"]
-        if "miniProfile" in profile:
-            if "picture" in profile["miniProfile"]:
-                profile["displayPictureUrl"] = profile["miniProfile"]["picture"][
-                    "com.linkedin.common.VectorImage"
-                ]["rootUrl"]
-            profile["profile_id"] = get_id_from_urn(profile["miniProfile"]["entityUrn"])
+        # Now, extract using JSONPath
 
-            del profile["miniProfile"]
+        # 1. Full Name
+        first_name_expr = parse('$.elements[0].multiLocaleFirstName.en_US')
+        first_name = first_name_expr.find(data)[0].value if first_name_expr.find(data) else None
 
-        del profile["defaultLocale"]
-        del profile["supportedLocales"]
-        del profile["versionTag"]
-        del profile["showEducationOnProfileTopCard"]
+        last_name_expr = parse('$.elements[0].multiLocaleLastName.en_US')
+        last_name = last_name_expr.find(data)[0].value if last_name_expr.find(data) else None
 
-        # massage [experience] data
-        experience = data["positionView"]["elements"]
-        for item in experience:
-            if "company" in item and "miniCompany" in item["company"]:
-                if "logo" in item["company"]["miniCompany"]:
-                    logo = item["company"]["miniCompany"]["logo"].get(
-                        "com.linkedin.common.VectorImage"
-                    )
-                    if logo:
-                        item["companyLogoUrl"] = logo["rootUrl"]
-                del item["company"]["miniCompany"]
+        full_name = f"{first_name} {last_name}"
 
-        profile["experience"] = experience
+        # 2. Headline
+        headline_expr = parse('$.elements[0].multiLocaleHeadline.en_US')
+        headline = headline_expr.find(data)[0].value if headline_expr.find(data) else None
 
-        # massage [skills] data
-        # skills = [item["name"] for item in data["skillView"]["elements"]]
-        # profile["skills"] = skills
+        # 3. Summary
+        summary_expr = parse('$.elements[0].multiLocaleSummary.en_US')
+        summary = summary_expr.find(data)[0].value if summary_expr.find(data) else None
 
-        profile["skills"] = self.get_profile_skills(public_id=public_id, urn_id=urn_id)
+        # 4. Location/Address
+        address_expr = parse('$.elements[0].multiLocaleAddress.en_US')
+        address = address_expr.find(data)[0].value if address_expr.find(data) else None
 
-        # massage [education] data
-        education = data["educationView"]["elements"]
-        for item in education:
-            if "school" in item:
-                if "logo" in item["school"]:
-                    item["school"]["logoUrl"] = item["school"]["logo"][
-                        "com.linkedin.common.VectorImage"
-                    ]["rootUrl"]
-                    del item["school"]["logo"]
+        country_expr = parse('$.elements[0].geoLocation.geo.defaultLocalizedName')
+        country = country_expr.find(data)[0].value if country_expr.find(data) else None
 
-        profile["education"] = education
+        # 5. Education (list of dicts with key details)
+        education_expr = parse('$.elements[0].profileEducations.elements[*]')
+        educations_raw = [match.value for match in education_expr.find(data)]
+        educations = []
+        for edu in educations_raw:
+            school = parse('multiLocaleSchoolName.en_US').find(edu)[0].value if parse(
+                'multiLocaleSchoolName.en_US').find(edu) else None
+            degree = parse('multiLocaleDegreeName.en_US').find(edu)[0].value if parse(
+                'multiLocaleDegreeName.en_US').find(edu) else None
+            field = parse('multiLocaleFieldOfStudy.en_US').find(edu)[0].value if parse(
+                'multiLocaleFieldOfStudy.en_US').find(edu) else None
+            start_year = parse('dateRange.start.year').find(edu)[0].value if parse('dateRange.start.year').find(
+                edu) else None
+            end_year = parse('dateRange.end.year').find(edu)[0].value if parse('dateRange.end.year').find(edu) else None
+            educations.append({
+                'school': school,
+                'degree': degree,
+                'field': field,
+                'start_year': start_year,
+                'end_year': end_year
+            })
 
-        # language
-        profile["locale"] = data["primaryLocale"]["language"]
-        return profile
+        # 6. Experience/Positions (list of dicts with key details)
+        positions_expr = parse('$.elements[0].profilePositionGroups.elements[*]')
+        positions_raw = [match.value for match in positions_expr.find(data)]
+        positions = []
+        for pos_group in positions_raw:
+            title_expr = parse('profilePositionInPositionGroup.elements[0].multiLocaleTitle.en_US')
+            title = title_expr.find(pos_group)[0].value if title_expr.find(pos_group) else None
+
+            company_expr = parse('multiLocaleCompanyName.en_US')
+            company = company_expr.find(pos_group)[0].value if company_expr.find(pos_group) else (
+                parse('company.name').find(pos_group)[0].value if parse('company.name').find(pos_group) else None)
+
+            start_month = parse('dateRange.start.month').find(pos_group)[0].value if parse(
+                'dateRange.start.month').find(pos_group) else None
+            start_year = parse('dateRange.start.year').find(pos_group)[0].value if parse('dateRange.start.year').find(
+                pos_group) else None
+            end_month = parse('dateRange.end.month').find(pos_group)[0].value if parse('dateRange.end.month').find(
+                pos_group) else None
+            end_year = parse('dateRange.end.year').find(pos_group)[0].value if parse('dateRange.end.year').find(
+                pos_group) else None
+
+            description_expr = parse('profilePositionInPositionGroup.elements[0].multiLocaleDescription.en_US')
+            description = description_expr.find(pos_group)[0].value if description_expr.find(pos_group) else None
+
+            positions.append({
+                'title': title,
+                'company': company,
+                'start': f"{start_month}/{start_year}" if start_month else start_year,
+                'end': f"{end_month}/{end_year}" if end_month else end_year,
+                'description': description
+            })
+
+        # 7. Skills (list of strings)
+        skills_expr = parse('$.elements[0].profileSkills.elements[*].multiLocaleName.en_US')
+        skills = [match.value for match in skills_expr.find(data)]
+
+        # 8. Certifications (list of dicts)
+        certifications_expr = parse('$.elements[0].profileCertifications.elements[*]')
+        certs_raw = [match.value for match in certifications_expr.find(data)]
+        certifications = []
+        for cert in certs_raw:
+            name = parse('multiLocaleName.en_US').find(cert)[0].value if parse('multiLocaleName.en_US').find(
+                cert) else None
+            authority = parse('authority').find(cert)[0].value if parse('authority').find(cert) else None
+            certifications.append({'name': name, 'authority': authority})
+
+        # 9. Languages (list of dicts)
+        languages_expr = parse('$.elements[0].profileLanguages.elements[*]')
+        langs_raw = [match.value for match in languages_expr.find(data)]
+        languages = []
+        for lang in langs_raw:
+            name = parse('multiLocaleName.en_US').find(lang)[0].value if parse('multiLocaleName.en_US').find(
+                lang) else None
+            proficiency = parse('proficiency').find(lang)[0].value if parse('proficiency').find(lang) else None
+            languages.append({'name': name, 'proficiency': proficiency})
+
+        # 10. Volunteer Experiences (list of dicts)
+        volunteer_expr = parse('$.elements[0].profileVolunteerExperiences.elements[*]')
+        vol_raw = [match.value for match in volunteer_expr.find(data)]
+        volunteers = []
+        for vol in vol_raw:
+            role = parse('multiLocaleRole.en_US').find(vol)[0].value if parse('multiLocaleRole.en_US').find(
+                vol) else None
+            company = parse('multiLocaleCompanyName.en_US').find(vol)[0].value if parse(
+                'multiLocaleCompanyName.en_US').find(vol) else None
+            volunteers.append({'role': role, 'company': company})
+
+        # 11. Profile Picture URL (example 200x200)
+        pic_root_url_expr = parse('$.elements[0].profilePicture.displayImageReference.vectorImage.rootUrl')
+        pic_root_url = pic_root_url_expr.find(data)[0].value if pic_root_url_expr.find(data) else None
+
+        pic_path_expr = parse(
+            '$.elements[0].profilePicture.displayImageReference.vectorImage.artifacts[0].fileIdentifyingUrlPathSegment')
+        pic_path = pic_path_expr.find(data)[0].value if pic_path_expr.find(data) else None
+
+        profile_pic_url = pic_root_url + pic_path if pic_root_url and pic_path else None
+
+        # 12. Volunteer Causes (list)
+        causes_expr = parse('$.elements[0].volunteerCauses[*]')
+        causes = [match.value for match in causes_expr.find(data)]
+
+        # Output all extracted info
+        extracted_info = {
+            'full_name': full_name,
+            'headline': headline,
+            'summary': summary,
+            'address': address,
+            'country': country,
+            'educations': educations,
+            'positions': positions,
+            'skills': skills,
+            'certifications': certifications,
+            'languages': languages,
+            'volunteer_experiences': volunteers,
+            'profile_pic_url': profile_pic_url,
+            'volunteer_causes': causes
+        }
+
+        return extracted_info

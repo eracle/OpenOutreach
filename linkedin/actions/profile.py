@@ -1,18 +1,37 @@
-from typing import Dict, Any
+# linkedin/actions/profile.py
 from urllib.parse import urlparse
-from ..api.client import get_profile
+
+from linkedin.actions.login import build_playwright
+from ..api.client import PlaywrightLinkedinAPI
 
 
-def get_profile_info(linkedin_url: str, params: Dict[str, Any]):
+def get_profile_info(playwright_linkedin, linkedin_url: str):
     """
     Retrieves profile information via an API call.
     """
-    profile_id = urlparse(linkedin_url).path.split('/')[2]
-    profile = get_profile(public_id=profile_id)
-    return profile
+    public_id = urlparse(linkedin_url).path.split('/')[2]
+    profile_dict = None  # get_profile_data(playwright_linkedin=playwright_linkedin, public_id=public_id)
+    return profile_dict
 
 
-def is_connection_accepted(linkedin_url: str) -> bool:
-    """Checks if a connection request was accepted."""
-    print(f"CONDITION: Checking if connection accepted for {linkedin_url}")
-    return False
+if __name__ == "__main__":
+    # Build the page with login
+    resources = build_playwright(login=True)
+
+    # Wait a bit after login to observe
+    resources.page.wait_for_timeout(5000)
+
+    playwright_linkedin_api = PlaywrightLinkedinAPI(resources=resources)
+
+    public_id = 'eracle'
+
+    profile = playwright_linkedin_api.get_profile(public_id=public_id)
+
+    from pprint import pprint
+
+    pprint(profile)
+
+    # Clean up
+    resources.context.close()
+    resources.browser.close()
+    resources.playwright.stop()

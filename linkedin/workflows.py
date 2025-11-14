@@ -1,14 +1,14 @@
-import random
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Any, Callable
+from importlib import import_module
+from typing import Callable
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from importlib import import_module
 from . import campaign_parser, database
+
 
 def get_function(function_path: str) -> Callable:
     """Dynamically imports a function from a string path."""
@@ -19,8 +19,10 @@ def get_function(function_path: str) -> Callable:
     except (ImportError, AttributeError) as e:
         raise ImportError(f"Could not import function '{function_path}': {e}")
 
+
 # --- Global Instances ---
 SCHEDULER: BackgroundScheduler = None
+
 
 # --- Workflow Functions ---
 
@@ -31,6 +33,7 @@ def start_workflow(linkedin_url: str, campaign: campaign_parser.Campaign, start_
     else:
         print(f"\nStarting campaign '{campaign.campaign_name}'")
     execute_step(linkedin_url, campaign, start_step_index)
+
 
 def execute_step(linkedin_url: str, campaign: campaign_parser.Campaign, step_index: int):
     """Executes a single step of the campaign."""
@@ -69,18 +72,19 @@ def execute_step(linkedin_url: str, campaign: campaign_parser.Campaign, step_ind
         SCHEDULER.add_job(
             check_condition_and_proceed_job,
             trigger='date',
-            run_date=datetime.now() + timedelta(seconds=5), # Check after 5 seconds initially
+            run_date=datetime.now() + timedelta(seconds=5),  # Check after 5 seconds initially
             kwargs={
                 'linkedin_url': linkedin_url,
                 'campaign': campaign,
                 'step_index': step_index
             },
             id=job_id,
-            replace_existing=True # Ensure only one job for this step/url exists
+            replace_existing=True  # Ensure only one job for this step/url exists
         )
     else:
         print(f"Warning: Unknown step type '{step.step_type}' for {linkedin_url}. Skipping.")
         execute_step(linkedin_url, campaign, step_index + 1)
+
 
 def check_condition_and_proceed(linkedin_url: str, campaign: campaign_parser.Campaign, step_index: int):
     """The logic that periodically checks a condition."""
@@ -96,15 +100,17 @@ def check_condition_and_proceed(linkedin_url: str, campaign: campaign_parser.Cam
 
         # TODO: Implement robust timeout logic based on campaign settings
         # For now, just reschedule
-        reschedule_time = datetime.now() + timedelta(seconds=15) # Reschedule after 15 seconds
+        reschedule_time = datetime.now() + timedelta(seconds=15)  # Reschedule after 15 seconds
         SCHEDULER.reschedule_job(job_id, trigger='date', run_date=reschedule_time)
         print(f"Rescheduled check for {linkedin_url} at {reschedule_time.isoformat()}")
+
 
 # --- Scheduler Callback ---
 
 def check_condition_and_proceed_job(linkedin_url: str, campaign: campaign_parser.Campaign, step_index: int):
     """Standalone function for APScheduler to call, avoiding serialization issues."""
     check_condition_and_proceed(linkedin_url, campaign, step_index)
+
 
 # --- Main Execution ---
 
@@ -145,6 +151,7 @@ def main(db_url: str = "sqlite:///linkedin.db"):
         print("Shutting down scheduler...")
         SCHEDULER.shutdown()
         print("Shutdown complete.")
+
 
 if __name__ == "__main__":
     main()

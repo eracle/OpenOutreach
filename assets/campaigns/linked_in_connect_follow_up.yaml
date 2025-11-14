@@ -4,7 +4,7 @@
 # This file defines a *single* campaign. A campaign is a sequence of
 # steps that are executed for each profile.
 # ----------------------------------------------------------------------
-campaign_name: example_campaign
+campaign_name: linked_in_connect_follow_up
 
 # --------------------------------------------------------------------
 # List of steps. Order matters – the engine processes the list top‑to‑bottom.

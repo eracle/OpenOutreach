@@ -51,7 +51,7 @@ Join our Telegram group for discussions, and check the star history to see commu
 
 - **Personalized Messages with AI**
     - [ ] Integrate open AI models
-    - [ ] Scrape profile data for personalization
+    - [x] Scrape profile data for personalization
     - [ ] Generate customized messages based on profile data
 
 - **Multi accounts support**

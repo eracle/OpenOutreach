@@ -13,10 +13,9 @@ def test_get_profile_info(mock_get_profile):
     mock_get_profile.return_value = mock_profile_data
 
     linkedin_url = "https://www.linkedin.com/in/johndoe/"
-    params = {}
 
     # Act
-    result = get_profile_info(linkedin_url, params)
+    result = get_profile_info(None, linkedin_url)
 
     # Assert
     mock_get_profile.assert_called_once_with(public_id="johndoe")

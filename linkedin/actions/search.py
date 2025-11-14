@@ -3,14 +3,14 @@ import logging
 from urllib.parse import urlencode, urlparse
 
 from .login import build_playwright
-from ..api.client import CustomLinkedin
+from ..api.client import PlaywrightLinkedinAPI
 
 logger = logging.getLogger(__name__)
 
 
 def extract_profile_from_url(url, cookies):
     logger.debug(f"extract_profile_id_from_url: {url}")
-    api_client = CustomLinkedin(
+    api_client = PlaywrightLinkedinAPI(
         username=None, password=None, authenticate=True, cookies=cookies, debug=True
     )
 
@@ -168,7 +168,7 @@ def search(keyword: str, max_results: int = 10):
     # Enrich profiles with API data
     if results:
         cookies = context.cookies()
-        api = CustomLinkedin(
+        api = PlaywrightLinkedinAPI(
             username=None, password=None, authenticate=True, cookies=cookies, debug=True
         )
         enriched_results = []
