@@ -251,6 +251,7 @@ class PlaywrightLinkedinAPI(Linkedin):
 
         # Output all extracted info
         extracted_info = {
+            'public_id': public_id,
             'full_name': full_name,
             'headline': headline,
             'summary': summary,

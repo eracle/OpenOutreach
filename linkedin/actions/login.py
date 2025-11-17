@@ -125,7 +125,7 @@ def build_playwright(storage_state=None):
     return resources
 
 
-def get_resources_with_state_management(use_state=True, force_login=False):
+def  get_resources_with_state_management(use_state=True, force_login=False):
     """
     Gets Playwright resources with state management: loads from local file if present and valid, otherwise logs in and saves state.
     If state is loaded and valid (logged in), skips login. Always navigates to feed page and waits for load.
