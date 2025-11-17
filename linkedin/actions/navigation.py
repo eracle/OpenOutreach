@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 from playwright.sync_api import TimeoutError
 
-from linkedin.actions.login import build_playwright, PlaywrightResources
+from linkedin.actions.login import PlaywrightResources, get_resources_with_state_management
 
 logger = logging.getLogger(__name__)
 
@@ -164,11 +164,11 @@ if __name__ == "__main__":
 
     resources = None
     try:
-        # Build the page with login
-        resources = build_playwright(login=True)
+        # Get resources with state management
+        resources = get_resources_with_state_management(use_state=True, force_login=False)
 
-        # Wait a bit after login to observe
-        resources.page.wait_for_timeout(3000)
+        # Wait a bit after setup to observe
+        resources.page.wait_for_load_state('load')
 
         # TODO: still needs finish testing
         # Test the end-to-end function

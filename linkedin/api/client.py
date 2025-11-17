@@ -105,8 +105,6 @@ class PlaywrightLinkedinAPI(Linkedin):
         :return: Profile data
         :rtype: dict
         """
-        # NOTE this still works for now, but will probably eventually have to be converted to
-        # https://www.linkedin.com/voyager/api/identity/profiles/ACoAAAKT9JQBsH7LwKaE9Myay9WcX8OVGuDq9Uw
 
         member_identity = public_id if public_id else urn_id
         params = {
