@@ -5,98 +5,76 @@ from typing import Optional, Dict
 from urllib.parse import urlparse
 
 from jsonpath_ng import parse
-from linkedin_api import Linkedin
-from linkedin_api.client import Client
 
 logger = logging.getLogger(__name__)
 
 
-def my_default_evade():
-    """
-    A catch-all method to try and evade suspension from Linkedin.
-    Currenly, just delays the request by a random (bounded) time
-    """
-    sleep(
-        random.uniform(0.2, 0.7)
-    )  # sleep a random duration to try and evade suspention
+class AuthenticationError(Exception):
+    """Custom exception for 401 Unauthorized errors."""
+    pass
 
 
-class CustomClient(Client):
-    def _set_session_cookies(self, cookies: list):
-        """
-        Set cookies of the current session and save them to a file named as the username.
-        """
-        for cookie in cookies:
-            self.session.cookies.set(
-                cookie['name'],
-                cookie['value'],
-                domain=cookie['domain'],
-                path=cookie['path'],
-            )
-        if cookies:
-            self.session.headers["csrf-token"] = self.session.cookies["JSESSIONID"].strip('"')
-
-
-class PlaywrightLinkedinAPI(Linkedin):
+class PlaywrightLinkedinAPI:
 
     def __init__(
             self,
-            username: str = None,
-            password: str = None,
             resources=None,
             *,
-            authenticate=True,
-            refresh_cookies=False,
             debug=False,
-            proxies={},
-            cookies=None,
-            cookies_dir: str = "",
     ):
         """Constructor method"""
-        if resources:
-            # Extract cookies from Playwright resources
-            page, context, browser, playwright = resources  # Unpack for clarity
-            logger.info("Extracting cookies from provided Playwright resources.")
+        if not resources:
+            raise ValueError("Playwright resources must be provided.")
 
-            # Extract cookies from the browser context
-            cookies = context.cookies()
-            logger.info(f"Extracted {len(cookies)} cookies from Playwright session.")
+        # Unpack Playwright resources
+        self.page, self.context, self.browser, self.playwright = resources  # Assuming sync API
+        logger.info("Using provided Playwright resources for requests.")
 
-        """Constructor method"""
-        self.client = CustomClient(
-            # self.client = Client(
-            refresh_cookies=refresh_cookies,
-            debug=debug,
-            proxies=proxies,
-            cookies_dir=cookies_dir,
-        )
+        # Extract cookies from the browser context to get JSESSIONID for csrf-token
+        cookies = self.context.cookies()
+        cookies_dict = {c['name']: c['value'] for c in cookies}
+        jsessionid = cookies_dict.get('JSESSIONID', '').strip('"')
+
+        # Dynamically fetch browser-specific details using page.evaluate
+        user_agent = self.page.evaluate("navigator.userAgent")
+        accept_language = self.page.evaluate("navigator.languages ? navigator.languages.join(',') : navigator.language")
+        sec_ch_ua = self.page.evaluate("""() => {
+            if (navigator.userAgentData) {
+                return navigator.userAgentData.brands.map(brand => `"${brand.brand}";v="${brand.version}"`).join(', ');
+            }
+            return '';
+        }""")
+        sec_ch_ua_mobile = self.page.evaluate(
+            """() => navigator.userAgentData ? (navigator.userAgentData.mobile ? '?1' : '?0') : '?0' """)
+        sec_ch_ua_platform = self.page.evaluate(
+            """() => navigator.userAgentData ? `"${navigator.userAgentData.platform}"` : '' """)
+
+        # Set up headers with dynamic values
+        self.headers = {
+            'accept': 'application/vnd.linkedin.normalized+json+2.1',
+            'accept-language': accept_language,
+            'csrf-token': jsessionid,
+            'priority': 'u=1, i',
+            'referer': self.page.url,
+            'sec-ch-prefers-color-scheme': 'light',  # This might need dynamic detection if possible
+            'sec-ch-ua': sec_ch_ua,
+            'sec-ch-ua-mobile': sec_ch_ua_mobile,
+            'sec-ch-ua-platform': sec_ch_ua_platform,
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': user_agent,
+            'x-li-lang': 'en_US',
+            'x-restli-protocol-version': '2.0.0',
+        }
+
         logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
         self.logger = logger
-
-        if authenticate:
-            if cookies:
-                # If the cookies are expired, the API won't work anymore since
-                # `username` and `password` are not used at all in this case.
-                self.client._set_session_cookies(cookies)
-            else:
-                self.client.authenticate(username, password)
-
-    def _fetch(self, uri, evade=my_default_evade, **kwargs):
-        """
-        GET request to Linkedin API
-        """
-        return super()._fetch(uri, evade, **kwargs)
-
-    def _post(self, uri, evade=my_default_evade, **kwargs):
-        """
-        POST request to Linkedin API
-        """
-        return super()._post(uri, evade, **kwargs)
 
     def get_profile(
             self, public_id: Optional[str] = None, profile_url: Optional[str] = None
     ) -> Dict:
-        """Fetch data for a given LinkedIn profile.
+        """Fetch data for a given LinkedIn profile using Playwright context requests.
 
         :param public_id: LinkedIn public ID for a profile
         :type public_id: str, optional
@@ -112,19 +90,27 @@ class PlaywrightLinkedinAPI(Linkedin):
         if not public_id:
             raise ValueError("Either public_id or profile_url must be provided.")
 
-        member_identity = public_id
         params = {
             'decorationId': 'com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-91',
-            'memberIdentity': member_identity,
+            'memberIdentity': public_id,
             'q': 'memberIdentity',
         }
-        res = self._fetch("/identity/dash/profiles", params=params)
+
+        base_url = "https://www.linkedin.com/voyager/api"
+        uri = "/identity/dash/profiles"
+        full_url = base_url + uri
+
+        # Use Playwright context request to fetch API data
+        res = self.context.request.get(full_url, params=params, headers=self.headers)
+
+        if res.status == 401:
+            self.logger.error(f"Authentication failed (401): {res.body()}")
+            raise AuthenticationError("LinkedIn API returned 401 Unauthorized.")
+        elif not res.ok:
+            self.logger.info(f"Request failed with status {res.status}: {res.body()}")
+            return {}
 
         data = res.json()
-
-        if data and "status" in data and data["status"] != 200:
-            self.logger.info(f"request failed: {res.content}")
-            return {}
 
         # Now, extract using JSONPath
 

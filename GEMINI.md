@@ -91,8 +91,6 @@ linkedin
 │        └── search.py
 ├── campaign_parser.py
 ├── conf.py
-├── models.py
-├── my_linkedin_api.py
 ├── templates
 │        ├── notes
 │        │       └── connect_note.j2

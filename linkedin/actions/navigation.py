@@ -7,7 +7,7 @@ from typing import Dict, Any, Callable
 from urllib.parse import urlparse, parse_qs, urlencode
 
 from linkedin.actions.login import PlaywrightResources, get_resources_with_state_management
-from linkedin.api.client import PlaywrightLinkedinAPI
+from linkedin.api.client import PlaywrightLinkedinAPI, AuthenticationError
 from linkedin.database import db_manager, save_profile, get_profile as get_profile_from_db
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,7 @@ def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str):
     session = db_manager.get_session()
     try:
         # Introduce a random delay before fetching the profile
-        delay = random.uniform(1, 5)
+        delay = random.uniform(2, 5)
         logger.info(f"Pausing for {delay:.2f} seconds before fetching profile: {clean_url}")
         time.sleep(delay)
 
@@ -100,6 +100,8 @@ def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str):
             logger.info(f"Successfully scraped and saved profile: {clean_url}")
         else:
             logger.warning(f"Could not retrieve data for profile: {clean_url}")
+    except AuthenticationError:
+        raise  # Re-raise to be handled by the page processing loop
     except Exception as e:
         logger.error(f"Failed to scrape profile {clean_url}: {e}")
 
@@ -124,11 +126,18 @@ def _process_search_results_page(resources: PlaywrightResources, target_linkedin
 
     api = PlaywrightLinkedinAPI(resources=resources)
     target_link_locator = None
+    scraping_this_page_enabled = True
 
     for link in link_locators:
         href = link.get_attribute("href")
         if href:
-            _scrape_profile_if_new(api, href)
+            if scraping_this_page_enabled:
+                try:
+                    _scrape_profile_if_new(api, href)
+                except AuthenticationError:
+                    logger.warning("Authentication error on this page. Disabling further scraping for this page only.")
+                    scraping_this_page_enabled = False
+
             if f"/in/{target_linkedin_id}" in href:
                 target_link_locator = link
 
@@ -169,7 +178,7 @@ def simulate_human_search(
     logger.info(f"Starting search for '{full_name}' (ID: {linkedin_id})")
     _initiate_search(resources, full_name)
 
-    max_pages = 100
+    max_pages = 3
     for page_num in range(1, max_pages + 1):
         logger.info(f"Scanning search results on page {page_num}")
 
