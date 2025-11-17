@@ -1,74 +1,94 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from linkedin.db_models import Base, Profile as DbProfile, Company as DbCompany
-from linkedin.models import Profile, Company
 import json
+from typing import Optional, Dict, Any
 
-engine = None
-SessionLocal = None
 
-def init_db(db_url: str):
-    """
-    Initializes the database engine and session.
-    """
-    global engine, SessionLocal
-    engine = create_engine(db_url)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+class DatabaseManager:
+    def __init__(self):
+        self.engine = None
+        self.SessionLocal = None
+        self._session = None
 
-def create_tables():
-    """
-    Creates all tables in the database.
-    """
-    if not engine:
-        raise Exception("Database not initialized. Call init_db() first.")
-    Base.metadata.create_all(bind=engine)
+    def init_db(self, db_url: str):
+        """
+        Initializes the database engine and session factory.
+        """
+        self.engine = create_engine(db_url)
+        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        # Reset session if db is re-initialized
+        self._session = None
 
-def get_session():
-    """
-    Returns a new database session.
-    """
-    if not SessionLocal:
-        raise Exception("Database not initialized. Call init_db() first.")
-    return SessionLocal()
+    def create_tables(self):
+        """
+        Creates all tables in the database.
+        """
+        if not self.engine:
+            raise Exception("Database not initialized. Call init_db() first.")
+        Base.metadata.create_all(bind=self.engine)
 
-def save_profile(session, profile: Profile):
-    """
-    Saves a Profile object to the database.
-    """
-    db_profile = session.query(DbProfile).filter_by(linkedin_url=profile.linkedin_url).first()
-    if db_profile:
-        db_profile.data = profile.model_dump()
-    else:
-        db_profile = DbProfile(linkedin_url=profile.linkedin_url, data=profile.model_dump())
-        session.add(db_profile)
-    session.commit()
+    def set_session(self, new_session):
+        """
+        Allows overriding the module-level session, primarily for testing.
+        """
+        self._session = new_session
 
-def get_profile(session, linkedin_url: str) -> Profile | None:
+    def get_session(self):
+        """
+        Returns a singleton database session, creating it if it doesn't exist.
+        """
+        if self._session is None:
+            if not self.SessionLocal:
+                raise Exception("Database not initialized. Call init_db() first.")
+            self._session = self.SessionLocal()
+        return self._session
+
+
+db_manager = DatabaseManager()
+
+
+def save_profile(session, profile_data: Dict[str, Any], linkedin_url: str):
     """
-    Retrieves a Profile object from the database by its linkedin_url.
+    Saves profile JSON data to the database.
     """
     db_profile = session.query(DbProfile).filter_by(linkedin_url=linkedin_url).first()
     if db_profile:
-        return Profile(**db_profile.data)
-    return None
-
-def save_company(session, company: Company):
-    """
-    Saves a Company object to the database.
-    """
-    db_company = session.query(DbCompany).filter_by(linkedin_url=company.linkedin_url).first()
-    if db_company:
-        db_company.data = company.model_dump()
+        db_profile.data = profile_data
     else:
-        db_company = DbCompany(linkedin_url=company.linkedin_url, data=company.model_dump())
-        session.add(db_company)
+        db_profile = DbProfile(linkedin_url=linkedin_url, data=profile_data)
+        session.add(db_profile)
     session.commit()
 
-def get_company(session, linkedin_url: str) -> Company | None:
+
+def get_profile(session, linkedin_url: str) -> Optional[Dict[str, Any]]:
     """
-    Retrieves a Company object from the database by its linkedin_url.
+    Retrieves a profile's JSON data from the database by its linkedin_url.
+    """
+    db_profile = session.query(DbProfile).filter_by(linkedin_url=linkedin_url).first()
+    if db_profile:
+        return db_profile.data
+    return None
+
+
+def save_company(session, company_data: Dict[str, Any], linkedin_url: str):
+    """
+    Saves company JSON data to the database.
     """
     db_company = session.query(DbCompany).filter_by(linkedin_url=linkedin_url).first()
     if db_company:
-        return Company(**db_company.data)
+        db_company.data = company_data
+    else:
+        db_company = DbCompany(linkedin_url=linkedin_url, data=company_data)
+        session.add(db_company)
+    session.commit()
+
+
+def get_company(session, linkedin_url: str) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a company's JSON data from the database by its linkedin_url.
+    """
+    db_company = session.query(DbCompany).filter_by(linkedin_url=linkedin_url).first()
+    if db_company:
+        return db_company.data
     return None

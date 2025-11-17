@@ -7,12 +7,19 @@ from typing import Dict, Any, Callable
 from urllib.parse import urlparse, parse_qs, urlencode
 
 from linkedin.actions.login import PlaywrightResources, get_resources_with_state_management
+from linkedin.api.client import PlaywrightLinkedinAPI
+from linkedin.database import db_manager, save_profile, get_profile as get_profile_from_db
 
 logger = logging.getLogger(__name__)
 
 
 class ProfileNotFoundInSearchError(Exception):
     """Custom exception raised when a profile cannot be found via search."""
+    pass
+
+
+def log_profile(profile_data: Dict[str, Any]):
+    """Logs the scraping of a profile. Skeleton function."""
     pass
 
 
@@ -50,23 +57,9 @@ def navigate_and_verify(
         raise RuntimeError(f"{error_message}: {str(e)}") from e
 
 
-def simulate_human_search(
-        resources: PlaywrightResources,
-        profile_data: Dict[str, Any]
-):
-    """
-    Simulates a human-like search for the profile without handling exceptions internally.
-    Navigates to the profile if found via search results and pagination.
-    """
+def _initiate_search(resources: PlaywrightResources, full_name: str):
+    """Ensures we are on the feed and initiates a search for the given name."""
     page = resources.page
-    full_name = profile_data.get("full_name")
-    linkedin_id = profile_data.get("public_id")
-    if not full_name or not linkedin_id:
-        raise ValueError("profile_data must contain 'full_name' and 'public_id'")
-
-    logger.info(f"Simulating search for '{full_name}' targeting ID '{linkedin_id}'")
-
-    # Step 1: Ensure on feed
     if "feed/" not in page.url:
         navigate_and_verify(
             resources,
@@ -75,7 +68,6 @@ def simulate_human_search(
             error_message="Failed to navigate to LinkedIn feed"
         )
 
-    # Step 2: Initiate search
     search_bar_selector = "//input[contains(@placeholder, 'Search')]"
     search_bar = page.locator(search_bar_selector)
     search_bar.click()
@@ -83,7 +75,6 @@ def simulate_human_search(
         search_bar.press(char)
         time.sleep(random.uniform(0.05, 0.2))
 
-    # Press Enter and verify navigation to search results
     navigate_and_verify(
         resources,
         action=lambda: search_bar.press("Enter"),
@@ -91,59 +82,117 @@ def simulate_human_search(
         error_message="Failed to reach search results page"
     )
 
-    # Step 3: Pagination loop
-    max_pages = 10
-    page_num = 1
-    while page_num <= max_pages:
+
+def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str):
+    """Fetches profile data using the API and saves it to the database."""
+    logger.info(f"Scraping new profile: {clean_url}")
+    session = db_manager.get_session()
+    try:
+        # Introduce a random delay before fetching the profile
+        delay = random.uniform(1, 5)
+        logger.info(f"Pausing for {delay:.2f} seconds before fetching profile: {clean_url}")
+        time.sleep(delay)
+
+        profile_data = api.get_profile(profile_url=clean_url)
+        if profile_data:
+            save_profile(session, profile_data, clean_url)
+            log_profile(profile_data)
+            logger.info(f"Successfully scraped and saved profile: {clean_url}")
+        else:
+            logger.warning(f"Could not retrieve data for profile: {clean_url}")
+    except Exception as e:
+        logger.error(f"Failed to scrape profile {clean_url}: {e}")
+
+
+def _scrape_profile_if_new(api: PlaywrightLinkedinAPI, profile_url: str):
+    """Checks if a profile is in the database and scrapes it if it's new."""
+    session = db_manager.get_session()
+    parsed_url = urlparse(profile_url)
+    clean_url = parsed_url._replace(query="", fragment="").geturl()
+
+    if not get_profile_from_db(session, clean_url):
+        _fetch_and_save_profile(api, clean_url)
+    else:
+        logger.info(f"Profile already in database: {clean_url}")
+
+
+def _process_search_results_page(resources: PlaywrightResources, target_linkedin_id: str):
+    """Processes a page of search results, scraping profiles and finding the target."""
+    page = resources.page
+    link_locators = page.locator('a[href*="/in/"]').all()
+    logger.info(f"Found {len(link_locators)} potential profile links.")
+
+    api = PlaywrightLinkedinAPI(resources=resources)
+    target_link_locator = None
+
+    for link in link_locators:
+        href = link.get_attribute("href")
+        if href:
+            _scrape_profile_if_new(api, href)
+            if f"/in/{target_linkedin_id}" in href:
+                target_link_locator = link
+
+    return target_link_locator
+
+
+def _paginate_to_next_page(resources: PlaywrightResources, page_num: int):
+    """Navigates to the next page of search results."""
+    page = resources.page
+    current_url = page.url
+    parsed_url = urlparse(current_url)
+    query_params = parse_qs(parsed_url.query)
+    query_params['page'] = [str(page_num)]
+    new_query = urlencode(query_params, doseq=True)
+    new_url = parsed_url._replace(query=new_query).geturl()
+
+    logger.info(f"Paginating to page {page_num}: {new_url}")
+    navigate_and_verify(
+        resources,
+        action=lambda: page.goto(new_url),
+        expected_url_pattern="/search/results/",
+        error_message="Failed to paginate to next search results page"
+    )
+
+
+def simulate_human_search(
+        resources: PlaywrightResources,
+        profile_data: Dict[str, Any]
+):
+    """
+    Simulates a search, scrapes all profiles from results, and navigates to the target.
+    """
+    full_name = profile_data.get("full_name")
+    linkedin_id = profile_data.get("public_id")
+    if not full_name or not linkedin_id:
+        raise ValueError("profile_data must contain 'full_name' and 'public_id'")
+
+    logger.info(f"Starting search for '{full_name}' (ID: {linkedin_id})")
+    _initiate_search(resources, full_name)
+
+    max_pages = 100
+    for page_num in range(1, max_pages + 1):
         logger.info(f"Scanning search results on page {page_num}")
 
-        # Bulk extract potential profile links
-        link_locators = page.locator('a[href*="/in/"]')
-        links = link_locators.all()
-        logger.info(f"Found {len(links)} potential profile links.")
+        target_link = _process_search_results_page(resources, linkedin_id)
 
-        for idx, link in enumerate(links):
-            href = link.get_attribute("href")
-            if href:
-                # Normalize href (strip query params and trailing slash)
-                normalized_href = urlparse(href).path.rstrip('/')
-                if f"/in/{linkedin_id}" in normalized_href:
-                    logger.info(f"Found matching profile: {href}")
-                    # Click and verify navigation to profile
-                    navigate_and_verify(
-                        resources,
-                        action=lambda: link.click(),
-                        expected_url_pattern=linkedin_id,
-                        error_message="Failed to navigate to the target profile"
-                    )
-                    return  # Success
+        if target_link:
+            logger.info(f"Found target profile: {target_link.get_attribute('href')}")
+            navigate_and_verify(
+                resources,
+                action=lambda: target_link.click(),
+                expected_url_pattern=linkedin_id,
+                error_message="Failed to navigate to the target profile"
+            )
+            return  # Success
 
-        # Check for "No results found"
-        no_results_locator = page.get_by_text("No results found")
-        if no_results_locator.count() > 0:
+        if resources.page.get_by_text("No results found").count() > 0:
             logger.info("No more results found. Ending search.")
             break
 
-        # Paginate via URL
-        current_url = page.url
-        parsed_url = urlparse(current_url)
-        query_params = parse_qs(parsed_url.query)
-        query_params['page'] = [str(page_num + 1)]
-        new_query = urlencode(query_params, doseq=True)
-        new_url = parsed_url._replace(query=new_query).geturl()
-        logger.info(f"Paginating to next page via URL: {new_url}")
+        if page_num < max_pages:
+            _paginate_to_next_page(resources, page_num + 1)
 
-        # Goto new URL and verify still on search results
-        navigate_and_verify(
-            resources,
-            action=lambda: page.goto(new_url),
-            expected_url_pattern="/search/results/",
-            error_message="Failed to paginate to next search results page"
-        )
-
-        page_num += 1
-
-    raise ProfileNotFoundInSearchError(f"Could not find profile for ID '{linkedin_id}' after {page_num - 1} pages.")
+    raise ProfileNotFoundInSearchError(f"Could not find profile for ID '{linkedin_id}' after {max_pages} pages.")
 
 
 def go_to_profile(
@@ -178,13 +227,17 @@ if __name__ == "__main__":
 
     # Example profile data for testing
     bill_gates_profile = {
-        "full_name": "Bill Gates",
-        "linkedin_url": "https://www.linkedin.com/in/williamhgates/",
-        "public_id": "williamhgates",
+        "full_name": "Mario Rossi",
+        "linkedin_url": "https://www.linkedin.com/in/mariorossi7/",
+        "public_id": "mariorossi7",
     }
 
     resources = None
     try:
+        # Set up database
+        db_manager.init_db('sqlite:///linkedin.db')
+        db_manager.create_tables()
+
         # Get resources with state management
         resources = get_resources_with_state_management(use_state=True, force_login=False)
 

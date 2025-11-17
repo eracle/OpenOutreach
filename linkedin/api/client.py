@@ -2,6 +2,7 @@ import logging
 import random
 from time import sleep
 from typing import Optional, Dict
+from urllib.parse import urlparse
 
 from jsonpath_ng import parse
 from linkedin_api import Linkedin
@@ -93,20 +94,25 @@ class PlaywrightLinkedinAPI(Linkedin):
         return super()._post(uri, evade, **kwargs)
 
     def get_profile(
-            self, public_id: Optional[str] = None, urn_id: Optional[str] = None
+            self, public_id: Optional[str] = None, profile_url: Optional[str] = None
     ) -> Dict:
         """Fetch data for a given LinkedIn profile.
 
         :param public_id: LinkedIn public ID for a profile
         :type public_id: str, optional
-        :param urn_id: LinkedIn URN ID for a profile
-        :type urn_id: str, optional
+        :param profile_url: Full LinkedIn profile URL
+        :type profile_url: str, optional
 
         :return: Profile data
         :rtype: dict
         """
+        if not public_id and profile_url:
+            public_id = urlparse(profile_url).path.strip('/').split('/')[-1]
 
-        member_identity = public_id if public_id else urn_id
+        if not public_id:
+            raise ValueError("Either public_id or profile_url must be provided.")
+
+        member_identity = public_id
         params = {
             'decorationId': 'com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-91',
             'memberIdentity': member_identity,

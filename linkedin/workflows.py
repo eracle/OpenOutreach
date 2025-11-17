@@ -7,7 +7,8 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import campaign_parser, database
+from . import campaign_parser
+from .database import db_manager
 
 
 def get_function(function_path: str) -> Callable:
@@ -119,8 +120,8 @@ def main(db_url: str = "sqlite:///linkedin.db"):
     global SCHEDULER
 
     print("Initializing database...")
-    database.init_db(db_url)
-    database.create_tables()
+    db_manager.init_db(db_url)
+    db_manager.create_tables()
 
     print("Initializing scheduler...")
     jobstores = {'default': SQLAlchemyJobStore(url=db_url)}
