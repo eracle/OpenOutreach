@@ -18,52 +18,8 @@ follows:
 
 ## Core Entities
 
-The system revolves around two primary data models: `Profile` and `Company`. These will be implemented as Pydantic
-models for data validation and structured storage.
+The system revolves around two primary data models: `Profile` and `Company`. These entities are represented as JSON objects throughout the application, from the database to the business logic.
 
-### Profile
-
-A `Profile` represents a LinkedIn user. The schema is based on the data retrieved from the LinkedIn API.
-
-```python
-# (in linkedin/models.py)
-from pydantic import BaseModel
-from typing import List, Dict, Any
-
-
-class Profile(BaseModel):
-    linkedin_url: str  # Primary Key
-    public_id: str
-    profile_id: int
-    first_name: str
-    last_name: str
-    headline: str
-    summary: str
-    country: str
-    city: str
-    experience: List[Dict[str, Any]]
-    education: List[Dict[str, Any]]
-    skills: List[str]
-    # ... and other fields from the API
-```
-
-### Company
-
-A `Company` represents a LinkedIn company page. The schema is based on the data retrieved from the LinkedIn API.
-
-```python
-# (in linkedin/models.py)
-class Company(BaseModel):
-    linkedin_url: str  # Primary Key
-    name: str
-    tagline: str
-    about: str
-    website: str
-    industry: str
-    company_size: str
-    headquarters: Dict[str, str]
-    # ... and other fields from the API
-```
 
 ## Database
 
@@ -161,3 +117,63 @@ The workflow engine drives the automation.
   a dedicated `linkedin/database.py` module.
 - **Scheduling**: For long-running waits, the engine schedules jobs with `APScheduler`, which polls for conditions (
   e.g., connection accepted) before proceeding to the next step.
+
+## Actions
+
+Actions are individual, reusable scripts located in the `linkedin/actions/` directory. They are dynamically called by the workflow engine based on the `action` specified in a campaign's YAML file.
+
+Each action function receives the profile data (if applicable) and a `params` dictionary containing any parameters defined for that step in the campaign YAML.
+
+### `connect`
+
+Sends a connection request to a profile.
+
+**File:** `linkedin/actions/connect.py`
+**Function:** `connect(profile_data: dict, params: Dict[str, Any])`
+
+**Parameters (`params`):**
+
+| Parameter | Type | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `note_template` | string | Path to the template file for the connection note. | (none) |
+| `template_type` | string | The type of template to use. Can be `jinja` or `ai_prompt`. | `jinja` |
+| `ai_model` | string | The AI model to use for generating the connection note (only if `template_type` is `ai_prompt`). | (none) |
+
+### `is_connection_accepted`
+
+Checks if a connection request was accepted. This is a condition action used in `wait` steps.
+
+**File:** `linkedin/actions/connection.py`
+**Function:** `is_connection_accepted(linkedin_url: str) -> bool`
+
+**Parameters:** This action does not take any parameters from the campaign YAML.
+
+### `send_message`
+
+Sends a message to a connected profile.
+
+**File:** `linkedin/actions/message.py`
+**Function:** `send_message(profile_data: dict, params: Dict[str, Any])`
+
+**Parameters:** This action does not currently take any parameters from the campaign YAML. The message is hardcoded.
+
+### `read_urls`
+
+Reads a list of profile URLs from a CSV file. This is typically the first step in a campaign.
+
+**File:** `linkedin/actions/read_urls.py`
+**Function:** `read_urls(linkedin_url: str, params: Dict[str, Any]) -> List[str]`
+
+**Parameters (`params`):**
+
+| Parameter | Type | Description | Default |
+| :--- | :--- | :--- | :--- |
+| `file_path` | string | The path to the CSV file containing the URLs. | (none) |
+
+### Utility Actions
+
+The following actions are not typically called directly from a campaign YAML but are used by other actions:
+
+*   **`login`**: Handles logging into LinkedIn and managing the session state.
+*   **`navigation`**: Provides functions for navigating to profiles, including simulating human-like search behavior.
+*   **`profile`**: Contains functions for retrieving profile information (currently incomplete).
