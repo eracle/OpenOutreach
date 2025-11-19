@@ -15,24 +15,37 @@ steps:
 
   # ------------------------------------------------------------------
   # 1. READ_URLS
+  # Reads LinkedIn profile URLs from a CSV file.
+  # Example: If urls.csv contains a column 'linkedin_url' with values like 'https://www.linkedin.com/in/john-doe/',
+  # this step loads those URLs for processing.
   # ------------------------------------------------------------------
   - action: linkedin.actions.read_urls.read_urls
-    csv_file: ../inputs/urls.csv
-    url_column: linkedin_url
+    csv_file: ./assets/inputs/urls.csv  # Path to the input CSV file
+    url_column: linkedin_url      # Column name containing the LinkedIn URLs
 
   # ------------------------------------------------------------------
   # 2. GET_PROFILE_INFO
+  # Fetches profile information using the specified method.
+  # Example: Uses LinkedIn API to get details like full name, headline, etc., and saves to a CSV.
   # ------------------------------------------------------------------
   - action: linkedin.actions.profile.get_profile_info
-    method: linkedin_api
-    output_csv: ./output/profiles_{timestamp}.csv
+    method: linkedin_api          # Method to fetch profile info (e.g., 'linkedin_api' or 'scrape')
+    output_csv: ./assets/output/profiles_{timestamp}.csv  # Output CSV file path with timestamp placeholder
 
   # ------------------------------------------------------------------
   # 3. CONNECT (send a connection request)
+  # Sends a connection request to the profile.
+  # Supports different search methods for navigation and template types for the connection note.
+  # Example: For a jinja template, it renders './templates/notes/connect_note.j2' with profile context (e.g., {{ full_name }}).
+  # For ai_prompt, it renders the prompt, sends to LLM (e.g., 'general' model), and uses the generated text as the note.
+  # For static, it uses the file content directly as the note without rendering or LLM.
+  # If no note_template is provided, sends request without a note.
   # ------------------------------------------------------------------
   - action: linkedin.actions.connect.connect
-    search_method: emulate_human
-    note_template: ./templates/notes/connect_note.j2
+    search_method: emulate_human  # Navigation method: 'emulate_human' (simulate search) or 'direct' (go straight to URL)
+    note_template: ./assets/templates/connect_notes/leader.j2  # Path to the template file for the connection note (optional)
+    template_type: jinja          # Type of template: 'static' (plain text), 'jinja' (Jinja2 rendering), 'ai_prompt' (Jinja2 + LLM generation)
+    ai_model: general             # LLM model to use if template_type is 'ai_prompt' (e.g., 'general', 'gpt-4', etc.; required for ai_prompt)
 
   # ------------------------------------------------------------------
   # 4. WAIT_FOR_CONNECTION
@@ -40,6 +53,7 @@ steps:
   # It will pause the workflow for a profile until the connection
   # request is accepted. If the timeout is reached, the workflow
   # for that profile will stop.
+  # Example: Checks every 6 hours for up to 14 days if the connection is accepted.
   # ------------------------------------------------------------------
   - action: linkedin.actions.profile.is_connection_accepted
     step_type: condition
@@ -52,11 +66,13 @@ steps:
   # ------------------------------------------------------------------
   # 5. SEND_MESSAGE (follow‑up after the connection is accepted)
   # This step only runs if the 'wait_for_connection' step succeeds.
+  # Similar to connect note, supports template types.
+  # Example: For ai_prompt, renders './templates/prompts/followup_prompt.j2' with context, sends to LLM, and uses output as message.
   # ------------------------------------------------------------------
   - action: linkedin.actions.message.send_message
     template_type: ai_prompt
-    template_file: ./templates/prompts/followup_prompt.j2
-    ai_model: general
+    template_file: ./assets/templates/prompts/followup_prompt.j2  # Path to the template file for the message
+    ai_model: general             # LLM model for ai_prompt type
 
 # --------------------------------------------------------------------
 # GLOBAL SETTINGS (apply to the whole campaign run)
@@ -65,10 +81,12 @@ settings:
   limits:
     # LinkedIn daily caps – adjust to stay under the platform limits.
     # Values are **per account**; the scheduler respects them across runs.
+    # Example: Limits to 50 connections and 20 messages per day to avoid detection.
     daily_connections: 50             # Max connection requests per day
     daily_messages: 20                # Max follow‑up messages per day
 
   delays:
     # Human‑like random delays between individual actions.
+    # Example: Random wait between 5-15 seconds between actions to mimic human behavior.
     delay_min: 5                      # Minimum seconds to wait (int)
     delay_max: 15                     # Maximum seconds to wait (int)

@@ -4,8 +4,9 @@ from enum import Enum
 from typing import Dict, Any
 
 from linkedin.actions.login import PlaywrightResources, get_resources_with_state_management
-from linkedin.actions.navigation import navigate_and_verify
+from linkedin.actions.navigation import go_to_profile
 from linkedin.actions.utils import wait
+from ..template_renderer import render_template
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +18,25 @@ class ConnectionStatus(Enum):
     UNKNOWN = "unknown"
 
 
-def connect(linkedin_url: str, params: Dict[str, Any]):
+def connect(profile_data: dict, params: Dict[str, Any]):
     """Sends a connection request to a profile."""
-    print(f"ACTION: connect for {linkedin_url} with params: {params}")
-    pass
+    note_template = params.get('note_template')
+    template_type = params.get('template_type', 'jinja')  # Default to jinja if not specified in YAML
+    ai_model = params.get('ai_model') if template_type == 'ai_prompt' else None
+
+    resources = get_resources_with_state_management(use_state=True, force_login=False)
+
+    # Navigate to the profile
+    go_to_profile(resources, profile_data)
+
+    # Render the message if a template is provided
+    message = ""
+    if note_template:
+        message = render_template(note_template, template_type, profile_data, ai_model)
+
+    # Send the connection request
+    status = send_connection_request(resources, profile_data, message)
+    logger.info(f"Connection request for {linkedin_url} completed with status: {status.value}")
 
 
 def get_connection_status(
@@ -74,36 +90,40 @@ def _perform_send_invitation(
         connect_div_locator = 'div[aria-label$="to connect"]:visible'
         connect_div = resources.page.locator(connect_div_locator).first
         connect_div.click()
+
     # After initiating connect, wait for popup
     wait(resources)  # Random sleep
 
-    # Locate and click the "Add a note" button
-    add_a_note_locator = 'button[aria-label$="Add a note"]:visible'
-    add_a_note_div = resources.page.locator(add_a_note_locator).first
-    add_a_note_div.click()
+    if not message:
+        # Send button for without note
+        send_button_locator = 'button[aria-label*="Send"]:visible'
+    else:
+        # Locate and click the "Add a note" button
+        add_a_note_locator = 'button[aria-label*="Add"]:visible'
+        resources.page.locator(add_a_note_locator).first.click()
 
-    # Wait for the input to appear
-    wait(resources)  # Random sleep
+        # Wait for the input to appear
+        wait(resources)  # Random sleep
 
-    # Locate the textarea and type the message
-    message_locator = 'textarea[name$="message"]:visible'
-    message_div = resources.page.locator(message_locator).first
-    message_div.type(message)
+        # Locate the textarea and type the message
+        message_locator = 'textarea[name*="message"]:visible'
+        resources.page.locator(message_locator).first.type(message)
 
-    # Wait for stability
+        # Wait for stability
+        wait(resources)  # Random sleep
 
-    wait(resources)  # Random sleep
+        # Send button for with note
+        send_button_locator = 'button[aria-label*="Send invitation"]:visible'
 
     # Locate and click the send button
-    send_button_locator = 'button[aria-label$="Send invitation"]:visible'
-    send_button_div = resources.page.locator(send_button_locator).first
-    send_button_div.click()
+    resources.page.locator(send_button_locator).first.click()
     wait(resources)  # Random sleep after send
 
 
 def send_connection_request(
         resources: PlaywrightResources,
         profile: Dict[str, Any],
+        message=None,
 ) -> ConnectionStatus:
     """Navigates to a LinkedIn profile, checks status, and sends a connection request if not connected or pending."""
     # Get current status
@@ -116,13 +136,13 @@ def send_connection_request(
     }
 
     if status in skip_statuses:
-        log_level, message = skip_statuses[status]
+        log_level, msg = skip_statuses[status]
         logger_func = logger.warning if log_level == "warning" else logger.info
-        logger_func(message)
+        logger_func(msg)
         return status
 
     # If not connected, proceed to send
-    _perform_send_invitation(resources, message="Hello there")
+    _perform_send_invitation(resources, message)
 
     # Assume success, return pending
     return ConnectionStatus.PENDING
@@ -144,35 +164,13 @@ if __name__ == "__main__":
         "public_id": "williamhgates",
     }
     linkedin_url = target_profile.get("linkedin_url")
-    linkedin_id = target_profile.get("public_id")
 
-    resources = None
-    try:
-        # Get resources with state management
-        resources = get_resources_with_state_management(use_state=True, force_login=False)
+    # Example params from YAML (adjust as needed for testing)
+    test_params = {
+        "search_method": "emulate_human",
+        "note_template": "./assets/templates/connect_notes/leader.j2",  # Replace with actual path
+        "template_type": "jinja",  # Test with 'static', 'jinja', or 'ai_prompt'
+        "ai_model": "general"  # Only used if template_type='ai_prompt'
+    }
 
-        # Wait a bit after setup to observe
-        wait(resources)
-
-        logger.info(f"Navigating directly to profile: {linkedin_url}")
-        navigate_and_verify(
-            resources,
-            action=lambda: resources.page.goto(linkedin_url),
-            expected_url_pattern=linkedin_id,
-            error_message="Failed to navigate directly to the target profile"
-        )
-
-        # Directly navigate and send connection request
-        status = send_connection_request(resources, target_profile)
-        logger.info(f"send_connection_request executed with status: {status.value}")
-
-        logger.info(f"Final URL: {resources.page.url}")
-
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during the test: {e}")
-    finally:
-        if resources:
-            logger.info("Cleaning up Playwright resources.")
-            resources.context.close()
-            resources.browser.close()
-            resources.playwright.stop()
+    connect(target_profile, test_params)
