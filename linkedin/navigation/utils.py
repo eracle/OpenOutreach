@@ -1,9 +1,11 @@
+import logging
 import random
 import time
 from typing import Callable
 
-from linkedin.actions.search import logger
 from linkedin.navigation.login import PlaywrightResources
+
+logger = logging.getLogger(__name__)
 
 
 def wait(

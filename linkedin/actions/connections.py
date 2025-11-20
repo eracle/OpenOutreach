@@ -4,10 +4,8 @@ from linkedin.navigation.enums import ConnectionStatus
 from linkedin.navigation.login import PlaywrightResources
 
 
-def is_connection_accepted(linkedin_url: str) -> bool:
-    """Checks if a connection request was accepted."""
+def is_connection_accepted(context: Dict[str, Any], linkedin_url: str):
     print(f"CONDITION: Checking if connection accepted for {linkedin_url}")
-    return False
 
 
 def get_connection_status(

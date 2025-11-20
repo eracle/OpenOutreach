@@ -1,157 +1,159 @@
+# linkedin/workflow.py
+import logging
 import time
 from datetime import datetime, timedelta
-from importlib import import_module
-from typing import Callable
+from typing import Optional, Dict, Any
 
 from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from . import campaign_parser
+from .campaigns import load_campaigns, ParsedCampaign, ExecutableStep
 from .database import db_manager
 
+logger = logging.getLogger(__name__)
 
-def get_function(function_path: str) -> Callable:
-    """Dynamically imports a function from a string path."""
-    try:
-        module_path, function_name = function_path.rsplit('.', 1)
-        module = import_module(module_path)
-        return getattr(module, function_name)
-    except (ImportError, AttributeError) as e:
-        raise ImportError(f"Could not import function '{function_path}': {e}")
+# Global scheduler
+SCHEDULER: Optional[BackgroundScheduler] = None
 
 
-# --- Global Instances ---
-SCHEDULER: BackgroundScheduler = None
+def start_campaign(campaign: ParsedCampaign, start_from_step: int = 0) -> None:
+    """Start a full campaign (usually called once at boot)"""
+    logger.info(f"Launching campaign: {campaign.name}")
+    execute_step(campaign=campaign, profile=None, step_index=start_from_step)
 
 
-# --- Workflow Functions ---
-
-def start_workflow(linkedin_url: str, campaign: campaign_parser.Campaign, start_step_index: int = 0):
-    """Initiates the first step of a campaign for a given URL."""
-    if linkedin_url:
-        print(f"\nStarting workflow for URL '{linkedin_url}' with campaign '{campaign.campaign_name}'")
-    else:
-        print(f"\nStarting campaign '{campaign.campaign_name}'")
-    execute_step(linkedin_url, campaign, start_step_index)
-
-
-def execute_step(linkedin_url: str, campaign: campaign_parser.Campaign, step_index: int):
-    """Executes a single step of the campaign."""
+def execute_step(campaign: ParsedCampaign, profile: Optional[Dict[str, Any]], step_index: int) -> None:
+    """Core engine: execute one step for one profile (or None for scrape steps)"""
     if step_index >= len(campaign.steps):
-        if linkedin_url:
-            print(f"Workflow for {linkedin_url} completed.")
+        if profile:
+            logger.info(f"Workflow completed for {profile.get('linkedin_url')}")
         return
 
-    step = campaign.steps[step_index]
+    step: ExecutableStep = campaign.steps[step_index]
 
-    try:
-        func = get_function(step.action)
-    except ImportError as e:
-        print(f"Error: {e}. Skipping step.")
-        execute_step(linkedin_url, campaign, step_index + 1)
-        return
-
-    if "read_urls" in step.action:
-        profile_urls = func(None, step.model_dump())
-        if not profile_urls:
-            print("No profile URLs found in the CSV file. Exiting.")
+    if step.type == "scrape":
+        # Scrape steps return a list of enriched profiles
+        enriched_profiles = step.execute(context={}, profile=None)
+        if not enriched_profiles:
+            logger.warning("Scrape step returned no profiles → campaign stopped")
             return
-        for url in profile_urls:
-            start_workflow(url, campaign, step_index + 1)
+
+        for prof in enriched_profiles:
+            execute_step(campaign, profile=prof, step_index=step_index + 1)
         return
 
-    if step.step_type == 'action':
-        func(linkedin_url, step.model_dump())
-        execute_step(linkedin_url, campaign, step_index + 1)
+    if step.type == "action":
+        if not profile:
+            logger.error("Action step received no profile")
+            return
+        step.execute(context={}, profile=profile)
+        execute_step(campaign, profile, step_index + 1)
+        return
 
-    elif step.step_type == 'condition':
-        print(f"Executing step: {step.action}")
-        # Create a unique job ID for rescheduling
-        job_id = f"check_{linkedin_url.replace('/', '_').replace(':', '')}_{step_index}"
+    if step.type == "condition":
+        if not profile:
+            logger.error("Condition step received no profile")
+            return
+
+        url = profile["linkedin_url"]
+        job_id = f"cond_{campaign.name}_{step_index}_{abs(hash(url)) & 0xFFFFFF}"
 
         SCHEDULER.add_job(
-            check_condition_and_proceed_job,
-            trigger='date',
-            run_date=datetime.now() + timedelta(seconds=5),  # Check after 5 seconds initially
-            kwargs={
-                'linkedin_url': linkedin_url,
-                'campaign': campaign,
-                'step_index': step_index
-            },
+            check_condition_job,
+            trigger="date",
+            run_date=datetime.now() + timedelta(seconds=15),  # first check soon
             id=job_id,
-            replace_existing=True  # Ensure only one job for this step/url exists
+            replace_existing=True,
+            kwargs={
+                "campaign_name": campaign.name,
+                "profile_url": url,
+                "step_index": step_index,
+                "attempt": 1,
+            },
         )
-    else:
-        print(f"Warning: Unknown step type '{step.step_type}' for {linkedin_url}. Skipping.")
-        execute_step(linkedin_url, campaign, step_index + 1)
+        logger.info(f"Condition scheduled → {url} (job {job_id})")
 
 
-def check_condition_and_proceed(linkedin_url: str, campaign: campaign_parser.Campaign, step_index: int):
-    """The logic that periodically checks a condition."""
-    step = campaign.steps[step_index]
-    condition_func = get_function(step.action)
+def check_condition_job(campaign_name: str, profile_url: str, step_index: int, attempt: int) -> None:
+    """Runs inside APScheduler — checks condition and either proceeds or reschedules"""
+    campaign = next((c for c in load_campaigns() if c.name == campaign_name), None)
+    if not campaign:
+        logger.error(f"Campaign {campaign_name} vanished during condition check")
+        return
 
-    if condition_func(linkedin_url):
-        print(f"Condition '{step.action}' met for {linkedin_url}. Proceeding to next step.")
-        execute_step(linkedin_url, campaign, step_index + 1)
-    else:
-        job_id = f"check_{linkedin_url.replace('/', '_').replace(':', '')}_{step_index}"
-        job = SCHEDULER.get_job(job_id)
+    step: ExecutableStep = campaign.steps[step_index]
+    profile = {"linkedin_url": profile_url}
 
-        # TODO: Implement robust timeout logic based on campaign settings
-        # For now, just reschedule
-        reschedule_time = datetime.now() + timedelta(seconds=15)  # Reschedule after 15 seconds
-        SCHEDULER.reschedule_job(job_id, trigger='date', run_date=reschedule_time)
-        print(f"Rescheduled check for {linkedin_url} at {reschedule_time.isoformat()}")
+    is_met = step.execute(context={}, profile=profile)
+
+    if is_met:
+        logger.info(f"Condition met for {profile_url} after {attempt} attempt(s) → next step")
+        execute_step(campaign, profile=profile, step_index=step_index + 1)
+        return
+
+    # Not met yet → decide next check
+    interval = step.check_interval or timedelta(hours=6)
+    next_check = datetime.now() + interval
+
+    # Timeout check
+    if step.timeout and (attempt * interval) >= step.timeout:
+        logger.warning(f"Timeout exceeded for {profile_url} — abandoning remaining steps")
+        return
+
+    job_id = f"cond_{campaign_name}_{step_index}_{abs(hash(profile_url)) & 0xFFFFFF}"
+    SCHEDULER.add_job(
+        check_condition_job,
+        trigger="date",
+        run_date=next_check,
+        id=job_id,
+        replace_existing=True,
+        kwargs={
+            "campaign_name": campaign_name,
+            "profile_url": profile_url,
+            "step_index": step_index,
+            "attempt": attempt + 1,
+        },
+    )
+    logger.info(f"Condition not met → recheck in {interval} (attempt {attempt + 1})")
 
 
-# --- Scheduler Callback ---
-
-def check_condition_and_proceed_job(linkedin_url: str, campaign: campaign_parser.Campaign, step_index: int):
-    """Standalone function for APScheduler to call, avoiding serialization issues."""
-    check_condition_and_proceed(linkedin_url, campaign, step_index)
-
-
-# --- Main Execution ---
-
-def main(db_url: str = "sqlite:///linkedin.db"):
-    """Main function to set up and run the scheduler and workflows."""
+def main(db_url: str = "sqlite:///linkedin.db") -> None:
     global SCHEDULER
 
-    print("Initializing database...")
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)-8s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    logger.info("Initializing database…")
     db_manager.init_db(db_url)
     db_manager.create_tables()
 
-    print("Initializing scheduler...")
-    jobstores = {'default': SQLAlchemyJobStore(url=db_url)}
-    executors = {'default': ThreadPoolExecutor(5)}
+    logger.info("Starting persistent APScheduler…")
+    jobstores = {"default": SQLAlchemyJobStore(url=db_url)}
+    executors = {"default": ThreadPoolExecutor(10)}
     SCHEDULER = BackgroundScheduler(jobstores=jobstores, executors=executors)
     SCHEDULER.start()
 
-    print("Loading campaigns...")
-    try:
-        campaigns = campaign_parser.load_campaigns()
-        if not campaigns:
-            print("No campaigns found. Exiting.")
-            return
-    except ValueError as e:
-        print(f"Could not load campaigns: {e}")
+    logger.info("Loading campaigns…")
+    campaigns = load_campaigns()
+    if not campaigns:
+        logger.error("No campaigns found → exiting")
         return
 
-    campaign_to_run = campaigns[0]
+    # Start the first (and usually only) campaign
+    start_campaign(campaigns[0])
 
-    # Start the campaign. The 'read_urls' step will trigger the workflows for each URL.
-    start_workflow(None, campaign_to_run)
-
-    print("\nScheduler is running. Press Ctrl+C to exit.")
+    logger.info("Engine is running! Press Ctrl+C to stop.")
     try:
         while True:
             time.sleep(1)
     except (KeyboardInterrupt, SystemExit):
-        print("Shutting down scheduler...")
-        SCHEDULER.shutdown()
-        print("Shutdown complete.")
+        logger.info("Shutting down…")
+        SCHEDULER.shutdown(wait=True)
+        logger.info("Bye!")
 
 
 if __name__ == "__main__":

@@ -2,9 +2,8 @@
 import logging
 from typing import Dict, Any
 
-from linkedin.actions.connection_status import get_connection_status
+from linkedin.actions.connections import get_connection_status
 from linkedin.actions.search import search_to_profile
-
 from linkedin.navigation.enums import ConnectionStatus
 from linkedin.navigation.login import PlaywrightResources, get_resources_with_state_management
 from linkedin.navigation.utils import wait
@@ -22,7 +21,7 @@ def connect(context: Dict[str, Any], profile: Dict[str, Any]):
     search_to_profile(resources, profile)
 
     # Render the message if a template is provided
-    message = render_template(context['params'].get('note_template'),
+    message = render_template(context['params'].get('template_file'),
                               context['params'].get('template_type', 'jinja'),
                               profile
                               )

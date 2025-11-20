@@ -2,7 +2,7 @@
 import logging
 from typing import Dict, Any
 
-from linkedin.actions.connection_status import get_connection_status
+from linkedin.actions.connections import get_connection_status
 from linkedin.actions.search import search_to_profile
 from linkedin.navigation.enums import ConnectionStatus, MessageStatus
 from linkedin.navigation.login import PlaywrightResources, get_resources_with_state_management

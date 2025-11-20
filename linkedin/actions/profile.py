@@ -10,6 +10,10 @@ from ..api.client import PlaywrightLinkedinAPI
 logger = logging.getLogger(__name__)
 
 
+def get_profiles(context: Dict[str, Any], linkedin_url: str):
+    pass
+
+
 def get_profile_info(context: Dict[str, Any], linkedin_url: str):
     """
     Retrieves profile information via an API call.

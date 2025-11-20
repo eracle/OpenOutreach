@@ -1,65 +1,74 @@
 # ----------------------------------------------------------------------
-# LinkedIn Automation – Campaign configuration (YAML)
-#
-# This file defines a *single* campaign. A campaign is a sequence of
-# steps that are executed for each profile.
+# LinkedIn Automation Campaign
+# Name: Connect + Wait + Follow-up Message
+# This is the most common outreach sequence in 2025
 # ----------------------------------------------------------------------
 campaign_name: linked_in_connect_follow_up
 
-# --------------------------------------------------------------------
-# List of steps. Order matters – the engine processes the list top‑to‑bottom.
-# Some steps are actions, while others are "wait" conditions that must
-# be met before the next step can run.
-# --------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Steps are executed in order, top to bottom
+# Each step has:
+#   - step_type: scrape | action | condition
+#   - handler: dotted path to the actual Python function
+#   - type-specific parameters (strictly validated)
+# ----------------------------------------------------------------------
 steps:
 
   # ------------------------------------------------------------------
-  # 1. READ_URLS_AND_GET_PROFILE_INFO
-  # Reads LinkedIn profile URLs from input.csv and immediately fetches
-  # full profile information (name, headline, company, etc.) in one go.
+  # 1. SCRAPE: Read LinkedIn URLs and enrich with full profile data
   # ------------------------------------------------------------------
-  - action: linkedin.actions.profile.read_urls_and_enrich
-    output_csv: ./assets/output/enriched_profiles_{timestamp}.csv  # Optional: saved enriched data
-    input_csv: ./assets/inputs/urls.csv
+  - step_type: scrape
+    handler: linkedin.actions.profile.get_profiles               # Function that reads URLs → returns enriched profiles
+    scrape:
+      input_csv: ./assets/inputs/urls.csv                         # Your list of raw LinkedIn profile URLs (one per row)
+      output_csv: ./assets/output/enriched_profiles_{timestamp}.csv   # Optional: saves enriched data for debugging/restarts
 
   # ------------------------------------------------------------------
-  # 2. CONNECT (send a connection request)
+  # 2. ACTION: Send personalized connection request
   # ------------------------------------------------------------------
-  - action: linkedin.actions.connect.connect
-    note_template: ./assets/templates/connect_notes/leader.j2
-    template_type: jinja          # static | jinja | ai_prompt
+  - step_type: action
+    handler: linkedin.actions.connect.connect                     # The actual connect function
+    action:
+      template_file: ./assets/templates/connect_notes/leader.j2   # Jinja2 template for the connection note
+      template_type: jinja                                        # Options: static | jinja | ai_prompt
 
   # ------------------------------------------------------------------
-  # 3. WAIT_FOR_CONNECTION
+  # 3. CONDITION: Wait until the person accepts the connection
+  #     Will poll every `check_interval` until `timeout` is reached
+  #     If timeout → skip to next profile (or fail, depending on engine)
   # ------------------------------------------------------------------
-  - action: linkedin.actions.profile.is_connection_accepted
-    step_type: condition
-    timeout: 14d
-    check_interval: 6h
+  - step_type: condition
+    handler: linkedin.actions.connections.is_connection_accepted # Function must return True/False
+    condition:
+      timeout: 14d                                                  # Max wait time (14 days is LinkedIn's sweet spot)
+      check_interval: 6h                                            # How often to check (6 hours = safe & respectful)
 
   # ------------------------------------------------------------------
-  # 5. SEND_MESSAGE (follow‑up after the connection is accepted)
-  # This step only runs if the 'wait_for_connection' step succeeds.
-  # Similar to connect note, supports template types.
-  # Example: For ai_prompt, renders './templates/prompts/followup_prompt.j2' with context, sends to LLM, and uses output as message.
+  # 4. ACTION: Send the follow-up message (only if accepted)
   # ------------------------------------------------------------------
-  - action: linkedin.actions.message.send_message
-    template_type: ai_prompt
-    template_file: ./assets/templates/prompts/followup_prompt.j2
+  - step_type: action
+    handler: linkedin.actions.message.send_message                # Your message sender
+    action:
+      template_file: ./assets/templates/prompts/followup_prompt.j2 # Can be a prompt sent to LLM first
+      template_type: ai_prompt                                      # static | jinja | ai_prompt (LLM-generated message)
 
-# --------------------------------------------------------------------
-# GLOBAL SETTINGS (apply to the whole campaign run)
-# --------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# GLOBAL SETTINGS (applied to the entire campaign run)
+# ----------------------------------------------------------------------
 settings:
   limits:
-    # LinkedIn daily caps – adjust to stay under the platform limits.
-    # Values are **per account**; the scheduler respects them across runs.
-    # Example: Limits to 50 connections and 20 messages per day to avoid detection.
-    daily_connections: 50             # Max connection requests per day
-    daily_messages: 20                # Max follow‑up messages per day
+    # Stay under LinkedIn's aggressive detection thresholds (2025 values)
+    daily_connections: 50       # Max new invites per day per account
+    daily_messages: 20          # Max follow-up messages per day
 
   delays:
-    # Human‑like random delays between individual actions.
-    # Example: Random wait between 5-15 seconds between actions to mimic human behavior.
-    delay_min: 5                      # Minimum seconds to wait (int)
-    delay_max: 15                     # Maximum seconds to wait (int)
+    # Random human-like delays between actions (in seconds)
+    delay_min: 5
+    delay_max: 15
+
+# ----------------------------------------------------------------------
+# Tips for safe scaling:
+# - Start with 30–40 connections/day if account is new/warm
+# - Never exceed 80 connections + 30 messages on aged accounts
+# - Always use high-quality residential proxies + browser fingerprint spoofing
+# ----------------------------------------------------------------------
