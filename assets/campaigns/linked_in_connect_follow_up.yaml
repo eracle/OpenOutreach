@@ -42,10 +42,8 @@ steps:
   # If no note_template is provided, sends request without a note.
   # ------------------------------------------------------------------
   - action: linkedin.actions.connect.connect
-    search_method: emulate_human  # Navigation method: 'emulate_human' (simulate search) or 'direct' (go straight to URL)
     note_template: ./assets/templates/connect_notes/leader.j2  # Path to the template file for the connection note (optional)
     template_type: jinja          # Type of template: 'static' (plain text), 'jinja' (Jinja2 rendering), 'ai_prompt' (Jinja2 + LLM generation)
-    ai_model: general             # LLM model to use if template_type is 'ai_prompt' (e.g., 'general', 'gpt-4', etc.; required for ai_prompt)
 
   # ------------------------------------------------------------------
   # 4. WAIT_FOR_CONNECTION
@@ -72,7 +70,6 @@ steps:
   - action: linkedin.actions.message.send_message
     template_type: ai_prompt
     template_file: ./assets/templates/prompts/followup_prompt.j2  # Path to the template file for the message
-    ai_model: general             # LLM model for ai_prompt type
 
 # --------------------------------------------------------------------
 # GLOBAL SETTINGS (apply to the whole campaign run)

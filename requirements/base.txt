@@ -5,3 +5,7 @@ pydantic
 python-dotenv
 SQLAlchemy
 jsonpath-ng
+
+langchain
+langchain-openai
+jinja2

@@ -18,20 +18,23 @@ class ConnectionStatus(Enum):
     UNKNOWN = "unknown"
 
 
-def connect(context: Dict[str, Any], profile_data: dict, note_template, template_type= 'jinja', ):
+def connect(context: Dict[str, Any], profile: Dict[str, Any]):
     """Sends a connection request to a profile."""
 
     resources = context['resources']
 
     # Navigate to the profile
-    go_to_profile(resources, profile_data)
+    go_to_profile(resources, profile)
 
     # Render the message if a template is provided
-    message = render_template(note_template, template_type, profile_data)
+    message = render_template(context['params'].get('note_template'),
+                              context['params'].get('template_type', 'jinja'),
+                              profile
+                              )
 
     # Send the connection request
-    status = send_connection_request(resources, profile_data, message)
-    logger.info(f"Connection request for {linkedin_url} completed with status: {status.value}")
+    status = send_connection_request(resources, profile, message)
+    logger.info(f"Connection request for {profile['linkedin_url']} completed with status: {status.value}")
 
 
 def get_connection_status(
@@ -158,14 +161,17 @@ if __name__ == "__main__":
         "linkedin_url": "https://www.linkedin.com/in/williamhgates/",
         "public_id": "williamhgates",
     }
-    linkedin_url = target_profile.get("linkedin_url")
 
     # Example params from YAML (adjust as needed for testing)
-    test_params = {
-        "search_method": "emulate_human",
+    params = {
         "note_template": "./assets/templates/connect_notes/leader.j2",  # Replace with actual path
         "template_type": "jinja",  # Test with 'static', 'jinja', or 'ai_prompt'
-        "ai_model": "general"  # Only used if template_type='ai_prompt'
     }
 
-    connect(target_profile, test_params)
+    # Construct context
+    context = {
+        'resources': get_resources_with_state_management(use_state=True, force_login=False),
+        'params': params
+    }
+
+    connect(context, target_profile)

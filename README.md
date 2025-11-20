@@ -29,15 +29,14 @@ Join our Telegram group for discussions, and check the star history to see commu
 - **Campaigns**
     - [x] Definition of action sequences
     - [x] Support creation of action sequences
-    - [ ] Enable execution of action sequences
-    - [ ] Implement profile search functionality
-    - [ ] Add sending of personalized connection requests
-    - [ ] Develop follow-up message capabilities
+    - [x] Enable execution of action sequences
+    - [x] Implement profile search functionality
+    - [x] Add sending of personalized connection requests
+    - [x] Develop follow-up message capabilities
     - [x] Configure campaigns using YAML files
 
 - **Future Planning/Scheduling**
     - [x] Implement time-based action queuing
-    - [ ] Set up drip campaigns
     - [x] Add support for recurring tasks
     - [x] Use async libraries for scheduling
     - [x] Add persistence mechanisms for resuming interrupted sessions
@@ -50,7 +49,7 @@ Join our Telegram group for discussions, and check the star history to see commu
     - [ ] Track metrics in the database
 
 - **Personalized Messages with AI**
-    - [ ] Integrate open AI models
+    - [x] Integrate open AI models
     - [x] Scrape profile data for personalization
     - [ ] Generate customized messages based on profile data
 

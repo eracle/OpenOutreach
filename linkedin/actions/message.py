@@ -1,12 +1,13 @@
 # linkedin/actions/message.py
 import logging
 from enum import Enum
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
+from linkedin.actions.connect import get_connection_status, ConnectionStatus
 from linkedin.actions.login import PlaywrightResources, get_resources_with_state_management
 from linkedin.actions.navigation import go_to_profile
 from linkedin.actions.utils import wait
-from ..actions.connect import get_connection_status, ConnectionStatus
+from ..template_renderer import render_template
 
 logger = logging.getLogger(__name__)
 
@@ -17,20 +18,20 @@ class MessageStatus(Enum):
     UNKNOWN = "unknown"
 
 
-def send_message(context: Dict[str, Any], profile_data: dict):
+def send_message(context: Dict[str, Any], profile: Dict[str, Any]):
     """Sends a message to a profile."""
 
     resources = context['resources']
 
     # Navigate to the profile
-    go_to_profile(resources, profile_data)
+    go_to_profile(resources, profile)
 
-    # Hardcoded message for now
-    message = "Hello, this is a test message."
+    # Render the message
+    message = render_template(context['params']['template_type'], context['params']['template_file'], profile)
 
     # Send the message
-    status = send_message_to_profile(resources, profile_data, message)
-    logger.info(f"Message for {profile_data['linkedin_url']} completed with status: {status.value}")
+    status = send_message_to_profile(resources, profile, message)
+    logger.info(f"Message for {profile['linkedin_url']} completed with status: {status.value}")
 
 
 def get_messaging_availability(
@@ -119,9 +120,18 @@ if __name__ == "__main__":
         "linkedin_url": "https://www.linkedin.com/in/williamhgates/",
         "public_id": "williamhgates",
     }
-    context = dict(
-        resources=get_resources_with_state_management(use_state=True, force_login=False)
-    )
 
-    # Or without context
+    # Example params from YAML (adjust as needed for testing)
+    params = {
+        "template_file": "./assets/templates/prompts/followup_prompt.j2",  # Replace with actual path
+        "template_type": "ai_prompt",
+
+    }
+
+    # Construct context
+    context = {
+        'resources': get_resources_with_state_management(use_state=True, force_login=False),
+        'params': params
+    }
+
     send_message(context, target_profile)

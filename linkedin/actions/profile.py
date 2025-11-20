@@ -32,7 +32,7 @@ if __name__ == "__main__":
     resources = get_resources_with_state_management(use_state=True, force_login=False)
     context = dict(resources=resources)
 
-    linkedin_url = "https://www.linkedin.com/in/ylenia-chiarvesio-59122844/"
+    linkedin_url = "https://www.linkedin.com/in/williamhgates/"
 
     profile = get_profile_info(context, linkedin_url)
 

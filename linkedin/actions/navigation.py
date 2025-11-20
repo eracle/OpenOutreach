@@ -9,6 +9,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 from linkedin.actions.login import PlaywrightResources, get_resources_with_state_management
 from linkedin.actions.utils import wait
 from linkedin.api.client import PlaywrightLinkedinAPI, AuthenticationError
+from linkedin.api.logging import log_profile
 from linkedin.database import db_manager, save_profile, get_profile as get_profile_from_db
 
 logger = logging.getLogger(__name__)
@@ -16,11 +17,6 @@ logger = logging.getLogger(__name__)
 
 class ProfileNotFoundInSearchError(Exception):
     """Custom exception raised when a profile cannot be found via search."""
-    pass
-
-
-def log_profile(profile_data: Dict[str, Any], get_profile_json: Dict[str, Any]):
-    """Logs the scraping of a profile. Skeleton function."""
     pass
 
 
@@ -105,11 +101,11 @@ def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str):
         logger.info(f"Pausing for {delay:.2f} seconds before fetching profile: {clean_url}")
         time.sleep(delay)
 
-        profile_data, get_profile_json = api.get_profile(profile_url=clean_url)
-        if profile_data:
-            save_profile(session, profile_data, clean_url)
-            log_profile(profile_data, get_profile_json)
-            logger.info(f"Successfully scraped and saved profile: {profile_data['full_name']}")
+        profile, get_profile_json = api.get_profile(profile_url=clean_url)
+        if profile:
+            save_profile(session, profile, clean_url)
+            log_profile(profile, get_profile_json)
+            logger.info(f"Successfully scraped and saved profile: {profile['full_name']}")
         else:
             logger.warning(f"Could not retrieve data for profile: {clean_url}")
     except AuthenticationError:
@@ -177,15 +173,15 @@ def _paginate_to_next_page(resources: PlaywrightResources, page_num: int):
 
 def simulate_human_search(
         resources: PlaywrightResources,
-        profile_data: Dict[str, Any]
+        profile: Dict[str, Any]
 ):
     """
     Simulates a search, scrapes all profiles from results, and navigates to the target.
     """
-    full_name = profile_data.get("full_name")
-    linkedin_id = profile_data.get("public_id")
+    full_name = profile.get("full_name")
+    linkedin_id = profile.get("public_id")
     if not full_name or not linkedin_id:
-        raise ValueError("profile_data must contain 'full_name' and 'public_id'")
+        raise ValueError("profile must contain 'full_name' and 'public_id'")
 
     logger.info(f"Starting search for '{full_name}' (ID: {linkedin_id})")
     _initiate_search(resources, full_name)
@@ -218,18 +214,17 @@ def simulate_human_search(
 
 def go_to_profile(
         resources: PlaywrightResources,
-        profile_data: Dict[str, Any],
+        profile: Dict[str, Any],
 ):
     """
     Orchestrates navigating to the profile, using simulated search with fallback to direct URL.
     If direct is True, navigates directly to the profile URL without attempting search.
     """
-    linkedin_url = profile_data.get("linkedin_url")
-    linkedin_id = profile_data.get("public_id")
+    linkedin_url = profile.get("linkedin_url")
+    linkedin_id = profile.get("public_id")
 
     try:
-        raise Exception()
-        simulate_human_search(resources, profile_data)
+        simulate_human_search(resources, profile)
     except Exception as e:
         logger.warning(f"Simulated search failed: {e}. Falling back to direct navigation.")
         navigate_and_verify(

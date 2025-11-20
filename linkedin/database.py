@@ -48,13 +48,13 @@ class DatabaseManager:
 db_manager = DatabaseManager()
 
 
-def save_profile(session, profile_data: Dict[str, Any], linkedin_url: str):
+def save_profile(session, profile: Dict[str, Any], linkedin_url: str):
     """
     Saves profile JSON data to the database.
     """
     db_profile = session.query(DbProfile).filter_by(linkedin_url=linkedin_url).first()
     if db_profile:
-        db_profile.data = profile_data
+        db_profile.data = profile
     else:
         db_profile = DbProfile(linkedin_url=linkedin_url, data=profile_data)
         session.add(db_profile)

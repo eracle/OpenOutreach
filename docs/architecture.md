@@ -137,7 +137,6 @@ Sends a connection request to a profile.
 | :--- | :--- | :--- | :--- |
 | `note_template` | string | Path to the template file for the connection note. | (none) |
 | `template_type` | string | The type of template to use. Can be `jinja` or `ai_prompt`. | `jinja` |
-| `ai_model` | string | The AI model to use for generating the connection note (only if `template_type` is `ai_prompt`). | (none) |
 
 ### `is_connection_accepted`
 
