@@ -36,12 +36,12 @@ def playwright_login(resources):
     logger.debug("Typing email")
     username_field = get_by_xpath(resources, '//*[@id="username"]')
     username_field.click()
-    username_field.type(LINKEDIN_EMAIL)
+    username_field.type(LINKEDIN_EMAIL, delay=150)
 
     logger.debug("Typing password")
     password_field = get_by_xpath(resources, '//*[@id="password"]')
     password_field.click()
-    password_field.type(LINKEDIN_PASSWORD)
+    password_field.type(LINKEDIN_PASSWORD, delay=150)
 
     logger.debug("Clicking submit")
     with resources.page.expect_navigation():

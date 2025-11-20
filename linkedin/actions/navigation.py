@@ -19,7 +19,7 @@ class ProfileNotFoundInSearchError(Exception):
     pass
 
 
-def log_profile(profile_data: Dict[str, Any]):
+def log_profile(profile_data: Dict[str, Any], get_profile_json: Dict[str, Any]):
     """Logs the scraping of a profile. Skeleton function."""
     pass
 
@@ -69,7 +69,7 @@ def _initiate_search(resources: PlaywrightResources, full_name: str):
     search_bar_selector = "//input[contains(@placeholder, 'Search')]"
     search_bar = page.locator(search_bar_selector)
     search_bar.click()
-    search_bar.type(full_name)
+    search_bar.type(full_name, delay=150)
 
     navigate_and_verify(
         resources,
@@ -101,15 +101,15 @@ def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str):
     session = db_manager.get_session()
     try:
         # Introduce a random delay before fetching the profile
-        delay = random.uniform(2, 5)
+        delay = random.uniform(1, 3)
         logger.info(f"Pausing for {delay:.2f} seconds before fetching profile: {clean_url}")
         time.sleep(delay)
 
-        profile_data = api.get_profile(profile_url=clean_url)
+        profile_data, get_profile_json = api.get_profile(profile_url=clean_url)
         if profile_data:
             save_profile(session, profile_data, clean_url)
-            log_profile(profile_data)
-            logger.info(f"Successfully scraped and saved profile: {clean_url}")
+            log_profile(profile_data, get_profile_json)
+            logger.info(f"Successfully scraped and saved profile: {profile_data['full_name']}")
         else:
             logger.warning(f"Could not retrieve data for profile: {clean_url}")
     except AuthenticationError:
@@ -228,6 +228,7 @@ def go_to_profile(
     linkedin_id = profile_data.get("public_id")
 
     try:
+        raise Exception()
         simulate_human_search(resources, profile_data)
     except Exception as e:
         logger.warning(f"Simulated search failed: {e}. Falling back to direct navigation.")

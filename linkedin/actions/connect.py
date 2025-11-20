@@ -18,21 +18,16 @@ class ConnectionStatus(Enum):
     UNKNOWN = "unknown"
 
 
-def connect(profile_data: dict, params: Dict[str, Any]):
+def connect(context: Dict[str, Any], profile_data: dict, note_template, template_type= 'jinja', ):
     """Sends a connection request to a profile."""
-    note_template = params.get('note_template')
-    template_type = params.get('template_type', 'jinja')  # Default to jinja if not specified in YAML
-    ai_model = params.get('ai_model') if template_type == 'ai_prompt' else None
 
-    resources = get_resources_with_state_management(use_state=True, force_login=False)
+    resources = context['resources']
 
     # Navigate to the profile
     go_to_profile(resources, profile_data)
 
     # Render the message if a template is provided
-    message = ""
-    if note_template:
-        message = render_template(note_template, template_type, profile_data, ai_model)
+    message = render_template(note_template, template_type, profile_data)
 
     # Send the connection request
     status = send_connection_request(resources, profile_data, message)
@@ -107,7 +102,7 @@ def _perform_send_invitation(
 
         # Locate the textarea and type the message
         message_locator = 'textarea[name*="message"]:visible'
-        resources.page.locator(message_locator).first.type(message)
+        resources.page.locator(message_locator).first.type(message, delay=150)
 
         # Wait for stability
         wait(resources)  # Random sleep

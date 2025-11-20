@@ -1,31 +1,40 @@
 # linkedin/actions/profile.py
-from urllib.parse import urlparse
+import logging
+from typing import Dict, Any
 
-from linkedin.actions.login import build_playwright
+from linkedin.actions.login import get_resources_with_state_management
 from ..api.client import PlaywrightLinkedinAPI
 
+logger = logging.getLogger(__name__)
 
-def get_profile_info(playwright_linkedin, linkedin_url: str):
+
+def get_profile_info(context: Dict[str, Any], linkedin_url: str):
     """
     Retrieves profile information via an API call.
     """
-    public_id = urlparse(linkedin_url).path.split('/')[2]
-    profile_dict = None  # get_profile_data(playwright_linkedin=playwright_linkedin, public_id=public_id)
+
+    resources = context['resources']
+    linkedin_api = PlaywrightLinkedinAPI(resources=resources)
+
+    profile_dict, get_profile_json = linkedin_api.get_profile(profile_url=linkedin_url)
     return profile_dict
 
 
 if __name__ == "__main__":
-    # Build the page with login
-    resources = build_playwright(login=True)
+    # Forcefully reset and configure logging to ensure reliability
+    root_logger = logging.getLogger()
+    root_logger.handlers = []  # Clear any existing handlers to avoid conflicts
+    logging.basicConfig(
+        level=logging.DEBUG,  # Set to DEBUG for more logs; change to INFO if too verbose
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
 
-    # Wait a bit after login to observe
-    resources.page.wait_for_timeout(5000)
+    resources = get_resources_with_state_management(use_state=True, force_login=False)
+    context = dict(resources=resources)
 
-    playwright_linkedin_api = PlaywrightLinkedinAPI(resources=resources)
+    linkedin_url = "https://www.linkedin.com/in/ylenia-chiarvesio-59122844/"
 
-    public_id = 'eracle'
-
-    profile = playwright_linkedin_api.get_profile(public_id=public_id)
+    profile = get_profile_info(context, linkedin_url)
 
     from pprint import pprint
 
