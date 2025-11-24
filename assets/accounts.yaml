@@ -1,0 +1,5 @@
+# assets/accounts.yaml
+accounts:
+  eracle:
+    active: true
+    vault_key: eracle
