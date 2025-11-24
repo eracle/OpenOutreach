@@ -1,4 +1,4 @@
-# linkedin/login.py # noqa
+# linkedin/navigation/login.py # noqa
 
 import logging
 import os
@@ -7,7 +7,7 @@ from collections import namedtuple
 from playwright.sync_api import TimeoutError, sync_playwright
 from playwright_stealth import Stealth  # Updated for version 2.0.0 API
 
-from ..conf import LINKEDIN_EMAIL, LINKEDIN_PASSWORD
+from ..conf import get_account_config   # ← only new import
 
 logger = logging.getLogger(__name__)
 """
@@ -20,8 +20,8 @@ LINKEDIN_FEED_URL = "https://www.linkedin.com/feed/"
 GLOBAL_NAV_XPATH = '//div[starts-with(@id, "global-nav")]'
 STATE_FILE = "linkedin_state.json"
 
-# Define a namedtuple to bundle the Playwright resources
-PlaywrightResources = namedtuple('PlaywrightResources', ['page', 'context', 'browser', 'playwright'])
+# FIXED: added 'handle' field so we can access it inside playwright_login()
+PlaywrightResources = namedtuple('PlaywrightResources', ['page', 'context', 'browser', 'playwright', 'handle'])
 
 
 def playwright_login(resources):
@@ -30,18 +30,22 @@ def playwright_login(resources):
     :param resources: The PlaywrightResources namedtuple.
     :return: Nothing
     """
+    config = get_account_config(resources.handle)   # ← now works
+    username = config["username"]
+    password = config["password"]
+
     resources.page.goto(LINKEDIN_LOGIN_URL)
     resources.page.wait_for_load_state('load')
 
     logger.debug("Typing email")
     username_field = get_by_xpath(resources, '//*[@id="username"]')
     username_field.click()
-    username_field.type(LINKEDIN_EMAIL, delay=150)
+    username_field.type(username, delay=150)
 
     logger.debug("Typing password")
     password_field = get_by_xpath(resources, '//*[@id="password"]')
     password_field.click()
-    password_field.type(LINKEDIN_PASSWORD, delay=150)
+    password_field.type(password, delay=150)
 
     logger.debug("Clicking submit")
     with resources.page.expect_navigation():
@@ -113,11 +117,11 @@ def build_playwright(storage_state=None):
     stealth = Stealth()
     stealth.apply_stealth_sync(context)  # Apply stealth to the context for sync API
     page = context.new_page()
-    resources = PlaywrightResources(page=page, context=context, browser=browser, playwright=playwright)
+    resources = PlaywrightResources(page=page, context=context, browser=browser, playwright=playwright, handle=None)
     return resources
 
 
-def get_resources_with_state_management(use_state=True, force_login=False):
+def get_resources_with_state_management(handle: str, use_state=True, force_login=False):
     """
     Gets Playwright resources with state management: loads from local file if present and valid, otherwise logs in and saves state.
     If state is loaded and valid (logged in), skips login. Always navigates to feed page and waits for load.
@@ -125,11 +129,17 @@ def get_resources_with_state_management(use_state=True, force_login=False):
     :param force_login: Force login even if state exists (default: False).
     :return: The PlaywrightResources.
     """
-    if use_state and os.path.exists(STATE_FILE) and not force_login:
-        logger.info(f"Loading state from {STATE_FILE}.")
-        resources = build_playwright(storage_state=STATE_FILE)
+    config = get_account_config(handle)
+    state_file = config["cookie_file"]
+
+    if use_state and state_file.exists() and not force_login:
+        logger.info(f"Loading state from {state_file}.")
+        resources = build_playwright(storage_state=str(state_file))
     else:
         resources = build_playwright()
+
+    # Attach the handle so playwright_login can read credentials
+    resources = resources._replace(handle=handle)
 
     # Navigate to feed to check login status
     resources.page.goto(LINKEDIN_FEED_URL)
@@ -150,8 +160,9 @@ def get_resources_with_state_management(use_state=True, force_login=False):
         logger.error("Login failed even after attempt.")
         # You may want to raise an exception or handle failure here
     elif use_state and did_login:
-        resources.context.storage_state(path=STATE_FILE)
-        logger.info(f"State saved to {STATE_FILE}.")
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        resources.context.storage_state(path=str(state_file))
+        logger.info(f"State saved to {state_file}.")
 
     return resources
 
@@ -160,8 +171,14 @@ if __name__ == "__main__":
     # Set up basic logging for testing
     logging.basicConfig(level=logging.DEBUG)
 
+    import sys
+    if len(sys.argv) != 2:
+        print("Usage: python -m linkedin.navigation.login <handle>")
+        sys.exit(1)
+    handle = sys.argv[1]
+
     # Get the resources with state management
-    resources = get_resources_with_state_management(use_state=True, force_login=False)
+    resources = get_resources_with_state_management(handle, use_state=True, force_login=False)
 
     # Wait a bit after setup to observe
     resources.page.wait_for_load_state('load')

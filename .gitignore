@@ -8,3 +8,4 @@ __pycache__/
 
 /linkedin_state.json
 assets/accounts.secrets.yaml
+assets/cookies/

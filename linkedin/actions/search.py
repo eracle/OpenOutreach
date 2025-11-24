@@ -213,14 +213,21 @@ if __name__ == "__main__":
         "public_id": "williamhgates",
     }
 
+    # CHANGE 1: accept handle from command line
+    import sys
+    if len(sys.argv) != 2:
+        print("Usage: python -m linkedin.actions.search <handle>")
+        sys.exit(1)
+    handle = sys.argv[1]
+
     resources = None
     try:
         # Set up database
         db_manager.init_db('sqlite:///linkedin.db')
         db_manager.create_tables()
 
-        # Get resources with state management
-        resources = get_resources_with_state_management(use_state=True, force_login=False)
+        # CHANGE 2: pass the handle here
+        resources = get_resources_with_state_management(handle, use_state=True, force_login=False)
 
         # Wait a bit after setup to observe
         wait(resources)

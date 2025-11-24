@@ -108,6 +108,12 @@ if __name__ == "__main__":
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
+    import sys
+    if len(sys.argv) != 2:
+        print("Usage: python -m linkedin.actions.message <handle>")
+        sys.exit(1)
+    handle = sys.argv[1]
+
     # Example profile data for testing
     target_profile = {
         "full_name": "Bill Gates",
@@ -124,7 +130,7 @@ if __name__ == "__main__":
 
     # Construct context
     context = {
-        'resources': get_resources_with_state_management(use_state=True, force_login=False),
+        'resources': get_resources_with_state_management(handle, use_state=True, force_login=False),
         'params': params
     }
 
