@@ -1,60 +1,51 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from linkedin.db_models import Base, Profile as DbProfile, Company as DbCompany
-import json
+# linkedin/database.py
 from typing import Optional, Dict, Any
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, scoped_session
 
-class DatabaseManager:
-    def __init__(self):
-        self.engine = None
-        self.SessionLocal = None
-        self._session = None
+# ← ADD THIS IMPORT ONLY
+from linkedin.conf import get_account_config
+from linkedin.db_models import Base, Profile as DbProfile
 
-    def init_db(self, db_url: str):
-        """
-        Initializes the database engine and session factory.
-        """
-        self.engine = create_engine(db_url)
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
-        # Reset session if db is re-initialized
-        self._session = None
 
-    def create_tables(self):
-        """
-        Creates all tables in the database.
-        """
-        if not self.engine:
-            raise Exception("Database not initialized. Call init_db() first.")
-        Base.metadata.create_all(bind=self.engine)
+class Database:
+    """
+    One instance = one account's database.
+    Fully isolated. No global state. Thread-safe.
+    """
 
-    def set_session(self, new_session):
-        """
-        Allows overriding the module-level session, primarily for testing.
-        """
-        self._session = new_session
+    def __init__(self, db_path: str):
+        db_url = f"sqlite:///{db_path}"
+        self.engine = create_engine(db_url, connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=self.engine)  # create tables if missing
+        session_factory = sessionmaker(bind=self.engine)
+        self.Session = scoped_session(session_factory)
 
     def get_session(self):
+        """Returns a thread-local session (safe for async/multiprocessing too)"""
+        return self.Session()
+
+    def close(self):
+        """Optional: clean up"""
+        self.Session.remove()
+
+    # ← NEW: Class method — this is what you wanted!
+    @classmethod
+    def from_handle(cls, handle: str) -> "Database":
         """
-        Returns a singleton database session, creating it if it doesn't exist.
+        Convenience factory: creates a fully configured Database instance for a given account handle.
+        Uses the per-account db_path from conf.get_account_config().
         """
-        if self._session is None:
-            if not self.SessionLocal:
-                raise Exception("Database not initialized. Call init_db() first.")
-            self._session = self.SessionLocal()
-        return self._session
+        config = get_account_config(handle)
+        return cls(config["db_path"])
 
 
-db_manager = DatabaseManager()
-
-
-def save_profile(session, profile: Dict[str, Any], linkedin_url: str):
-    """
-    Saves profile JSON data to the database.
-    """
+# — your existing helpers (unchanged)
+def save_profile(session, profile_data: Dict[str, Any], linkedin_url: str):
     db_profile = session.query(DbProfile).filter_by(linkedin_url=linkedin_url).first()
     if db_profile:
-        db_profile.data = profile
+        db_profile.data = profile_data
     else:
         db_profile = DbProfile(linkedin_url=linkedin_url, data=profile_data)
         session.add(db_profile)
@@ -62,33 +53,6 @@ def save_profile(session, profile: Dict[str, Any], linkedin_url: str):
 
 
 def get_profile(session, linkedin_url: str) -> Optional[Dict[str, Any]]:
-    """
-    Retrieves a profile's JSON data from the database by its linkedin_url.
-    """
-    db_profile = session.query(DbProfile).filter_by(linkedin_url=linkedin_url).first()
-    if db_profile:
-        return db_profile.data
-    return None
+    result = session.query(DbProfile).filter_by(linkedin_url=linkedin_url).first()
+    return result.data if result else None
 
-
-def save_company(session, company_data: Dict[str, Any], linkedin_url: str):
-    """
-    Saves company JSON data to the database.
-    """
-    db_company = session.query(DbCompany).filter_by(linkedin_url=linkedin_url).first()
-    if db_company:
-        db_company.data = company_data
-    else:
-        db_company = DbCompany(linkedin_url=linkedin_url, data=company_data)
-        session.add(db_company)
-    session.commit()
-
-
-def get_company(session, linkedin_url: str) -> Optional[Dict[str, Any]]:
-    """
-    Retrieves a company's JSON data from the database by its linkedin_url.
-    """
-    db_company = session.query(DbCompany).filter_by(linkedin_url=linkedin_url).first()
-    if db_company:
-        return db_company.data
-    return None

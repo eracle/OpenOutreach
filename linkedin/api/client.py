@@ -22,8 +22,11 @@ class PlaywrightLinkedinAPI:
         if not resources:
             raise ValueError("Playwright resources must be provided.")
 
-        # Unpack Playwright resources
-        self.page, self.context, self.browser, self.playwright = resources  # Assuming sync API
+        # This is safe even if PlaywrightResources changes order or adds fields
+        self.page = resources.page
+        self.context = resources.context
+        self.browser = resources.browser
+        self.playwright = resources.playwright
         logger.info("Using provided Playwright resources for requests.")
 
         # Extract cookies from the browser context to get JSESSIONID for csrf-token

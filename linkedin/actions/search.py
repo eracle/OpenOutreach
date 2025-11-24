@@ -8,7 +8,7 @@ from urllib.parse import urlparse, parse_qs, urlencode
 
 from linkedin.api.client import PlaywrightLinkedinAPI
 from linkedin.api.logging import log_profile
-from linkedin.database import db_manager, save_profile, get_profile as get_profile_from_db
+from linkedin.database import Database, save_profile, get_profile  # ← new imports
 from linkedin.navigation.errors import ProfileNotFoundInSearchError, AuthenticationError
 from linkedin.navigation.login import PlaywrightResources, get_resources_with_state_management
 from linkedin.navigation.utils import wait, navigate_and_verify
@@ -16,16 +16,15 @@ from linkedin.navigation.utils import wait, navigate_and_verify
 logger = logging.getLogger(__name__)
 
 
-def search_to_profile(resources: PlaywrightResources, profile: Dict[str, Any]):
+def search_to_profile(resources: PlaywrightResources, profile: Dict[str, Any], session):
     """
     Orchestrates navigating to the profile, using simulated search with fallback to direct URL.
-    If direct is True, navigates directly to the profile URL without attempting search.
     """
     linkedin_url = profile.get("linkedin_url")
     linkedin_id = profile.get("public_id")
 
     try:
-        _simulate_human_search(resources, profile)
+        _simulate_human_search(resources, profile, session)
     except Exception as e:
         logger.warning(f"Simulated search failed: {e}. Falling back to direct navigation.")
         navigate_and_verify(
@@ -76,10 +75,9 @@ def _initiate_search(resources: PlaywrightResources, full_name: str):
     )
 
 
-def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str):
+def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str, session):
     """Fetches profile data using the API and saves it to the database."""
     logger.info(f"Scraping new profile: {clean_url}")
-    session = db_manager.get_session()
     try:
         # Introduce a random delay before fetching the profile
         delay = random.uniform(1, 3)
@@ -94,24 +92,23 @@ def _fetch_and_save_profile(api: PlaywrightLinkedinAPI, clean_url: str):
         else:
             logger.warning(f"Could not retrieve data for profile: {clean_url}")
     except AuthenticationError:
-        raise  # Re-raise to be handled by the page processing loop
+        raise
     except Exception as e:
         logger.error(f"Failed to scrape profile {clean_url}: {e}")
 
 
-def _scrape_profile_if_new(api: PlaywrightLinkedinAPI, profile_url: str):
+def _scrape_profile_if_new(api: PlaywrightLinkedinAPI, profile_url: str, session):
     """Checks if a profile is in the database and scrapes it if it's new."""
-    session = db_manager.get_session()
     parsed_url = urlparse(profile_url)
     clean_url = parsed_url._replace(query="", fragment="").geturl()
 
-    if not get_profile_from_db(session, clean_url):
-        _fetch_and_save_profile(api, clean_url)
+    if not get_profile(session, clean_url):
+        _fetch_and_save_profile(api, clean_url, session)
     else:
         logger.info(f"Profile already in database: {clean_url}")
 
 
-def _process_search_results_page(resources: PlaywrightResources, target_linkedin_id: str):
+def _process_search_results_page(resources: PlaywrightResources, target_linkedin_id: str, session):
     """Processes a page of search results, scraping profiles and finding the target."""
     page = resources.page
     link_locators = page.locator('a[href*="/in/"]').all()
@@ -126,7 +123,7 @@ def _process_search_results_page(resources: PlaywrightResources, target_linkedin
         if href:
             if scraping_this_page_enabled:
                 try:
-                    _scrape_profile_if_new(api, href)
+                    _scrape_profile_if_new(api, href, session)
                 except AuthenticationError:
                     logger.warning("Authentication error on this page. Disabling further scraping for this page only.")
                     scraping_this_page_enabled = False
@@ -158,7 +155,8 @@ def _paginate_to_next_page(resources: PlaywrightResources, page_num: int):
 
 def _simulate_human_search(
         resources: PlaywrightResources,
-        profile: Dict[str, Any]
+        profile: Dict[str, Any],
+        session
 ):
     """
     Simulates a search, scrapes all profiles from results, and navigates to the target.
@@ -175,7 +173,7 @@ def _simulate_human_search(
     for page_num in range(1, max_pages + 1):
         logger.info(f"Scanning search results on page {page_num}")
 
-        target_link = _process_search_results_page(resources, linkedin_id)
+        target_link = _process_search_results_page(resources, linkedin_id, session)
 
         if target_link:
             logger.info(f"Found target profile: {target_link.get_attribute('href')}")
@@ -202,7 +200,7 @@ if __name__ == "__main__":
     root_logger = logging.getLogger()
     root_logger.handlers = []  # Clear any existing handlers to avoid conflicts
     logging.basicConfig(
-        level=logging.DEBUG,  # Set to DEBUG for more logs; change to INFO if too verbose
+        level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
@@ -213,36 +211,31 @@ if __name__ == "__main__":
         "public_id": "williamhgates",
     }
 
-    # CHANGE 1: accept handle from command line
     import sys
+
     if len(sys.argv) != 2:
         print("Usage: python -m linkedin.actions.search <handle>")
         sys.exit(1)
     handle = sys.argv[1]
 
+    # ← NEW: One line, fully isolated DB for this account
+    db = Database.from_handle(handle)  # creates tables automatically
+    session = db.get_session()
+
     resources = None
-    try:
-        # Set up database
-        db_manager.init_db('sqlite:///linkedin.db')
-        db_manager.create_tables()
 
-        # CHANGE 2: pass the handle here
-        resources = get_resources_with_state_management(handle, use_state=True, force_login=False)
+    resources = get_resources_with_state_management(handle, use_state=True, force_login=False)
+    wait(resources)
 
-        # Wait a bit after setup to observe
-        wait(resources)
+    # Pass session down
+    search_to_profile(resources, target_profile, session)
 
-        # Test the end-to-end function
-        search_to_profile(resources, target_profile)
+    logger.info("go_to_profile function executed successfully.")
+    logger.info(f"Final URL: {resources.page.url}")
 
-        logger.info("go_to_profile function executed successfully.")
-        logger.info(f"Final URL: {resources.page.url}")
-
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during the test: {e}")
-    finally:
-        if resources:
-            logger.info("Cleaning up Playwright resources.")
-            resources.context.close()
-            resources.browser.close()
-            resources.playwright.stop()
+    if resources:
+        logger.info("Cleaning up Playwright resources.")
+        resources.context.close()
+        resources.browser.close()
+        resources.playwright.stop()
+    db.close()  # clean up thread-local session
