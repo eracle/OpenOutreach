@@ -13,10 +13,8 @@ logger = logging.getLogger(__name__)
 def send_connection_request(
         automation,
         profile: Dict[str, Any],
-        *,
         template_file: Optional[str] = None,
         template_type: str = "jinja",
-        message: Optional[str] = None,
 ) -> ConnectionStatus:
     """
     High-level action: sends a connection request using the current automation context.
@@ -44,9 +42,9 @@ def send_connection_request(
     search_profile(automation, profile)
 
     # 2. Render message if needed
-    if message is None and template_file:
+    if template_file:
         message = render_template(template_file, template_type, profile)
-    elif message is None:
+    else:
         message = ""
 
     # 3. Check current status
@@ -141,7 +139,6 @@ if __name__ == "__main__":
         campaign_name=campaign_name,
         csv_hash=csv_hash,
         input_csv=input_csv,
-        output_csv_template="output/{campaign_name}_{csv_hash}.csv",
     )
 
     # Basic logging

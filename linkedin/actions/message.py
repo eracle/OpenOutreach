@@ -104,7 +104,7 @@ if __name__ == "__main__":
         campaign_name="test_message",
         csv_hash="debug",
         input_csv=Path("dummy.csv"),
-        output_csv_template="output/debug_{csv_hash}.csv",
+
     )
 
     target_profile = {

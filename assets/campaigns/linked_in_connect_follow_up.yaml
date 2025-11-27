@@ -54,16 +54,8 @@ steps:
 # ======================================================================
 # GLOBAL CAMPAIGN SETTINGS
 # ======================================================================
-settings:
-  # Output file — written incrementally as soon as a profile completes
-  output_csv: ./assets/output/enriched_{campaign_name}+{csv_hash}.csv
-
   # Optional: override account limits just for this campaign
   # limits:
   #   daily_connections: 45
   #   daily_messages: 20
 
-  # Optional: custom human-like delays between actions
-  # delays:
-  #   delay_min: 10
-  #   delay_max: 30

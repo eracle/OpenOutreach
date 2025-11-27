@@ -40,7 +40,6 @@ class AutomationRegistry:
             campaign_name: str,
             csv_hash: str,
             input_csv: Path,
-            output_csv_template: str = "output/{campaign_name}_{csv_hash}.csv",
     ) -> "LinkedInAutomation":
         k = cls.key(handle, campaign_name, csv_hash)
         if k not in cls._instances:
@@ -49,7 +48,6 @@ class AutomationRegistry:
                 campaign_name=campaign_name,
                 csv_hash=csv_hash,
                 input_csv=input_csv,
-                output_csv_template=output_csv_template,
             )
             logger.info(f"Created new automation singleton → {k}")
         else:
@@ -73,7 +71,6 @@ class LinkedInAutomation:
             campaign_name: str,
             csv_hash: str,
             input_csv: Path,
-            output_csv_template: str,
     ):
         self.handle = handle
         self.campaign_name = campaign_name
@@ -83,14 +80,6 @@ class LinkedInAutomation:
         self.account_cfg = get_account_config(handle)
         self._resources: Optional[PlaywrightResources] = None
         self.db = Database.from_handle(handle)
-
-        # Output CSV path (incremental write)
-        self.output_path = Path(
-            output_csv_template.format(campaign_name=campaign_name, csv_hash=csv_hash)
-        )
-        self.output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"LinkedInAutomation initialized → {self.key()} | Output → {self.output_path}")
 
     def key(self) -> str:
         return AutomationRegistry.key(self.handle, self.campaign_name, self.csv_hash)
@@ -118,7 +107,6 @@ class LinkedInAutomation:
             *,
             template_file: Optional[str] = None,
             template_type: str = "jinja",
-            message: Optional[str] = None,
     ) -> None:
         """
         Send a connection request (with optional personalized note).
@@ -128,7 +116,6 @@ class LinkedInAutomation:
             profile=profile,
             template_file=template_file,
             template_type=template_type,
-            message=message,
         )
 
     def is_connection_accepted(self, profile: Dict[str, Any]) -> bool:
@@ -157,20 +144,6 @@ class LinkedInAutomation:
         """Utility – go directly to a profile (used by multiple actions)."""
         search_profile(self, profile)
 
-    # ------------------------------------------------------------------
-    # CSV export – called automatically after final step
-    # ------------------------------------------------------------------
-    def save_profile_to_csv(self, profile: Dict[str, Any]) -> None:
-        """Append one completed profile to the output CSV (incremental)."""
-        file_exists = self.output_path.exists()
-        with open(self.output_path, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=profile.keys())
-            if not file_exists:
-                writer.writeheader()
-            writer.writerow(profile)
-
-        name = profile.get("full_name") or profile.get("linkedin_url", "Unknown")
-        logger.info(f"Profile saved to CSV → {name}")
 
     # ------------------------------------------------------------------
     # Cleanup
