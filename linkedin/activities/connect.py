@@ -32,8 +32,8 @@ def send_connection_request(
     Returns:
         Final ConnectionStatus after attempt
     """
-    from linkedin.actions.search import search_profile
-    from linkedin.actions.connections import get_connection_status
+    from linkedin.activities.search import search_profile
+    from linkedin.activities.connections import get_connection_status
 
     resources = automation.browser
     page = resources.page

@@ -2,8 +2,8 @@
 import logging
 from typing import Dict, Any, Optional
 
-from linkedin.actions.connections import get_connection_status
-from linkedin.actions.search import search_profile
+from linkedin.activities.connections import get_connection_status
+from linkedin.activities.search import search_profile
 from linkedin.navigation.enums import ConnectionStatus, MessageStatus
 from linkedin.navigation.utils import wait, PlaywrightResources
 from linkedin.templates.renderer import render_template

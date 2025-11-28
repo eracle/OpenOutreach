@@ -35,7 +35,7 @@ def get_connection_status(
 if __name__ == "__main__":
     import sys
     import logging
-    from linkedin.actions.search import search_profile
+    from linkedin.activities.search import search_profile
 
     from linkedin.account_session import AccountSessionRegistry
 
