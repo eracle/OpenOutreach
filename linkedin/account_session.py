@@ -28,11 +28,11 @@ class AccountSessionRegistry:
 
     @classmethod
     def get_or_create(
-        cls,
-        handle: str,
-        campaign_name: str,
-        csv_hash: str,
-        input_csv: Path,
+            cls,
+            handle: str,
+            campaign_name: str,
+            csv_hash: str,
+            input_csv: Path,
     ) -> "AccountSession":
         k = cls.key(handle, campaign_name, csv_hash)
         if k not in cls._instances:
@@ -59,11 +59,11 @@ class AccountSessionRegistry:
 # ======================================================================
 class AccountSession:
     def __init__(
-        self,
-        handle: str,
-        campaign_name: str,
-        csv_hash: str,
-        input_csv: Path,
+            self,
+            handle: str,
+            campaign_name: str,
+            csv_hash: str,
+            input_csv: Path,
     ):
         self.handle = handle
         self.campaign_name = campaign_name
@@ -109,3 +109,50 @@ class AccountSession:
             self.close()
         except:
             pass
+
+
+# ——————————————————————————————————————————————————————————————
+# CLI – Persistent AccountSession runner
+# ——————————————————————————————————————————————————————————————
+if __name__ == "__main__":
+    import logging
+    from pathlib import Path
+
+    logging.getLogger().handlers.clear()
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s │ %(levelname)-8s │ %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+    # ——————————————————————————————————
+    # Configuration (change these values)
+    # ——————————————————————————————————
+    HANDLE = "eracle"  # LinkedIn account handle
+    CAMPAIGN_NAME = "linked_in_connect_follow_up"  # Your campaign identifier
+    INPUT_CSV_PATH = Path("./assets/inputs/urls.csv")  # Path to your input CSV
+
+    # ——————————————————————————————————
+    # Create / reuse the singleton session
+    # ——————————————————————————————————
+
+    # Compute a stable hash of the CSV content so the same file → same session
+    csv_hash = Database.hash_file(INPUT_CSV_PATH)  # assuming Database has this helper
+    # If your Database class doesn't have it yet, you can use:
+    # csv_hash = hashlib.sha256(INPUT_CSV_PATH.read_bytes()).hexdigest()[:12]
+
+    session = AccountSessionRegistry.get_or_create(
+        handle=HANDLE,
+        campaign_name=CAMPAIGN_NAME,
+        csv_hash=csv_hash,
+        input_csv=INPUT_CSV_PATH,
+    )
+
+    print("\nLinkedIn Account Session STARTED & PERSISTENT")
+    print(f"   Account       : {session.handle}")
+    print(f"   Campaign      : {session.campaign_name}")
+    print(f"   Input CSV     : {session.input_csv}")
+    print(f"   CSV hash      : {session.csv_hash}")
+    print(f"   Session key   : {session.key()}")
+    print(f"   DB path       : {session.db.db_path}")
+    print("   Browser & DB survive crashes, reboots, Ctrl+C\n")

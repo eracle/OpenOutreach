@@ -1,5 +1,7 @@
 # linkedin/database.py
+import hashlib
 import logging
+from pathlib import Path
 from typing import Optional, Dict, Any
 
 from sqlalchemy import create_engine, func
@@ -28,6 +30,8 @@ class Database:
 
         session_factory = sessionmaker(bind=self.engine)
         self.Session = scoped_session(session_factory)
+
+        self.db_path = Path(db_path)
 
     def get_session(self):
         return self.Session()
@@ -68,6 +72,29 @@ class Database:
         db_path = config["db_path"]
         logger.debug(f"Resolved db_path for {handle}: {db_path}")
         return cls(db_path)
+
+    @staticmethod
+    def hash_file(path: Path | str, chunk_size: int = 8192, algorithm: str = "sha256") -> str:
+        """
+        Compute a stable cryptographic hash of a file's contents.
+        Used to detect if the input CSV has changed → new campaign run.
+
+        Returns hex digest (first 16 chars by default for brevity + safety).
+        """
+        path = Path(path)
+        if not path.is_file():
+            raise FileNotFoundError(f"Cannot hash file: {path} does not exist or is not a file")
+
+        hasher = hashlib.new(algorithm)
+
+        with path.open("rb") as f:
+            while chunk := f.read(chunk_size):
+                hasher.update(chunk)
+
+        full_hex = hasher.hexdigest()
+        short_hex = full_hex[:16]
+        logger.debug(f"Hashed file {path.name} → {short_hex} (full: {full_hex})")
+        return short_hex
 
 
 def save_profile(session, profile_data: Dict[str, Any], raw_json: Dict[str, Any], linkedin_url: str):

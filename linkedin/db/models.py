@@ -3,7 +3,6 @@
 import hashlib
 
 from sqlalchemy import Column, String, JSON, DateTime, Boolean
-from sqlalchemy import Index
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
@@ -28,10 +27,6 @@ class CampaignRun(Base):
 
     # Human-readable short ID (great for Temporal workflow_id and logs)
     short_id = Column(String(12), nullable=False, unique=True, index=True)
-
-    __table_args__ = (
-        Index("ix_campaign_runs_short_id", "short_id"),
-    )
 
     def __init__(self, name: str, handle: str, input_hash: str, short_id: str | None = None, **kwargs):
         super().__init__(**kwargs)
