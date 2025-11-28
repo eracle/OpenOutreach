@@ -9,13 +9,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ----------------------------------------------------------------------
-# Global OpenAI config (unchanged from your original)
+# Global OpenAI config
 # ----------------------------------------------------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
 
 # ----------------------------------------------------------------------
-# All paths are under assets/
+# Paths (all under assets/)
 # ----------------------------------------------------------------------
 ROOT_DIR = Path(__file__).parent.parent
 ASSETS_DIR = ROOT_DIR / "assets"
@@ -23,75 +23,73 @@ ASSETS_DIR = ROOT_DIR / "assets"
 COOKIES_DIR = ASSETS_DIR / "cookies"
 DATA_DIR = ASSETS_DIR / "data"
 
-# Create runtime directories
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
 # ----------------------------------------------------------------------
-# Load accounts config
+# SINGLE shared database + SINGLE secrets file
 # ----------------------------------------------------------------------
-_accounts_path = ASSETS_DIR / "accounts.yaml"
-if not _accounts_path.exists():
-    raise FileNotFoundError(f"Missing {ASSETS_DIR}/accounts.yaml")
+DB_PATH = DATA_DIR / "automation.db"
 
-with open(_accounts_path) as f:
-    _accounts_config = yaml.safe_load(f)["accounts"]
+SECRETS_PATH = ASSETS_DIR / "accounts.secrets.yaml"
 
-# Load secrets
-_secrets_path = ASSETS_DIR / "accounts.secrets.yaml"
-if not _secrets_path.exists():
+if not SECRETS_PATH.exists():
     raise FileNotFoundError(
-        f"\nMissing secrets file: {ASSETS_DIR}/accounts.secrets.yaml\n"
+        f"\nMissing config file: {SECRETS_PATH}\n"
         "→ cp assets/accounts.secrets.example.yaml assets/accounts.secrets.yaml\n"
-        "  and fill your real LinkedIn credentials (this file is .gitignore'd)\n"
+        "  and fill in your accounts (public settings + credentials)\n"
     )
-with open(_secrets_path) as f:
-    _secrets = yaml.safe_load(f).get("secrets", {})
+
+# Load everything from the single secrets file
+with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+    _raw_config = yaml.safe_load(f) or {}
+
+_accounts_config = _raw_config.get("accounts", {})
 
 
 # ----------------------------------------------------------------------
 # Public API
 # ----------------------------------------------------------------------
 def get_account_config(handle: str) -> Dict[str, Any]:
-    """One function to rule them all – returns everything needed for an account."""
+    """Return full config (public + secrets) for a handle from the single file."""
     if handle not in _accounts_config:
-        raise KeyError(f"Account '{handle}' not found in assets/accounts.yaml")
+        raise KeyError(f"Account '{handle}' not found in {SECRETS_PATH}")
 
-    base = _accounts_config[handle]
-    secret = _secrets.get(handle, {})
+    acct = _accounts_config[handle]
 
     return {
         "handle": handle,
-        "active": base.get("active", True),
-        "display_name": base.get("display_name", handle.replace("_", " ").title()),
-        "proxy": base.get("proxy"),
-        "daily_connections": base.get("daily_connections", 50),
-        "daily_messages": base.get("daily_messages", 20),
-        # Credentials
-        "username": secret.get("username"),
-        "password": secret.get("password"),
-        # Runtime paths (all under assets/)
+        "active": acct.get("active", True),
+        "display_name": acct.get("display_name", handle.replace("_", " ").title()),
+        "proxy": acct.get("proxy"),
+        "daily_connections": acct.get("daily_connections", 50),
+        "daily_messages": acct.get("daily_messages", 20),
+        # Credentials (can be missing during dev, but required in prod)
+        "username": acct.get("username"),
+        "password": acct.get("password"),
+        # Runtime paths
         "cookie_file": COOKIES_DIR / f"{handle}.json",
-        "db_path": DATA_DIR / f"linkedin_{handle}.db",
+        "db_path": DB_PATH,
     }
 
 
-def get_account_db_url(handle: str) -> str:
-    """Convenient SQLAlchemy URL for APScheduler"""
-    return f"sqlite:///{get_account_config(handle)['db_path']}"
-
-
 def list_active_accounts() -> list[str]:
-    """All accounts marked active (or default true)"""
+    """Return list of active account handles"""
     return [
-        h for h, cfg in _accounts_config.items()
+        handle for handle, cfg in _accounts_config.items()
         if cfg.get("active", True)
     ]
 
 
-# Nice debug print when running directly
+# ----------------------------------------------------------------------
+# Debug output when run directly
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
-    print("LinkedIn Automation – Active accounts:")
+    print("LinkedIn Automation – Active accounts")
+    print(f"Config file : {SECRETS_PATH}")
+    print(f"Database    : {DB_PATH}")
+    print("-" * 50)
     for handle in list_active_accounts():
         cfg = get_account_config(handle)
-        print(f"  • {handle}")
+        status = "ACTIVE" if cfg["active"] else "inactive"
+        print(f"{status} • {handle.ljust(20)}  →  {cfg['display_name']}")
