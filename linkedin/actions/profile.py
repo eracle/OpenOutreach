@@ -40,7 +40,7 @@ def enrich_profile(automation: "LinkedInAutomation", profile: Dict[str, Any]) ->
 
 if __name__ == "__main__":
     import sys
-    from linkedin.automation import AutomationRegistry
+    from linkedin.account_session import AccountSessionRegistry
 
     root_logger = logging.getLogger()
     root_logger.handlers = []
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     handle = sys.argv[1]
 
     # ← ONLY THIS BLOCK CHANGED – use registry
-    automation = AutomationRegistry.get_or_create(
+    automation = AccountSessionRegistry.get_or_create(
         handle=handle,
         campaign_name="test_profile",
         csv_hash="debug",

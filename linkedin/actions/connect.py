@@ -118,7 +118,7 @@ def _perform_send_invitation(resources, message: str):
 if __name__ == "__main__":
     import sys
     from pathlib import Path
-    from linkedin.automation import AutomationRegistry
+    from linkedin.account_session import AccountSessionRegistry
 
     if len(sys.argv) != 2:
         print("Usage: python -m linkedin.actions.connect <handle>")
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     template_file = "./assets/templates/connect_notes/leader.j2"
 
     # Create singleton (will auto-recover browser session)
-    automation = AutomationRegistry.get_or_create(
+    automation = AccountSessionRegistry.get_or_create(
         handle=handle,
         campaign_name=campaign_name,
         csv_hash=csv_hash,

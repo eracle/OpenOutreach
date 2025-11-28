@@ -180,7 +180,7 @@ def _simulate_human_search(
 if __name__ == "__main__":
     import sys
     from pathlib import Path
-    from linkedin.automation import AutomationRegistry
+    from linkedin.account_session import AccountSessionRegistry
 
     # Forcefully reset and configure logging (unchanged)
     root_logger = logging.getLogger()
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     handle = sys.argv[1]
 
     # ← ONLY THIS BLOCK CHANGED – use the registry instead of manual resources/db
-    automation = AutomationRegistry.get_or_create(
+    automation = AccountSessionRegistry.get_or_create(
         handle=handle,
         campaign_name="test_search",
         csv_hash="debug",

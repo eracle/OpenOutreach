@@ -13,7 +13,7 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import create_engine
 
-from linkedin.automation import AutomationRegistry
+from linkedin.account_session import AccountSessionRegistry
 from linkedin.campaigns import campaigns
 from linkedin.conf import DATA_DIR
 
@@ -41,10 +41,10 @@ def run_campaign_step(
     attempt: int = 1,
 ):
     """
-    Pickle-safe job function for APScheduler. Re-creates AutomationRegistry to avoid
+    Pickle-safe job function for APScheduler. Re-creates AccountSessionRegistry to avoid
     serializing unpickleable objects (e.g., Playwright sessions).
     """
-    automation = AutomationRegistry.get_or_create(
+    automation = AccountSessionRegistry.get_or_create(
         handle=handle,
         campaign_name=campaign_name,
         csv_hash=csv_hash,

@@ -37,7 +37,7 @@ if __name__ == "__main__":
     import logging
     from linkedin.actions.search import search_profile
 
-    from linkedin.automation import AutomationRegistry
+    from linkedin.account_session import AccountSessionRegistry
 
     logging.basicConfig(level=logging.INFO)
 
@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    automation = AutomationRegistry.get_or_create(
+    automation = AccountSessionRegistry.get_or_create(
         handle=handle,
         campaign_name="test_status",
         csv_hash="debug",

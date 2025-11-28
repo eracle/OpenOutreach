@@ -84,7 +84,7 @@ def send_message_to_profile(
 if __name__ == "__main__":
     import sys
     from pathlib import Path
-    from linkedin.automation import AutomationRegistry
+    from linkedin.account_session import AccountSessionRegistry
 
     root_logger = logging.getLogger()
     root_logger.handlers = []
@@ -99,7 +99,7 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    automation = AutomationRegistry.get_or_create(
+    automation = AccountSessionRegistry.get_or_create(
         handle=handle,
         campaign_name="test_message",
         csv_hash="debug",
