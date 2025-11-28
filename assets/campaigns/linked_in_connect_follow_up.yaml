@@ -9,8 +9,6 @@ steps:
     name: enrich_profile
     handler: enrich_profile
     config: {}
-    # → Returns full_name, title, company, location, about, icebreaker, etc.
-    #   All fields are available in subsequent steps
 
   # ==================================================================
   # STEP 2 → Send personalized connection request
@@ -22,9 +20,6 @@ steps:
       template_file: ./assets/templates/connect_notes/leader.j2
       template_type: jinja        # jinja | static | ai_prompt
 
-      # Available template variables (after enrich step):
-      #   {{ full_name }}, {{ first_name }}, {{ title }}, {{ company }},
-      #   {{ location }}, {{ icebreaker }}, {{ about }}, {{ headline }}
 
   # ==================================================================
   # STEP 3 → Wait until they accept (polite & undetectable)
@@ -46,16 +41,3 @@ steps:
     config:
       template_file: ./assets/templates/prompts/followup_prompt.j2
       template_type: ai_prompt    # Uses OpenAI → ultra-natural messages
-
-      # Example prompt in followup_prompt.j2:
-      # "Write a short, warm, non-salesy follow-up to {{ first_name }} at {{ company }}.
-      #  We connected because {{ icebreaker }}. Keep it friendly and under 100 words."
-
-# ======================================================================
-# GLOBAL CAMPAIGN SETTINGS
-# ======================================================================
-  # Optional: override account limits just for this campaign
-  # limits:
-  #   daily_connections: 45
-  #   daily_messages: 20
-
