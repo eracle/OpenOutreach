@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from linkedin.conf import get_account_config
+from linkedin.csv_launcher import hash_file
 from linkedin.db.engine import Database
 from linkedin.navigation.login import get_resources_with_state_management, PlaywrightResources
 
@@ -129,7 +130,7 @@ if __name__ == "__main__":
     # Configuration (change these values)
     # ——————————————————————————————————
     HANDLE = "eracle"  # LinkedIn account handle
-    CAMPAIGN_NAME = "linked_in_connect_follow_up"  # Your campaign identifier
+    CAMPAIGN_NAME = "connect_follow_up"  # Your campaign identifier
     INPUT_CSV_PATH = Path("./assets/inputs/urls.csv")  # Path to your input CSV
 
     # ——————————————————————————————————
@@ -137,9 +138,7 @@ if __name__ == "__main__":
     # ——————————————————————————————————
 
     # Compute a stable hash of the CSV content so the same file → same session
-    csv_hash = Database.hash_file(INPUT_CSV_PATH)  # assuming Database has this helper
-    # If your Database class doesn't have it yet, you can use:
-    # csv_hash = hashlib.sha256(INPUT_CSV_PATH.read_bytes()).hexdigest()[:12]
+    csv_hash = hash_file(INPUT_CSV_PATH)  # assuming Database has this helper
 
     session = AccountSessionRegistry.get_or_create(
         handle=HANDLE,

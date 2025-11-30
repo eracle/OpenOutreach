@@ -21,16 +21,14 @@ ROOT_DIR = Path(__file__).parent.parent
 ASSETS_DIR = ROOT_DIR / "assets"
 
 COOKIES_DIR = ASSETS_DIR / "cookies"
-DATA_DIR = ASSETS_DIR / "data"
+DATA_DIR = ASSETS_DIR / "data"  # This will now contain one .db per account
 
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
 # ----------------------------------------------------------------------
-# SINGLE shared database + SINGLE secrets file
+# SINGLE secrets file (unchanged)
 # ----------------------------------------------------------------------
-DB_PATH = DATA_DIR / "automation.db"
-
 SECRETS_PATH = ASSETS_DIR / "accounts.secrets.yaml"
 
 if not SECRETS_PATH.exists():
@@ -57,6 +55,9 @@ def get_account_config(handle: str) -> Dict[str, Any]:
 
     acct = _accounts_config[handle]
 
+    # Each account gets its own database: assets/data/elonmusk.db
+    account_db_path = DATA_DIR / f"{handle}.db"
+
     return {
         "handle": handle,
         "active": acct.get("active", True),
@@ -69,7 +70,7 @@ def get_account_config(handle: str) -> Dict[str, Any]:
         "password": acct.get("password"),
         # Runtime paths
         "cookie_file": COOKIES_DIR / f"{handle}.json",
-        "db_path": DB_PATH,
+        "db_path": account_db_path,  # ← this is now per-handle
     }
 
 
@@ -87,9 +88,10 @@ def list_active_accounts() -> list[str]:
 if __name__ == "__main__":
     print("LinkedIn Automation – Active accounts")
     print(f"Config file : {SECRETS_PATH}")
-    print(f"Database    : {DB_PATH}")
-    print("-" * 50)
+    print(f"Databases stored in: {DATA_DIR}")
+    print("-" * 60)
     for handle in list_active_accounts():
         cfg = get_account_config(handle)
         status = "ACTIVE" if cfg["active"] else "inactive"
         print(f"{status} • {handle.ljust(20)}  →  {cfg['display_name']}")
+        print(f"               DB: {cfg['db_path'].name}")
