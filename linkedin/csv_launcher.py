@@ -108,6 +108,8 @@ def launch_from_csv(
     List[Dict[str, Any]]
         List of result dictionaries returned by `process_row_func` for each row.
     """
+    from linkedin.sessions import AccountSessionRegistry
+    
     logger.info(f"Launching campaign '{campaign_name}' from CSV: {csv_path}")
 
     csv_hash = hash_file(csv_path)
@@ -115,6 +117,13 @@ def launch_from_csv(
 
     profiles = load_profile_urls_from_csv(csv_path)
     logger.info(f"Loaded {len(profiles)} profiles from CSV")
+
+    session = AccountSessionRegistry.get_or_create_from_path(
+        handle=handle,
+        campaign_name=campaign_name,
+        csv_path=csv_path,
+    )
+    _ = session.resources
 
     results: List[Dict[str, Any]] = []
 

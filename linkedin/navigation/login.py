@@ -99,6 +99,14 @@ def get_resources_with_state_management(handle: str):
     logger.info("Not logged in → performing fresh login")
     if not storage:
         playwright_login(resources)
+    else:
+        navigate_and_verify(
+            resources=resources,
+            action=lambda: resources.page.goto(LINKEDIN_FEED_URL),
+            expected_url_pattern="/feed",
+            timeout=40_000,
+            error_message="Already logged in – did not go to /feed",
+        )
 
     # Save session if we just logged in
     if not storage:
@@ -106,6 +114,7 @@ def get_resources_with_state_management(handle: str):
         resources.context.storage_state(path=str(state_file))
         logger.info("Login successful – session saved to: %s", state_file)
 
+    resources.page.wait_for_load_state("load")
     logger.info("Login flow completed successfully!")
     return resources
 

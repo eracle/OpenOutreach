@@ -24,9 +24,9 @@ PlaywrightResources = namedtuple(
 )
 
 
-def wait(resources: PlaywrightResources) -> None:
+def wait(resources: PlaywrightResources, min_sec: float = HUMAN_DELAY_MIN, max_sec: float = HUMAN_DELAY_MAX) -> None:
     """Legacy wrapper: human delay + wait for page load."""
-    human_delay()
+    human_delay(min_sec, max_sec)
     resources.page.wait_for_load_state("load")
 
 
