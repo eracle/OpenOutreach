@@ -112,9 +112,6 @@ def launch_from_csv(
     
     logger.info(f"Launching campaign '{campaign_name}' from CSV: {csv_path}")
 
-    csv_hash = hash_file(csv_path)
-    logger.info(f"CSV hash for this run: {csv_hash}")
-
     profiles = load_profile_urls_from_csv(csv_path)
     logger.info(f"Loaded {len(profiles)} profiles from CSV")
 
@@ -136,7 +133,6 @@ def launch_from_csv(
                 profile_url=profile_url,
                 handle=handle,
                 campaign_name=campaign_name,
-                csv_hash=csv_hash,
             )
             results.append(result)
             logger.info(f"[{idx}] Completed → {handle} | Status: {result.get('status')}")

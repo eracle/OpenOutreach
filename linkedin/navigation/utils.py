@@ -28,6 +28,7 @@ def wait(resources: PlaywrightResources, min_sec: float = HUMAN_DELAY_MIN, max_s
     """Legacy wrapper: human delay + wait for page load."""
     human_delay(min_sec, max_sec)
     resources.page.wait_for_load_state("load")
+    resources.page.wait_for_load_state("domcontentloaded")
 
 
 def navigate_and_verify(

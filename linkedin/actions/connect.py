@@ -2,7 +2,7 @@
 import logging
 from typing import Optional, Dict, Any
 
-from linkedin.sessions import AccountSessionRegistry, SessionKey  # ← updated import
+from linkedin.sessions import AccountSessionRegistry, SessionKey
 from linkedin.navigation.enums import ConnectionStatus
 from linkedin.navigation.utils import wait
 from linkedin.templates.renderer import render_template
@@ -16,32 +16,10 @@ def send_connection_request(
     template_file: Optional[str] = None,
     template_type: str = "jinja",
 ) -> ConnectionStatus:
-    """
-    High-level action: sends a connection request.
 
-    New simplified usage:
-        from linkedin.actions.connect import send_connection_request
-        from linkedin.sessions import SessionKey
-
-        send_connection_request(
-            key=SessionKey.make("john_doe_2025", "outreach_2025", "data/leads.csv"),
-            profile={...},
-            template_file="leader.j2"
-        )
-
-    Args:
-        key: The SessionKey (fully determines which browser/DB session to use)
-        profile: Profile dict with at least 'linkedin_url'
-        template_file: Path to .j2 / .txt template
-        template_type: 'jinja' | 'static' | 'ai_prompt'
-
-    Returns:
-        Final ConnectionStatus after attempt
-    """
     from linkedin.actions.search import search_profile
     from linkedin.actions.connections import get_connection_status
 
-    # One-liner session retrieval – clean and guaranteed correct
     session = AccountSessionRegistry.get_or_create(
         handle=key.handle,
         campaign_name=key.campaign_name,
@@ -50,14 +28,15 @@ def send_connection_request(
 
     resources = session.resources
 
-    # 1. Navigate to profile
+    logger.debug("1. Navigating to profile: %s", profile.get("linkedin_url"))
     search_profile(session, profile)
 
-    # 2. Render message if needed
     message = render_template(template_file, template_type, profile) if template_file else ""
+    logger.debug("2. Rendered note (%d chars): %r", len(message), message.strip()[:200])
 
-    # 3. Check current status
+    logger.debug("3. Checking current connection status...")
     status = get_connection_status(session, profile)
+    logger.info("Current status → %s", status.value)
 
     skip_reasons = {
         ConnectionStatus.CONNECTED: "Already connected",
@@ -67,7 +46,7 @@ def send_connection_request(
 
     if status in skip_reasons:
         name = profile.get('full_name', profile['linkedin_url'])
-        logger.info("Skipping %s → %s", name, skip_reasons[status])
+        logger.info("Skipping send → %s (%s)", name, skip_reasons[status])
         return status
 
     # 4. Send the invitation
@@ -77,7 +56,7 @@ def send_connection_request(
         logger.info("Connection request sent → %s", name)
         return ConnectionStatus.PENDING
     except Exception as e:
-        logger.error("Failed to send invite to %s: %s", profile['linkedin_url'], e)
+        logger.warning("Failed to send invite to %s → %s", profile.get('linkedin_url'), e)
         return ConnectionStatus.UNKNOWN
 
 
@@ -89,7 +68,7 @@ def _perform_send_invitation(resources, message: str):
     direct = resources.page.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
     if direct.count() > 0:
         direct.first.click()
-        logger.debug("Used direct Connect button")
+        logger.debug("Clicked direct 'Connect' button")
     else:
         # Fallback: More → Connect
         more = resources.page.locator(
@@ -99,13 +78,14 @@ def _perform_send_invitation(resources, message: str):
         connect_option = resources.page.locator(
             'div[role="menuitem"]:has-text("Connect"), span:has-text("Connect")').first
         connect_option.click()
-        logger.debug("Used More → Connect")
+        logger.debug("Used 'More → Connect' flow")
 
     wait(resources)
 
     if not message:
         # Send without note
         send_btn = resources.page.locator('button:has-text("Send now"), button[aria-label*="Send without"]')
+        logger.debug("Sending without note")
     else:
         # Add note flow
         add_note = resources.page.locator('button:has-text("Add a note"), button[aria-label*="Add a note"]')
@@ -115,12 +95,13 @@ def _perform_send_invitation(resources, message: str):
         textarea = resources.page.locator('textarea#custom-message, textarea[name="message"]')
         textarea.first.fill(message)
         wait(resources)
+        logger.debug("Filled custom note (%d chars)", len(message))
 
         send_btn = resources.page.locator('button:has-text("Send"), button[aria-label*="Send invitation"]')
 
     send_btn.first.click(force=True)
     wait(resources)
-    logger.debug("Invite modal submitted")
+    logger.debug("Connection request submitted")
 
 
 # ===================================================================

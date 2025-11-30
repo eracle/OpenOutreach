@@ -3,8 +3,6 @@ import logging
 from pathlib import Path
 from typing import Dict, Any
 
-
-
 logger = logging.getLogger(__name__)
 
 # ———————————————————————————————— USER CONFIGURATION ————————————————————————————————
@@ -24,7 +22,6 @@ def process_profile_row(
         profile_url: str,
         handle: str,
         campaign_name: str = CAMPAIGN_NAME,
-        csv_hash: str = None,  # will be computed from INPUT_CSV_PATH
 ) -> Dict[str, Any]:
     from linkedin.sessions import SessionKey
     from linkedin.actions.connect import send_connection_request
@@ -32,27 +29,31 @@ def process_profile_row(
     from linkedin.actions.profile import enrich_profile
     from linkedin.navigation.enums import ConnectionStatus
 
-    # Build the SessionKey once – this is the new canonical way
     key = SessionKey.make(
         handle=handle,
         campaign_name=campaign_name,
-        csv_path=INPUT_CSV_PATH,  # hash is computed automatically inside make()
+        csv_path=INPUT_CSV_PATH,
     )
 
     profile = {"linkedin_url": profile_url}
 
     logger.info(f"Processing → @{handle} | {profile_url} | SessionKey: {key}")
+    logger.debug(f"SessionKey details → handle={key.handle} campaign={key.campaign_name} hash={key.csv_hash}")
 
     # 1. Enrich
+    logger.debug("Enriching profile...")
     enriched = enrich_profile(key=key, profile=profile)
+    logger.debug(f"Enriched keys: {list(enriched.keys())}")
 
     # 2. Send connection request (if needed)
+    logger.debug("Sending connection request...")
     status = send_connection_request(
         key=key,
         profile=enriched,
         template_file=CONNECT_TEMPLATE_FILE,
         template_type=CONNECT_TEMPLATE_TYPE,
     )
+    logger.info(f"Connection request result → {status.value}")
 
     # If already connected or pending → send follow-up immediately
     if status == ConnectionStatus.CONNECTED:
