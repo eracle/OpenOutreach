@@ -27,10 +27,10 @@ SELECTORS = {
 }
 
 
-def playwright_login(resources):
+def playwright_login(resources, handle):
     page = resources.page
-    config = get_account_config(resources.handle)
-    logger.info("Starting LinkedIn login for handle: %s", resources.handle)
+    config = get_account_config(handle)
+    logger.info("Starting LinkedIn login for handle: %s", handle)
 
     # → Go to login page
     logger.debug("Navigating to LinkedIn login page")
@@ -76,7 +76,6 @@ def build_playwright(storage_state=None):
         context=context,
         browser=browser,
         playwright=playwright,
-        handle=None,
     )
 
 
@@ -93,12 +92,11 @@ def get_resources_with_state_management(handle: str):
         logger.info("No valid session found or force_login=True → starting fresh")
 
     resources = build_playwright(storage_state=storage)
-    resources = resources._replace(handle=handle)
 
     # Need to log in
     logger.info("Not logged in → performing fresh login")
     if not storage:
-        playwright_login(resources)
+        playwright_login(resources, handle)
     else:
         navigate_and_verify(
             resources=resources,

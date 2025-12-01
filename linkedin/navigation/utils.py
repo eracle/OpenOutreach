@@ -20,7 +20,7 @@ def human_delay(min_sec: float = HUMAN_DELAY_MIN, max_sec: float = HUMAN_DELAY_M
 
 
 PlaywrightResources = namedtuple(
-    'PlaywrightResources', ['page', 'context', 'browser', 'playwright', 'handle']
+    'PlaywrightResources', ['page', 'context', 'browser', 'playwright']
 )
 
 

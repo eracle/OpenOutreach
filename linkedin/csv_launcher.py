@@ -83,9 +83,6 @@ def launch_from_csv(
         handle: str,
         csv_path: Path | str = INPUT_CSV_PATH,
         campaign_name: str = CAMPAIGN_NAME,
-        *,
-        process_row_func: Callable[..., Dict[str, Any]] = process_profile_row,
-        max_concurrency: int = 1,  # placeholder for future async/threading support
 ) -> List[Dict[str, Any]]:
     """
     Generic CSV launcher used by all campaigns.
@@ -129,7 +126,7 @@ def launch_from_csv(
         logger.info(f"[{idx}/{len(profiles)}] Starting → {handle}")
 
         try:
-            result = process_row_func(
+            result = process_profile_row(
                 profile_url=profile_url,
                 handle=handle,
                 campaign_name=campaign_name,

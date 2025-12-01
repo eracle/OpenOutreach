@@ -11,13 +11,13 @@ Provides:
 from __future__ import annotations
 
 import logging
+from pathlib import Path  # noqa
 from typing import NamedTuple, Optional
 
 from linkedin.conf import get_account_config
 from linkedin.csv_launcher import hash_file
 from linkedin.db.engine import Database
 from linkedin.navigation.login import get_resources_with_state_management, PlaywrightResources
-from pathlib import Path # noqa
 
 logger = logging.getLogger(__name__)
 
