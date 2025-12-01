@@ -131,7 +131,7 @@ if __name__ == "__main__":
     test_profile = {
         "full_name": "Bill Gates",
         "linkedin_url": "https://www.linkedin.com/in/williamhgates/",
-        "public_id": "williamhgates",
+        "public_identifier": "williamhgates",
     }
 
     print(f"Testing connection request as @{handle} (session: {key})")

@@ -144,9 +144,9 @@ def _simulate_human_search(
     Simulates a search, scrapes all profiles from results, and navigates to the target.
     """
     full_name = profile.get("full_name")
-    linkedin_id = profile.get("public_id")
+    linkedin_id = profile.get("public_identifier")
     if not full_name or not linkedin_id:
-        raise ValueError("profile must contain 'full_name' and 'public_id'")
+        raise ValueError("profile must contain 'full_name' and 'public_identifier'")
 
     logger.info(f"Starting search for '{full_name}' (ID: {linkedin_id})")
     _initiate_search(resources, full_name)
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     target_profile = {
         "full_name": "Bill Gates",
         "linkedin_url": "https://www.linkedin.com/in/williamhgates/",
-        "public_id": "williamhgates",
+        "public_identifier": "williamhgates",
     }
 
     try:

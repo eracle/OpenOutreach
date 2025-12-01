@@ -69,7 +69,7 @@ if __name__ == "__main__":
     profile = {
         "full_name": "Bill Gates",
         "linkedin_url": "https://www.linkedin.com/in/williamhgates/",
-        "public_id": "williamhgates",
+        "public_identifier": "williamhgates",
     }
 
     print(f"Checking connection status as @{handle} → {profile['full_name']}")

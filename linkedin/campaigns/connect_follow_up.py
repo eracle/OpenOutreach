@@ -42,7 +42,7 @@ def process_profile_row(
 
     # 1. Enrich
     logger.debug("Enriching profile...")
-    enriched = enrich_profile(key=key, profile=profile)
+    enriched, _ = enrich_profile(key=key, profile=profile)
     logger.debug(f"Enriched keys: {list(enriched.keys())}")
 
     # 2. Send connection request (if needed)
