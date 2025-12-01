@@ -2,21 +2,20 @@
 import logging
 from typing import Optional, Dict, Any
 
-from linkedin.sessions import AccountSessionRegistry, SessionKey
 from linkedin.navigation.enums import ConnectionStatus
 from linkedin.navigation.utils import wait
+from linkedin.sessions import AccountSessionRegistry, SessionKey
 from linkedin.templates.renderer import render_template
 
 logger = logging.getLogger(__name__)
 
 
 def send_connection_request(
-    key: SessionKey,
-    profile: Dict[str, Any],
-    template_file: Optional[str] = None,
-    template_type: str = "jinja",
+        key: SessionKey,
+        profile: Dict[str, Any],
+        template_file: Optional[str] = None,
+        template_type: str = "jinja",
 ) -> ConnectionStatus:
-
     from linkedin.actions.search import search_profile
     from linkedin.actions.connections import get_connection_status
 
@@ -54,7 +53,6 @@ def send_connection_request(
     name = profile.get('full_name') or profile['url']
     logger.info("Connection request sent → %s", name)
     return ConnectionStatus.PENDING
-
 
 
 def _perform_send_invitation(resources, message: str):
@@ -106,19 +104,17 @@ def _perform_send_invitation(resources, message: str):
 # ===================================================================
 if __name__ == "__main__":
     import sys
-    from pathlib import Path
     from linkedin.sessions import SessionKey
+    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
     if len(sys.argv) != 2:
         print("Usage: python -m linkedin.actions.connect <handle>")
         sys.exit(1)
 
     handle = sys.argv[1]
-    campaign_name = "test_connect"
-    csv_path = Path("debug_input.csv")
 
     # Build the key once – this is all you need
-    key = SessionKey.make(handle, campaign_name, csv_path)
+    key = SessionKey.make(handle, "test_connect", INPUT_CSV_PATH)
 
     logging.basicConfig(
         level=logging.INFO,
