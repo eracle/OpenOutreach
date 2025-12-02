@@ -112,7 +112,7 @@ def enrich_education(edu: dict, urn_map: dict) -> Education:
     )
 
 
-def parse_linkedin_voyager_response(json_response: dict) -> LinkedInProfile:
+def parse_linkedin_voyager_response(json_response: dict):
     urn_map = resolve_references(json_response)
 
     # Find main profile entity
@@ -176,7 +176,7 @@ def parse_linkedin_voyager_response(json_response: dict) -> LinkedInProfile:
                 if edu:
                     profile_data["educations"].append(enrich_education(edu, urn_map))
 
-    return LinkedInProfile(**profile_data)
+    return LinkedInProfile(**profile_data), profile_data
 
 
 def to_dict(obj):

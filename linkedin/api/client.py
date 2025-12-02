@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Tuple
 from urllib.parse import urlparse
 
-from linkedin.api.voyager import parse_linkedin_voyager_response, to_dict
+from linkedin.api.voyager import parse_linkedin_voyager_response
 from linkedin.navigation.errors import AuthenticationError
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,5 @@ class PlaywrightLinkedinAPI:
             return {}, {}
 
         data = res.json()
-        linkedin_profile = parse_linkedin_voyager_response(data)
-        extracted_info = to_dict(linkedin_profile)
+        linkedin_profile, extracted_info = parse_linkedin_voyager_response(data)
         return extracted_info, data

@@ -46,12 +46,13 @@ def get_connection_status(
 if __name__ == "__main__":
     import sys
     import logging
-    from pathlib import Path
     from linkedin.sessions import SessionKey
     from linkedin.actions.search import search_profile
 
+    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
+
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,  # Changed to DEBUG for full logs
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
@@ -63,7 +64,7 @@ if __name__ == "__main__":
     key = SessionKey.make(
         handle=handle,
         campaign_name="test_status",
-        csv_path=Path("dummy.csv"),  # hash will be computed automatically
+        csv_path=INPUT_CSV_PATH,
     )
 
     profile = {
@@ -79,7 +80,7 @@ if __name__ == "__main__":
     session = AccountSessionRegistry.get_or_create_from_path(
         handle=key.handle,
         campaign_name=key.campaign_name,
-        csv_path=Path("dummy.csv"),
+        csv_path=INPUT_CSV_PATH,
     )
     search_profile(session, profile)
 

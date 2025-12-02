@@ -88,10 +88,6 @@ def launch_from_csv(
         Path to the input CSV containing at least `profile_url` and `handle` columns.
     campaign_name : str
         Name of the running campaign (used for logging & state tracking).
-    process_row_func : Callable
-        The function that processes a single row. Defaults to the one in connect_follow_up.
-    max_concurrency : int
-        Reserved for future parallel execution (currently runs sequentially).
 
     Returns
     -------
