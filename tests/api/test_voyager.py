@@ -8,6 +8,17 @@ from linkedin.api.voyager import parse_linkedin_voyager_response
 
 
 @pytest.fixture
+def parsed_profile(profile_data):
+    """
+    SINGLE POINT OF PARSING
+    All tests now depend on this fixture → the actual Voyager response is parsed
+    exactly once per test (or once per session if scoped accordingly).
+    """
+    profile, _ = parse_linkedin_voyager_response(profile_data)
+    return profile
+
+
+@pytest.fixture
 def profile_data():
     """Load any real LinkedIn Voyager profile JSON (structure matters, not content)"""
     fixture_path = Path(__file__).parent.parent / "fixtures" / "linkedin_profile.json"
@@ -15,8 +26,8 @@ def profile_data():
         return json.load(f)
 
 
-def test_profile_parsing_structure_only(profile_data):
-    profile, _ = parse_linkedin_voyager_response(profile_data)
+def test_profile_parsing_structure_only(parsed_profile):
+    profile = parsed_profile
 
     # 1. Core identity fields must be present and non-empty strings
     assert isinstance(profile.first_name, str) and profile.first_name.strip()
@@ -55,8 +66,6 @@ def test_profile_parsing_structure_only(profile_data):
         assert edu.date_range is None or hasattr(edu.date_range, "start")
 
     # 6. CRITICAL: Connection degree must be extracted correctly
-    #     - connection_distance: one of the known strings or None
-    #     - connection_degree: int (1, 2, 3) or None (out of network)
     valid_distances = {None, "DISTANCE_1", "DISTANCE_2", "DISTANCE_3", "OUT_OF_NETWORK"}
     assert profile.connection_distance in valid_distances, \
         f"Invalid connection_distance: {profile.connection_distance}"
@@ -69,7 +78,7 @@ def test_profile_parsing_structure_only(profile_data):
         assert profile.connection_degree == 3
     elif profile.connection_distance == "OUT_OF_NETWORK":
         assert profile.connection_degree is None
-    else:  # None → no relationship data (rare but possible)
+    else:  # None → no relationship data
         assert profile.connection_degree is None
 
     print("\nAll structural tests passed!")
@@ -79,11 +88,12 @@ def test_profile_parsing_structure_only(profile_data):
     print(f"→ Experience entries: {len(profile.positions)}")
     print(f"→ Education entries: {len(profile.educations)}")
 
-    # assert False
+    # Remove the intentional failure when you're happy with the output
+    assert False
 
-def test_profile_is_fully_json_serializable(profile_data):
-    profile, _ = parse_linkedin_voyager_response(profile_data)
-    # This will raise if anything is not serializable
+
+def test_profile_is_fully_json_serializable(parsed_profile):
+    profile = parsed_profile
     json.dumps(profile.__dict__, ensure_ascii=False, default=str)
     print("Profile is 100% JSON-serializable")
 
@@ -102,7 +112,8 @@ def test_no_exceptions_on_empty_or_minimal_profiles():
             }
         ]
     }
+    # Still a single, isolated call – kept here because it’s a different payload
     profile, _ = parse_linkedin_voyager_response(minimal)
     assert profile.full_name == "John Doe"
-    assert profile.connection_degree is None  # no relationship data → safe
+    assert profile.connection_degree is None
     print("Minimal profile parsed safely")

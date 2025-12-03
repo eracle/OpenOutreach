@@ -17,7 +17,7 @@ def send_connection_request(
         template_type: str = "jinja",
 ) -> ConnectionStatus:
     from linkedin.actions.search import search_profile
-    from linkedin.actions.connections import get_connection_status
+    from linkedin.actions.connection_status import get_connection_status
 
     session = AccountSessionRegistry.get_or_create(
         handle=key.handle,
