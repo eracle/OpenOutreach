@@ -154,7 +154,7 @@ def _extract_connection_info(profile_entity: dict, urn_map: dict) -> tuple[Optio
     return None, None
 
 
-def parse_linkedin_voyager_response(json_response: dict) -> LinkedInProfile:
+def parse_linkedin_voyager_response(json_response: dict, public_identifier: str = None):
     """
     Main function: parses full Voyager profile JSON → LinkedInProfile dataclass.
     """
@@ -164,8 +164,12 @@ def parse_linkedin_voyager_response(json_response: dict) -> LinkedInProfile:
     profile_entity = None
     for entity in json_response.get("included", []):
         if entity.get("$type") == "com.linkedin.voyager.dash.identity.profile.Profile":
-            profile_entity = entity
-            break
+            entity_id = entity.get("publicIdentifier")
+
+            # Only enforce match if public_identifier is given
+            if public_identifier is None or entity_id == public_identifier:
+                profile_entity = entity
+                break
 
     if not profile_entity:
         # Fallback: first element in data.*elements
@@ -230,7 +234,7 @@ def parse_linkedin_voyager_response(json_response: dict) -> LinkedInProfile:
                 if edu:
                     profile_data["educations"].append(_enrich_education(edu, urn_map))
 
-    return LinkedInProfile(**profile_data)
+    return LinkedInProfile(**profile_data), profile_data
 
 
 # Helper: pretty print as dict (useful for debugging)

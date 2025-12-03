@@ -121,11 +121,7 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    test_profile = {
-        "full_name": "Bill Gates",
-        "url": "https://www.linkedin.com/in/broganleex4/",
-        "public_identifier": "williamhgates",
-    }
+    test_profile = {"url": "https://www.linkedin.com/in/broganleex4/"}
 
     print(f"Testing connection request as @{handle} (session: {key})")
     status = send_connection_request(

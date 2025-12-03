@@ -16,7 +16,7 @@ def profile_data():
 
 
 def test_profile_parsing_structure_only(profile_data):
-    profile = parse_linkedin_voyager_response(profile_data)
+    profile, _ = parse_linkedin_voyager_response(profile_data)
 
     # 1. Core identity fields must be present and non-empty strings
     assert isinstance(profile.first_name, str) and profile.first_name.strip()
@@ -82,7 +82,7 @@ def test_profile_parsing_structure_only(profile_data):
     # assert False
 
 def test_profile_is_fully_json_serializable(profile_data):
-    profile = parse_linkedin_voyager_response(profile_data)
+    profile, _ = parse_linkedin_voyager_response(profile_data)
     # This will raise if anything is not serializable
     json.dumps(profile.__dict__, ensure_ascii=False, default=str)
     print("Profile is 100% JSON-serializable")
@@ -102,7 +102,7 @@ def test_no_exceptions_on_empty_or_minimal_profiles():
             }
         ]
     }
-    profile = parse_linkedin_voyager_response(minimal)
+    profile, _ = parse_linkedin_voyager_response(minimal)
     assert profile.full_name == "John Doe"
     assert profile.connection_degree is None  # no relationship data → safe
     print("Minimal profile parsed safely")

@@ -109,5 +109,5 @@ class PlaywrightLinkedinAPI:
             return {}, {}
 
         data = res.json()
-        linkedin_profile, extracted_info = parse_linkedin_voyager_response(data)
+        linkedin_profile, extracted_info = parse_linkedin_voyager_response(data, public_identifier=public_identifier)
         return extracted_info, data
