@@ -10,8 +10,8 @@ CAMPAIGN_NAME = "connect_follow_up"
 INPUT_CSV_PATH = Path("./assets/inputs/urls.csv")
 
 # ———————————————————————————————— Template Config ————————————————————————————————
-CONNECT_TEMPLATE_FILE = "./assets/templates/connect_notes/leader.j2"
-CONNECT_TEMPLATE_TYPE = "jinja"
+# CONNECT_TEMPLATE_FILE = "./assets/templates/connect_notes/leader.j2"
+# CONNECT_TEMPLATE_TYPE = "jinja"
 
 FOLLOWUP_TEMPLATE_FILE = "./assets/templates/prompts/followup_prompt.j2"
 FOLLOWUP_TEMPLATE_TYPE = "ai_prompt"
@@ -50,8 +50,8 @@ def process_profile_row(
     status = send_connection_request(
         key=key,
         profile=enriched,
-        template_file=CONNECT_TEMPLATE_FILE,
-        template_type=CONNECT_TEMPLATE_TYPE,
+        # template_file=CONNECT_TEMPLATE_FILE,
+        # template_type=CONNECT_TEMPLATE_TYPE,
     )
     logger.info(f"Connection request result → {status.value}")
 
