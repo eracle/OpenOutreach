@@ -58,20 +58,21 @@ def send_connection_request(
 def _perform_send_invitation(resources, message: str):
     """Low-level click logic – unchanged."""
     wait(resources)
+    top_card_section = resources.page.locator('section:has(div.top-card-background-hero-image)')
 
     # Primary: Direct "Connect" button
-    direct = resources.page.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
+    direct = top_card_section.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
     if direct.count() > 0:
         direct.first.click()
         logger.debug("Clicked direct 'Connect' button")
     else:
         # Fallback: More → Connect
-        more = resources.page.locator(
+        more = top_card_section.locator(
             'button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible').first
         more.click()
         wait(resources)
-        connect_option = resources.page.locator(
-            'div[role="menuitem"]:has-text("Connect"), span:has-text("Connect")').first
+        connect_option = top_card_section.locator(
+            'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]').first
         connect_option.click()
         logger.debug("Used 'More → Connect' flow")
 
@@ -121,7 +122,11 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    test_profile = {"url": "https://www.linkedin.com/in/broganleex4/"}
+    public_identifier = "lexfridman"
+    test_profile = {
+        "url": f"https://www.linkedin.com/in/{public_identifier}/",
+        "public_identifier": public_identifier,
+    }
 
     print(f"Testing connection request as @{handle} (session: {key})")
     status = send_connection_request(
