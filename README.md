@@ -78,10 +78,10 @@ Join our Telegram group for discussions!
 
 0. **Install Vinagre (Ubuntu):**
 
-```bash
-sudo apt-get update
-sudo apt-get install vinagre
-```
+    ```bash
+    sudo apt-get update
+    sudo apt-get install vinagre
+    ```
 
 1. **Build the Docker containers**:
     ```bash
