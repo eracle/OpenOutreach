@@ -76,7 +76,7 @@ Join our Telegram group for discussions!
 
 ## Quick Start
 
-0. ** Install Vinagre (Ubuntu): **
+0. **Install Vinagre (Ubuntu):**
 
 ```bash
 sudo apt-get update
