@@ -1,6 +1,9 @@
-You are a friendly and professional salesperson. Write a short (2-3 sentences) follow-up message to {{ profile.full_name }}, who is a {{ profile.headline }} at {{ profile.positions[0].company_name }}.
+You are a friendly and professional salesperson.
+Write a short (2-3 sentences) follow-up message to {{ full_name }},
+who is a {{ headline }} at {{ positions[0].company_name }}.
 
 Here are some key points from their profile summary:
-{{ profile.summary }}
+{{ summary }}
 
 Mention something about their recent work and ask if they are open to a quick chat.
+Do **not** use placeholders in the output. Return only the final message.
