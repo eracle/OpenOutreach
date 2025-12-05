@@ -1,9 +1,0 @@
-#!/bin/bash
-
-set -o errexit
-set -o pipefail
-set -o nounset
-
-/wait-for-selenium http://selenium:4444/wd/hub
-
-python sequential_run.py

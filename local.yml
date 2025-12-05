@@ -1,0 +1,16 @@
+# local.yml
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ./compose/linkedin/Dockerfile
+      args:
+        - BUILD_ENV=local
+    env_file:
+      - .env
+    command: /start
+    volumes:
+      - .:/app
+    ports:
+      - "5900:5900"

@@ -1,11 +1,12 @@
-conf.py
-
 __pycache__/
 .idea/
 .venv/
 .pytest_cache/
 .vscode
 .dockerignore
+.env
 
-/data/companies.csv
-/data/output.csv
+/linkedin_state.json
+assets/accounts.secrets.yaml
+assets/cookies/
+assets/data/

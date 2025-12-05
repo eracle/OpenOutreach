@@ -1,0 +1,24 @@
+#!/bin/bash
+# compose/start
+
+set -o errexit
+set -o pipefail
+set -o nounset
+
+# Clean up any leftover X server lock files
+rm -f /tmp/.X99-lock
+
+# Start Xvfb on display :99 with a reasonable resolution
+Xvfb :99 -screen 0 1920x1080x24 &
+
+# Wait a second for Xvfb to start
+sleep 1
+
+# Set the DISPLAY environment variable
+export DISPLAY=:99
+
+# Start x11vnc attached to the Xvfb display (no password for simplicity; add -passwd 'yourpass' if needed)
+x11vnc -display :99 -forever -shared -nopw &
+
+# Run the main Python script/module
+python main.py
