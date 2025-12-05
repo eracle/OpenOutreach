@@ -89,7 +89,7 @@ def test_profile_parsing_structure_only(parsed_profile):
     print(f"→ Education entries: {len(profile.educations)}")
 
     # Remove the intentional failure when you're happy with the output
-    assert False
+    # assert False
 
 
 def test_profile_is_fully_json_serializable(parsed_profile):
