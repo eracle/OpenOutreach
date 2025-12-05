@@ -56,12 +56,6 @@ The database contains two main tables: `profiles` and `campaign_runs`.
 | `completed` | INTEGER | A counter for the number of profiles that completed the campaign. |
 | `last_updated` | DATETIME | Timestamp of when the campaign statistics were last updated. |
 
-## Diagrams
-
-### Entity-Relationship Diagram
-
-This diagram shows the relationship between the core entities and the database tables.
-
 
 ## API Client
 
@@ -112,15 +106,6 @@ For example, the `connect_follow_up` campaign:
 This Python-native approach provides greater flexibility and makes the logic easier to debug and maintain. It creates a
 clean separation between the high-level workflow (the campaign) and the low-level, reusable browser tasks (the actions).
 
-## Workflow Engine
-
-With the move to Python-based campaigns, the concept of a distinct "workflow engine" has been simplified. The engine is
-now implicitly the Python script that runs the campaign (e.g., `main.py`).
-
-These scripts orchestrate the automation by directly calling and sequencing functions from the `linkedin/actions`
-module. This approach is more flexible and easier to debug than the previous YAML-based system, as the entire workflow
-is defined in pure Python. State management is handled through a combination of the SQLite database and session objects.
-
 ## Actions
 
 Actions are the core building blocks of any campaign, located in the `linkedin/actions/` directory. They are modular,
@@ -155,10 +140,3 @@ create complex automation workflows.
   LinkedIn's internal Voyager API. It parses the response and returns a clean, enriched profile dictionary, which is
   then used for personalized messaging or other actions.
 
-### `search.py`
-
-- **`search_profile`**: Handles all navigation to profile pages. It supports two modes:
-    1. **Direct**: Navigates straight to the profile URL (fast and efficient).
-    2. **Human-like (default)**: Simulates a real user by typing the person's name into the search bar, clicking the "
-       People" filter, and scanning the results. While doing so, it enriches and caches every profile it finds on the
-       results page, gathering valuable data for future use.

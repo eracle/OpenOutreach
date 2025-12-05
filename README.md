@@ -5,6 +5,13 @@
 [![Star History Chart](https://api.star-history.com/svg?repos=eracle/linkedin&type=Date)](https://star-history.com/#eracle/linkedin&Date)
 
 ### Introduction
+#### TLDR:
+Linkedin Automation tool, sequence of actions:
+- visit profile
+- send connection request
+- send personalized message with AI
+- repeat
+
 
 This open-source tool is designed to streamline and automate interactions on LinkedIn using browser automation
 techniques powered by Playwright. It enables users to create and manage campaigns for
