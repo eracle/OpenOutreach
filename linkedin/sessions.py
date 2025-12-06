@@ -1,13 +1,4 @@
-# linkedin/account_session.py
-"""
-Singleton AccountSession per (handle + campaign_name + csv_hash).
-
-Provides:
-- One browser + DB instance per unique campaign run on a given account
-- Automatic recovery after crashes/reboots/Ctrl+C
-- A clean, reusable SessionKey that can be built anywhere from the 3 inputs
-"""
-
+# linkedin/sessions.py
 from __future__ import annotations
 
 import logging
@@ -17,40 +8,28 @@ from typing import NamedTuple, Optional
 from linkedin.conf import get_account_config
 from linkedin.csv_launcher import hash_file
 from linkedin.db.engine import Database
-from linkedin.navigation.login import get_resources_with_state_management, PlaywrightResources
+from linkedin.navigation.login import init_playwright_session
 
 logger = logging.getLogger(__name__)
 
 
-# ======================================================================
-# Deterministic, hashable, human-readable session key
-# ======================================================================
 class SessionKey(NamedTuple):
     handle: str
     campaign_name: str
     csv_hash: str
 
     def __str__(self) -> str:
-        """Human-readable representation for logs and filenames."""
         return f"{self.handle}::{self.campaign_name}::{self.csv_hash}"
 
     @classmethod
     def make(cls, handle: str, campaign_name: str, csv_path: Path | str) -> "SessionKey":
-        """
-        Convenience factory: compute CSV hash automatically.
-        Use this in 99% of cases.
-        """
         csv_hash = hash_file(csv_path)
         return cls(handle=handle, campaign_name=campaign_name, csv_hash=csv_hash)
 
     def as_filename_safe(self) -> str:
-        """For saving files like state_eracle--connect_follow_up--a1b2c3.json"""
         return f"{self.handle}--{self.campaign_name}--{self.csv_hash}"
 
 
-# ======================================================================
-# Registry – one singleton per (handle, campaign, csv_hash)
-# ======================================================================
 class AccountSessionRegistry:
     _instances: dict[SessionKey, "AccountSession"] = {}
 
@@ -78,9 +57,6 @@ class AccountSessionRegistry:
             campaign_name: str,
             csv_path: Path | str,
     ) -> "AccountSession":
-        """
-        Most convenient entry point – just give the CSV file path.
-        """
         csv_path = Path(csv_path)
         key = SessionKey.make(handle, campaign_name, csv_path)
         return cls.get_or_create(key.handle, key.campaign_name, key.csv_hash)
@@ -96,9 +72,6 @@ class AccountSessionRegistry:
         cls._instances.clear()
 
 
-# ======================================================================
-# The actual singleton session
-# ======================================================================
 class AccountSession:
     def __init__(self, key: SessionKey):
         self.key = key
@@ -107,39 +80,40 @@ class AccountSession:
         self.csv_hash = key.csv_hash
 
         self.account_cfg = get_account_config(self.handle)
-        self._resources: Optional[PlaywrightResources] = None
         self.db = Database.from_handle(self.handle)
 
-    # ------------------------------------------------------------------
-    # Auto-recovering browser session
-    # ------------------------------------------------------------------
-    @property
-    def resources(self) -> PlaywrightResources:
-        if self._resources is None or self._resources.page.is_closed():
-            logger.info("Launching/recovering browser for account '%s' – campaign '%s'",
-                        self.handle, self.campaign_name)
-            self._resources = get_resources_with_state_management(handle=self.handle)
-        return self._resources
+        # Playwright objects – created on first access or after crash
+        self.page = None
+        self.context = None
+        self.browser = None
+        self.playwright = None
 
-    # ------------------------------------------------------------------
-    # Graceful cleanup
-    # ------------------------------------------------------------------
+    def ensure_browser(self):
+        """Launch or recover browser + login if needed. Call before using .page"""
+        if not self.page or self.page.is_closed():
+            logger.info("Launching/recovering browser for %s – %s", self.handle, self.campaign_name)
+            self.page, self.context, self.browser, self.playwright = init_playwright_session(
+                handle=self.handle
+            )
+
     def close(self):
-        if self._resources:
+        if self.context:
             try:
-                self._resources.context.close()
-                self._resources.browser.close()
+                self.context.close()
+                if self.browser:
+                    self.browser.close()
+                if self.playwright:
+                    self.playwright.stop()
                 logger.info("Browser closed gracefully (%s)", self.handle)
             except Exception as e:
-                logger.debug("Error closing browser for %s: %s", self.handle, e)
+                logger.debug("Error closing browser: %s", e)
             finally:
-                self._resources = None
+                self.page = self.context = self.browser = self.playwright = None
 
         self.db.close()
         logger.info("Account session closed → %s", self.key)
 
     def __del__(self):
-        # Safety net
         try:
             self.close()
         except:
@@ -149,8 +123,6 @@ class AccountSession:
         return f"<AccountSession {self.key}>"
 
 
-# ——————————————————————————————————————————————————————————————
-# CLI – Quick test / persistent runner
 # ——————————————————————————————————————————————————————————————
 if __name__ == "__main__":
     import logging
@@ -163,23 +135,30 @@ if __name__ == "__main__":
         datefmt="%H:%M:%S",
     )
 
-    # ———————————— CONFIGURE HERE ————————————
-    HANDLE = "eracle"
+    import sys
+
+    if len(sys.argv) != 2:
+        print("Usage: python -m linkedin.sessions <handle>")
+        sys.exit(1)
+
+    handle = sys.argv[1]
+
     CAMPAIGN_NAME = "connect_follow_up"
     INPUT_CSV_PATH = Path("./assets/inputs/urls.csv")
-    # ————————————————————————————————————————
 
     session = AccountSessionRegistry.get_or_create_from_path(
-        handle=HANDLE,
+        handle=handle,
         campaign_name=CAMPAIGN_NAME,
         csv_path=INPUT_CSV_PATH,
     )
 
-    print("\nLinkedIn Account Session STARTED & PERSISTENT")
-    print(f"   Account       : {session.handle}")
-    print(f"   Campaign      : {session.campaign_name}")
-    print(f"   CSV hash      : {session.csv_hash}")
-    print(f"   Session key   : {session.key}")
-    print(f"   DB path       : {session.db.db_path}")
-    print("   Browser & DB survive crashes, reboots, Ctrl+C")
-    print("   Use SessionKey.make(...) anywhere to get the same session!\n")
+    session.ensure_browser()  # ← this does everything
+
+    print("\nSession ready! Use session.page, session.context, etc.")
+    print(f"   Handle   : {session.handle}")
+    print(f"   Campaign : {session.campaign_name}")
+    print(f"   CSV hash : {session.csv_hash}")
+    print(f"   Key      : {session.key}")
+    print("   Browser survives crash/reboot/Ctrl+C\n")
+
+    session.page.pause()  # keeps browser open for manual testing

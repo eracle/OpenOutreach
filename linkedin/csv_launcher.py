@@ -84,7 +84,6 @@ def launch_from_csv(
         campaign_name=campaign_name,
         csv_path=csv_path,
     )
-    _ = session.resources
 
     results: List[Dict[str, Any]] = []
 

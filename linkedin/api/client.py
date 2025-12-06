@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from linkedin.api.voyager import parse_linkedin_voyager_response
 from linkedin.navigation.errors import AuthenticationError
+from linkedin.sessions import AccountSession
 
 logger = logging.getLogger(__name__)
 
@@ -14,20 +15,11 @@ class PlaywrightLinkedinAPI:
 
     def __init__(
             self,
-            resources=None,
-            *,
-            debug=False,
+            session: AccountSession,
     ):
-        """Constructor method"""
-        if not resources:
-            raise ValueError("Playwright resources must be provided.")
-
-        # This is safe even if PlaywrightResources changes order or adds fields
-        self.page = resources.page
-        self.context = resources.context
-        self.browser = resources.browser
-        self.playwright = resources.playwright
-        logger.info("Using provided Playwright resources for requests.")
+        self.session = session
+        self.page = session.page
+        self.context = session.context
 
         # Extract cookies from the browser context to get JSESSIONID for csrf-token
         cookies = self.context.cookies()
@@ -67,9 +59,6 @@ class PlaywrightLinkedinAPI:
             'x-restli-protocol-version': '2.0.0',
         }
 
-        logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
-        self.logger = logger
-
     def get_profile(
             self, public_identifier: Optional[str] = None, profile_url: Optional[str] = None
     ) -> tuple[None, None] | tuple[dict, Any]:
@@ -87,7 +76,7 @@ class PlaywrightLinkedinAPI:
             public_identifier = urlparse(profile_url).path.strip('/').split('/')[-1]
 
         if not public_identifier:
-            raise ValueError("Either public_identifier or profile_url must be provided.")
+            raise ValueError("Need public_identifier or profile_url")
 
         params = {
             'decorationId': 'com.linkedin.voyager.dash.deco.identity.profile.FullProfileWithEntities-91',
@@ -104,18 +93,18 @@ class PlaywrightLinkedinAPI:
 
         match res.status:
             case 401:
-                self.logger.error(f"Authentication failed (401): {res.body()}")
+                logger.error(f"Authentication failed (401): {res.body()}")
                 raise AuthenticationError("LinkedIn API returned 401 Unauthorized.")
 
             case 403:
                 body = res.json()
-                self.logger.warning(f"SKIPPING profile – inaccessible/blocked/deleted → {profile_url}")
-                self.logger.debug(f"Body: {json.dumps(body, indent=2)}")
+                logger.warning(f"SKIPPING profile – inaccessible/blocked/deleted → {profile_url}")
+                logger.debug(f"Body: {json.dumps(body, indent=2)}")
                 return None, None
 
         if not res.ok:
             body_str = res.body().decode("utf-8", errors="ignore") if isinstance(res.body(), bytes) else str(res.body())
-            self.logger.error(f"Request failed with status {res.status}: {body_str}")
+            logger.error(f"Request failed with status {res.status}: {body_str}")
             raise Exception(f"LinkedIn API error {res.status}: {body_str}")
 
         data = res.json()

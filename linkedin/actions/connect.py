@@ -12,28 +12,27 @@ logger = logging.getLogger(__name__)
 def send_connection_request(
         key: SessionKey,
         profile: Dict[str, Any],
-        template_file: Optional[str] = None,  # ← kept for future use
-        template_type: str = "jinja",  # ← kept for future use
+        template_file: Optional[str] = None,
+        template_type: str = "jinja",
 ) -> ConnectionStatus:
     """
-    Sends a LinkedIn connection request WITHOUT a note (fastest & least restricted).
-    All note-sending logic has been moved to a separate unused function for future use.
+    Sends a LinkedIn connection request WITHOUT a note (fastest & safest).
+    All note-sending logic preserved below for future use.
     """
     from linkedin.actions.search import search_profile
     from linkedin.actions.connection_status import get_connection_status
 
-    account_session = AccountSessionRegistry.get_or_create(
+    # Get the singleton session (auto-recovers browser if crashed)
+    session = AccountSessionRegistry.get_or_create(
         handle=key.handle,
         campaign_name=key.campaign_name,
         csv_hash=key.csv_hash,
     )
 
-    resources = account_session.resources
-
     logger.debug("1. Navigating to profile: %s", profile.get("url"))
-    search_profile(account_session, profile)
+    search_profile(session, profile)  # now takes session, not resources
 
-    # ← Note rendering is preserved but currently ignored (kept for future reactivation)
+    # Render note if template provided (currently not sent – kept for future)
     if template_file:
         from linkedin.templates.renderer import render_template
         message = render_template(template_file, template_type, profile)
@@ -42,7 +41,7 @@ def send_connection_request(
         message = ""
 
     logger.debug("3. Checking current connection status...")
-    status = get_connection_status(account_session, profile)
+    status = get_connection_status(session, profile)  # now takes session
     logger.info("Current status → %s", status.value)
 
     skip_reasons = {
@@ -52,97 +51,84 @@ def send_connection_request(
     }
 
     if status in skip_reasons:
-        name = profile.get('full_name', profile['url'])
+        name = profile.get('full_name', profile.get('url'))
         logger.info("Skipping send → %s (%s)", name, skip_reasons[status])
         return status
 
-    # 4. Send invitation WITHOUT note (message-free flow)
-    _perform_send_invitation_without_note(resources)
+    # 4. Send invitation WITHOUT note (current active flow)
+    _perform_send_invitation_without_note(session)
 
-    name = profile.get('full_name') or profile['url']
+    name = profile.get('full_name') or profile.get('url')
     logger.info("Connection request sent (no note) → %s", name)
     return ConnectionStatus.PENDING
 
 
-def _perform_send_invitation_without_note(resources):
-    """Current active flow: sends invitation instantly without any note."""
-    wait(resources)
-    top_card_section = resources.page.locator('section:has(div.top-card-background-hero-image)')
+def _perform_send_invitation_without_note(session):
+    """Click flow: sends connection request instantly without note."""
+    wait(session)
+    top_card = session.page.locator('section:has(div.top-card-background-hero-image)')
 
-    # Primary: Direct "Connect" button
-    direct = top_card_section.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
+    # Direct "Connect" button
+    direct = top_card.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
     if direct.count() > 0:
         direct.first.click()
         logger.debug("Clicked direct 'Connect' button")
     else:
         # Fallback: More → Connect
-        more = top_card_section.locator(
+        more = top_card.locator(
             'button[id*="overflow"]:visible, '
             'button[aria-label*="More actions"]:visible'
         ).first
         more.click()
-        wait(resources)
-        connect_option = top_card_section.locator(
+        wait(session)
+        connect_option = top_card.locator(
             'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]'
         ).first
         connect_option.click()
         logger.debug("Used 'More → Connect' flow")
 
-    wait(resources)
+    wait(session)
 
-    # Click "Send now" / "Send without note"
-    send_btn = resources.page.locator(
+    # Click "Send now" / "Send without a note"
+    send_btn = session.page.locator(
         'button:has-text("Send now"), '
         'button[aria-label*="Send without"], '
         'button[aria-label*="Send invitation"]:not([aria-label*="note"])'
     )
     send_btn.first.click(force=True)
-    wait(resources)
+    wait(session)
     logger.debug("Connection request submitted (no note)")
 
 
 # ===================================================================
-# FUTURE USE: Full invitation with personalized note
+# FUTURE: Send with personalized note (just uncomment when ready)
 # ===================================================================
-# Uncomment and replace the call in send_connection_request() when you're ready
-# to start sending notes again.
-def _perform_send_invitation_with_note(resources, message: str):
-    """Low-level click logic for sending invitation WITH a custom note."""
-    wait(resources)
-    top_card_section = resources.page.locator('section:has(div.top-card-background-hero-image)')
+def _perform_send_invitation_with_note(session, message: str):
+    """Full flow with custom note – ready to enable anytime."""
+    wait(session)
+    top_card = session.page.locator('section:has(div.top-card-background-hero-image)')
 
-    # Primary: Direct "Connect" button
-    direct = top_card_section.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
+    direct = top_card.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
     if direct.count() > 0:
         direct.first.click()
-        logger.debug("Clicked direct 'Connect' button")
     else:
-        # Fallback: More → Connect
-        more = top_card_section.locator(
-            'button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible').first
+        more = top_card.locator('button[id*="overflow"], button[aria-label*="More actions"]').first
         more.click()
-        wait(resources)
-        connect_option = top_card_section.locator(
-            'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]').first
-        connect_option.click()
-        logger.debug("Used 'More → Connect' flow")
+        wait(session)
+        session.page.locator('div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]').first.click()
 
-    wait(resources)
+    wait(session)
+    session.page.locator('button:has-text("Add a note")').first.click()
+    wait(session)
 
-    # Always go through "Add a note"
-    add_note = resources.page.locator('button:has-text("Add a note"), button[aria-label*="Add a note"]')
-    add_note.first.click()
-    wait(resources)
-
-    textarea = resources.page.locator('textarea#custom-message, textarea[name="message"]')
+    textarea = session.page.locator('textarea#custom-message, textarea[name="message"]')
     textarea.first.fill(message)
-    wait(resources)
-    logger.debug("Filled custom note (%d chars)", len(message))
+    wait(session)
+    logger.debug("Filled note (%d chars)", len(message))
 
-    send_btn = resources.page.locator('button:has-text("Send"), button[aria-label*="Send invitation"]')
-    send_btn.first.click(force=True)
-    wait(resources)
-    logger.debug("Connection request with note submitted")
+    session.page.locator('button:has-text("Send"), button[aria-label*="Send invitation"]').first.click(force=True)
+    wait(session)
+    logger.debug("Connection request with note sent")
 
 
 if __name__ == "__main__":
@@ -164,6 +150,7 @@ if __name__ == "__main__":
 
     public_identifier = "lexfridman"
     test_profile = {
+        "full_name": "Lex Fridman",
         "url": f"https://www.linkedin.com/in/{public_identifier}/",
         "public_identifier": public_identifier,
     }

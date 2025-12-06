@@ -1,5 +1,4 @@
 # linkedin/navigation/login.py
-
 import logging
 from pathlib import Path
 
@@ -7,11 +6,7 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 
 from linkedin.conf import get_account_config
-from linkedin.navigation.utils import (
-    PlaywrightResources,
-    wait,
-    goto_page,
-)
+from linkedin.navigation.utils import wait, goto_page
 
 logger = logging.getLogger(__name__)
 
@@ -22,103 +17,79 @@ SELECTORS = {
     "email": 'input#username',
     "password": 'input#password',
     "submit": 'button[type="submit"]',
-    "global_nav": 'nav[global-nav="global-nav"]',
-    "security_check": 'text=Let’s do a quick security check,Help us keep your account safe',
 }
 
 
-def playwright_login(resources, handle):
-    page = resources.page
-    config = get_account_config(handle)
-    logger.info("Starting LinkedIn login for handle: %s", handle)
+def playwright_login(session):
+    page = session.page
+    config = get_account_config(session.handle)
+    logger.info("Starting fresh LinkedIn login for %s", session.handle)
 
-    # → Go to login page
-    logger.debug("Navigating to LinkedIn login page")
     goto_page(
-        resources=resources,
+        session,
         action=lambda: page.goto(LINKEDIN_LOGIN_URL),
         expected_url_pattern="/login",
-        error_message="Failed to load LinkedIn login page",
+        error_message="Failed to load login page",
     )
 
-    # → Enter email
-    logger.debug("Filling email field")
-    page.locator(SELECTORS["email"]).type(config["username"], delay=50)
-    wait(resources)
+    page.locator(SELECTORS["email"]).type(config["username"], delay=80)
+    wait(session)
+    page.locator(SELECTORS["password"]).type(config["password"], delay=80)
+    wait(session)
 
-    # → Enter password
-    logger.debug("Filling password field")
-    page.locator(SELECTORS["password"]).type(config["password"], delay=50)
-    wait(resources)
-
-    # → Submit form
-    logger.debug("Clicking login submit button")
     goto_page(
-        resources=resources,
+        session,
         action=lambda: page.locator(SELECTORS["submit"]).click(),
         expected_url_pattern="/feed",
         timeout=40_000,
-        error_message="Login failed – did not redirect to /feed",
+        error_message="Login failed – no redirect to feed",
     )
 
 
 def build_playwright(storage_state=None):
-    logger.debug("Launching Playwright with stealth")
+    logger.debug("Launching Playwright")
     playwright = sync_playwright().start()
-    browser = playwright.chromium.launch(headless=False, slow_mo=250)
+    browser = playwright.chromium.launch(headless=False, slow_mo=200)
     context = browser.new_context(storage_state=storage_state)
     Stealth().apply_stealth_sync(context)
     page = context.new_page()
-    logger.debug("Browser and page created")
-
-    return PlaywrightResources(
-        page=page,
-        context=context,
-        browser=browser,
-        playwright=playwright,
-    )
+    return page, context, browser, playwright
 
 
-def get_resources_with_state_management(handle: str):
-    logger.info("Initializing session for handle: %s", handle)
+def init_playwright_session(handle: str):
+    logger.info("Setting up browser for handle: %s", handle)
     config = get_account_config(handle)
     state_file = Path(config["cookie_file"])
 
-    storage = None
-    if state_file.exists():
-        logger.info("Loading saved session from: %s", state_file)
-        storage = str(state_file)
-    else:
-        logger.info("No valid session found or force_login=True → starting fresh")
+    storage_state = str(state_file) if state_file.exists() else None
+    if storage_state:
+        logger.info("Loading saved cookies from: %s", state_file)
 
-    resources = build_playwright(storage_state=storage)
+    page, context, browser, playwright = build_playwright(storage_state=storage_state)
 
-    # Need to log in
-    logger.info("Not logged in → performing fresh login")
-    if not storage:
-        playwright_login(resources, handle)
+    # Create temporary object so we can reuse existing utils/login functions
+    temp_session = type("Temp", (), {"page": page, "handle": handle})()
+
+    if not storage_state:
+        playwright_login(temp_session)
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        context.storage_state(path=str(state_file))
+        logger.info("Login successful – session saved to %s", state_file)
     else:
         goto_page(
-            resources=resources,
-            action=lambda: resources.page.goto(LINKEDIN_FEED_URL),
+            temp_session,
+            action=lambda: page.goto(LINKEDIN_FEED_URL),
             expected_url_pattern="/feed",
-            timeout=40_000,
-            error_message="Already logged in – did not go to /feed",
+            timeout=30_000,
+            error_message="Saved session invalid",
         )
 
-    # Save session if we just logged in
-    if not storage:
-        state_file.parent.mkdir(parents=True, exist_ok=True)
-        resources.context.storage_state(path=str(state_file))
-        logger.info("Login successful – session saved to: %s", state_file)
-
-    resources.page.wait_for_load_state("load")
-    logger.info("Login flow completed successfully!")
-    return resources
+    page.wait_for_load_state("load")
+    logger.info("Browser ready and authenticated!")
+    return page, context, browser, playwright
 
 
 if __name__ == "__main__":
-    # Clean, beautiful console logging
     logging.getLogger().handlers.clear()
     logging.basicConfig(
         level=logging.INFO,
@@ -127,22 +98,11 @@ if __name__ == "__main__":
     )
 
     import sys
-
     if len(sys.argv) != 2:
         print("Usage: python -m linkedin.navigation.login <handle>")
         sys.exit(1)
 
     handle = sys.argv[1]
-    try:
-        resources = get_resources_with_state_management(handle)
-        logger.info("Setup complete – you are fully logged in!")
-        logger.info("Browser will remain open. Close it manually when done.")
-        resources.page.pause()
-
-    finally:
-        # Always clean up
-        if 'resources' in locals():
-            logger.debug("Closing browser and Playwright")
-            resources.context.close()
-            resources.browser.close()
-            resources.playwright.stop()
+    page, context, browser, playwright = init_playwright_session(handle)
+    print("Logged in! Close browser manually.")
+    page.pause()
