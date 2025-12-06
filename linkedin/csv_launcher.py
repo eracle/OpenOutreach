@@ -1,15 +1,14 @@
 # linkedin/csv_launcher.py
 import hashlib
 import logging
-import urllib.parse
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from urllib.parse import urlparse
 
 import pandas as pd
 
 from linkedin.campaigns.connect_follow_up import process_profile_row, CAMPAIGN_NAME, INPUT_CSV_PATH
 from linkedin.conf import get_first_active_account
+from linkedin.navigation.utils import decode_url_path_only
 
 logger = logging.getLogger(__name__)
 
@@ -33,27 +32,6 @@ def hash_file(path: Path | str, chunk_size: int = 8192, algorithm: str = "sha256
     short_hex = full_hex[:16]
     logger.debug(f"Hashed file {path.name} → {short_hex} (full: {full_hex})")
     return short_hex
-
-
-def decode_url_path_only(url: str) -> str:
-    """
-    Decodes a percent-encoded LinkedIn URL and returns only the clean path part
-    (removes query parameters, fragments, etc.).
-
-    Example:
-      Input : "https://www.linkedin.com/in/%d0%bf%d0%b0%d0%b2%d0%b5%d0%bb-%d1%84%d0%b5%d0%b4%d0%be%d1%81%d0%b5%d0%b5%d0%b2-8364b689?refId=123"
-      Output: "https://www.linkedin.com/in/павел-федосеев-8364b689"
-    """
-    if not url or not isinstance(url, str):
-        return url
-
-    parsed = urlparse(url)
-
-    # Take only the scheme + netloc + path (ignore query and fragment)
-    clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
-
-    # Decode percent-encoding in the path (e.g., %d0%bf → п)
-    return urllib.parse.unquote(clean_url)
 
 
 def load_profiles_urls_from_csv(csv_path: Path | str) -> List[str]:

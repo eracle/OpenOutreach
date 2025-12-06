@@ -10,7 +10,7 @@ from linkedin.conf import get_account_config
 from linkedin.navigation.utils import (
     PlaywrightResources,
     wait,
-    navigate_and_verify,
+    goto_page,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def playwright_login(resources, handle):
 
     # → Go to login page
     logger.debug("Navigating to LinkedIn login page")
-    navigate_and_verify(
+    goto_page(
         resources=resources,
         action=lambda: page.goto(LINKEDIN_LOGIN_URL),
         expected_url_pattern="/login",
@@ -53,7 +53,7 @@ def playwright_login(resources, handle):
 
     # → Submit form
     logger.debug("Clicking login submit button")
-    navigate_and_verify(
+    goto_page(
         resources=resources,
         action=lambda: page.locator(SELECTORS["submit"]).click(),
         expected_url_pattern="/feed",
@@ -98,7 +98,7 @@ def get_resources_with_state_management(handle: str):
     if not storage:
         playwright_login(resources, handle)
     else:
-        navigate_and_verify(
+        goto_page(
             resources=resources,
             action=lambda: resources.page.goto(LINKEDIN_FEED_URL),
             expected_url_pattern="/feed",

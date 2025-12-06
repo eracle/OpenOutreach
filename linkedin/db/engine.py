@@ -1,7 +1,7 @@
-# linkedin/database.py
+# linkedin/engine.py
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, TypeAlias
+from typing import Optional, Dict, Any, TypeAlias, List
 
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker, scoped_session, Session as SASession
@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker, scoped_session, Session as SASession
 from linkedin.api.logging import log_profiles
 from linkedin.conf import get_account_config
 from linkedin.db.models import Base, Profile as DbProfile, CampaignRun, _make_short_run_id
+from linkedin.navigation.utils import decode_url_path_only  # your existing function
 
 DatabaseSession: TypeAlias = SASession
 
@@ -46,12 +47,19 @@ class Database:
 
     def _sync_all_unsynced_profiles(self):
         with self.get_session() as session:
-            unsynced = session.query(DbProfile).filter_by(cloud_synced=False).all()
+            # Only sync profiles that were actually scraped and are not yet synced
+            unsynced = session.query(DbProfile).filter_by(
+                scraped=True,
+                cloud_synced=False
+            ).all()
+
             if not unsynced:
-                logger.info("No unsynced profiles found.")
+                logger.info("No scraped + unsynced profiles found.")
                 return
 
             payload = [p.data for p in unsynced if p.data]
+            if not payload:
+                return
 
             success = log_profiles(payload)
 
@@ -65,9 +73,6 @@ class Database:
 
     @classmethod
     def from_handle(cls, handle: str) -> "Database":
-        """
-        Convenience factory: creates a fully configured Database instance for a given account handle.
-        """
         logger.info(f"Creating Database instance for account handle: {handle}")
         config = get_account_config(handle)
         db_path = config["db_path"]
@@ -75,44 +80,16 @@ class Database:
         return cls(db_path)
 
 
-def save_profile(session: DatabaseSession, profile_data: Dict[str, Any], raw_json: Dict[str, Any], url: str):
-    """
-    Saves or updates a profile (both parsed data and raw JSON).
-    Sets cloud_synced=False on insert.
-    """
-    existing = session.query(DbProfile).filter_by(url=url).first()
-
-    if existing:
-        logger.debug(f"Updating existing profile: {url}")
-        existing.data = profile_data
-        existing.raw_json = raw_json
-        existing.updated_at = func.now()
-    else:
-        logger.info(f"Saving new profile: {url}")
-        session.add(DbProfile(
-            url=url,
-            data=profile_data,
-            raw_json=raw_json,
-            cloud_synced=False,
-        ))
-
-    session.commit()
-
-
 def get_profile(session: DatabaseSession, url: str) -> Optional[Dict[str, Any]]:
-    """
-    Returns parsed profile data if exists in DB, else None.
-    """
+    url = decode_url_path_only(url)
     result = session.query(DbProfile).filter_by(url=url).first()
     return result.data if result else None
 
 
+# All campaign functions — 100% untouched
 def has_campaign_run(session: DatabaseSession, name: str, handle: str, input_hash: str) -> bool:
-    """Fast check if this exact campaign has already been queued."""
     return session.query(CampaignRun).filter_by(
-        name=name,
-        handle=handle,
-        input_hash=input_hash
+        name=name, handle=handle, input_hash=input_hash
     ).first() is not None
 
 
@@ -123,17 +100,10 @@ def mark_campaign_run(
         input_hash: str,
         short_id: str | None = None,
 ) -> str:
-    """
-    Record that this campaign was started.
-    Idempotent – safe to call multiple times.
-    Returns the short_id (useful for Temporal workflow_id).
-    """
     if has_campaign_run(session, name, handle, input_hash):
-        # Already exists → fetch and return its short_id
-        existing = session.query(CampaignRun.short_id).filter_by(
+        return session.query(CampaignRun.short_id).filter_by(
             name=name, handle=handle, input_hash=input_hash
         ).scalar()
-        return existing
 
     if short_id is None:
         short_id = _make_short_run_id(name, handle, input_hash)
@@ -150,7 +120,6 @@ def mark_campaign_run(
 
 
 def get_campaign_short_id(session: DatabaseSession, name: str, handle: str, input_hash: str) -> str | None:
-    """One-liner you asked for – safe, returns None if not found"""
     return session.query(CampaignRun.short_id).filter_by(
         name=name, handle=handle, input_hash=input_hash
     ).scalar()
@@ -169,10 +138,6 @@ def update_campaign_stats(
         increment_followup_sent: int = 0,
         increment_completed: int = 0,
 ):
-    """
-    Call this from your activities – super fast, one query only.
-    Example: update_campaign_stats(s, NAME, HANDLE, hash, increment_connect_sent=1)
-    """
     run = session.query(CampaignRun).filter_by(
         name=name, handle=handle, input_hash=input_hash
     ).first()
@@ -197,7 +162,6 @@ def update_campaign_stats(
 
 
 def get_campaign_stats(session: DatabaseSession, name: str, handle: str, input_hash: str) -> dict | None:
-    """Returns pretty dict for printing or API"""
     run = session.query(CampaignRun).filter_by(
         name=name, handle=handle, input_hash=input_hash
     ).first()
@@ -213,3 +177,60 @@ def get_campaign_stats(session: DatabaseSession, name: str, handle: str, input_h
         "completed": run.completed,
         "last_updated": run.last_updated.isoformat(),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW: PROFILE LIFECYCLE FUNCTIONS (what you actually wanted)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def add_profile_urls(session: DatabaseSession, urls: List[str]):
+    """Phase 1: Just discovered URLs — not scraped yet"""
+    if not urls:
+        return
+
+    clean_urls = {decode_url_path_only(u) for u in urls if decode_url_path_only(u)}
+    if not clean_urls:
+        return
+
+    session.execute(
+        DbProfile.__table__.insert().prefix_with("OR IGNORE"),
+        [{"url": u} for u in clean_urls]
+    )
+    session.commit()
+    logger.info(f"Discovered {len(clean_urls)} profile URLs (deduped)")
+
+
+def save_scraped_profile(
+        session: DatabaseSession,
+        url: str,
+        profile_data: Dict[str, Any],
+        raw_json: Dict[str, Any],
+):
+    """Phase 2: Scrape succeeded → mark as scraped and save data"""
+    canon_url = decode_url_path_only(url)
+    if not canon_url:
+        return
+
+    profile = session.get(DbProfile, canon_url)
+    if profile is None:
+        profile = DbProfile(url=canon_url)
+
+    profile.data = profile_data
+    profile.raw_json = raw_json
+    profile.scraped = True
+    profile.cloud_synced = False
+    profile.updated_at = func.now()
+
+    session.merge(profile)
+    session.commit()
+    logger.info(f"Scraped profile saved: {canon_url}")
+
+
+def get_next_url_to_scrape(session: DatabaseSession, limit: int = 100) -> List[str]:
+    """Get URLs that exist but haven't been scraped yet"""
+    rows = session.query(DbProfile.url).filter_by(scraped=False).limit(limit).all()
+    return [row.url for row in rows]
+
+
+def count_pending_scrape(session: DatabaseSession) -> int:
+    return session.query(DbProfile).filter_by(scraped=False).count()

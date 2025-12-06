@@ -4,10 +4,8 @@ import logging
 from typing import Dict, Any
 from urllib.parse import urlparse, parse_qs, urlencode
 
-from linkedin.api.client import PlaywrightLinkedinAPI
-from linkedin.db.engine import save_profile, get_profile
-from linkedin.navigation.utils import wait, navigate_and_verify, human_delay, PlaywrightResources
-from linkedin.sessions import AccountSessionRegistry, AccountSession  # ← only this added
+from linkedin.navigation.utils import wait, goto_page, PlaywrightResources
+from linkedin.sessions import AccountSessionRegistry, AccountSession
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +21,7 @@ def _go_to_profile(resources: PlaywrightResources, url: str, public_identifier: 
         return
 
     logger.info(f"Navigating to profile: {public_identifier}")
-    navigate_and_verify(
+    goto_page(
         resources,
         action=lambda: resources.page.goto(url),
         expected_url_pattern=f"/in/{public_identifier}",
@@ -31,7 +29,7 @@ def _go_to_profile(resources: PlaywrightResources, url: str, public_identifier: 
     )
 
 
-def search_profile(account_session: AccountSession, profile: Dict[str, Any], direct=True):
+def search_profile(account_session: AccountSession, profile: Dict[str, Any]):
     resources = account_session.resources
     url = profile.get("url")
     public_id = profile.get("public_identifier")
@@ -39,10 +37,7 @@ def search_profile(account_session: AccountSession, profile: Dict[str, Any], dir
     if not url or not public_id:
         raise ValueError("Profile must have 'url' and 'public_identifier'")
 
-    if direct:
-        logger.info(f"Direct navigation to {public_id}")
-        _go_to_profile(resources, url, public_id)
-    elif not _simulate_human_search(account_session, profile):
+    if not _simulate_human_search(account_session, profile):
         logger.warning("Search failed, falling back to direct")
         _go_to_profile(resources, url, public_id)
 
@@ -51,7 +46,7 @@ def _initiate_search(resources: PlaywrightResources, full_name: str):
     """Ensures we are on the feed and initiates a search for the given name."""
     page = resources.page
     if "feed/" not in page.url:
-        navigate_and_verify(
+        goto_page(
             resources,
             action=lambda: page.goto("https://www.linkedin.com/feed/?doFeedRefresh=true&nis=true"),
             expected_url_pattern="feed/",
@@ -63,7 +58,7 @@ def _initiate_search(resources: PlaywrightResources, full_name: str):
     search_bar.click()
     search_bar.type(full_name, delay=150)
 
-    navigate_and_verify(
+    goto_page(
         resources,
         action=lambda: search_bar.press("Enter"),
         expected_url_pattern="/search/results/",
@@ -78,56 +73,12 @@ def _initiate_search(resources: PlaywrightResources, full_name: str):
     new_query = urlencode(query_params, doseq=True)
     new_url = parsed_url._replace(path=path, query=new_query).geturl()
 
-    navigate_and_verify(
+    goto_page(
         resources,
         action=lambda: page.goto(new_url),
         expected_url_pattern="/search/results/people/",
         error_message="Failed to reach people search results page"
     )
-
-
-def _process_search_results_page(account_session: AccountSession, target_linkedin_id: str, ):
-    resources = account_session.resources
-    page = resources.page
-    link_locators = page.locator('a[href*="/in/"]').all()
-    logger.info(f"Found {len(link_locators)} potential profile links.")
-
-    api = PlaywrightLinkedinAPI(resources=resources)
-    target_link_locator = None
-
-    # Step 1: Collect and clean all URLs, remove duplicates
-    unique_clean_urls = set()
-
-    for link in link_locators:
-        href = link.get_attribute("href")
-        if not href:
-            continue
-
-        # Simple but effective cleaning
-        parsed = urlparse(href)
-        clean_url = parsed._replace(query="", fragment="").geturl()
-
-        # Extra safety: ensure it's really a /in/ profile
-        if "/in/" in clean_url:
-            unique_clean_urls.add(clean_url)
-
-        # Check for target (use original href to match locator)
-        if f"/in/{target_linkedin_id}" in href:
-            target_link_locator = link
-
-    logger.info(f"After deduplication: {len(unique_clean_urls)} unique profiles to process.")
-
-    # Step 2: Process only unique URLs
-    for clean_url in unique_clean_urls:
-        if not get_profile(account_session.db.get_session(), clean_url):
-            logger.debug(f"Enriching profile: {clean_url}")
-            human_delay()
-            parsed_profile, raw_json = api.get_profile(profile_url=clean_url)
-            save_profile(account_session.db.get_session(), parsed_profile, raw_json, clean_url)
-        else:
-            logger.info(f"Already in DB, skipping: {clean_url}")
-
-    return target_link_locator
 
 
 def _paginate_to_next_page(resources: PlaywrightResources, page_num: int):
@@ -141,7 +92,7 @@ def _paginate_to_next_page(resources: PlaywrightResources, page_num: int):
     new_url = parsed_url._replace(query=new_query).geturl()
 
     logger.info(f"Paginating to page {page_num}: {new_url}")
-    navigate_and_verify(
+    goto_page(
         resources,
         action=lambda: page.goto(new_url),
         expected_url_pattern="/search/results/",
@@ -157,6 +108,7 @@ def _simulate_human_search(
     Simulates a search, scrapes all profiles from results, and navigates to the target.
     """
     resources = account_session.resources
+    page = resources.page
     full_name = profile.get("full_name")
     linkedin_id = profile.get("public_identifier")
     if not full_name or not linkedin_id:
@@ -165,17 +117,24 @@ def _simulate_human_search(
     logger.info(f"Starting search for '{full_name}' (ID: {linkedin_id})")
     _initiate_search(resources, full_name)
 
-    max_pages = 2
-    for page_num in range(1, max_pages + 1):
+    max_pages = 1
+    for page_num in range(1, max_pages):
         logger.info(f"Scanning search results on page {page_num}")
 
-        target_link = _process_search_results_page(account_session, linkedin_id)
+        target_link_locator = None
 
-        if target_link:
-            logger.info(f"Found target profile: {target_link.get_attribute('href')}")
-            navigate_and_verify(
+        # Find the exact link Locator for the target profile (needed for clicking)
+        for link in page.locator('a[href*="/in/"]').all():
+            href = link.get_attribute("href") or ""
+            if f"/in/{linkedin_id}" in href:
+                target_link_locator = link
+                break
+
+        if target_link_locator:
+            logger.info(f"Found target profile: {target_link_locator.get_attribute('href')}")
+            goto_page(
                 resources,
-                action=lambda: target_link.click(),
+                action=lambda: target_link_locator.click(),
                 expected_url_pattern=linkedin_id,
                 error_message="Failed to navigate to the target profile"
             )
@@ -194,7 +153,7 @@ def _simulate_human_search(
 
 if __name__ == "__main__":
     import sys
-    from pathlib import Path
+    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
     root_logger = logging.getLogger()
     root_logger.handlers = []
@@ -211,7 +170,7 @@ if __name__ == "__main__":
     account_session = AccountSessionRegistry.get_or_create_from_path(
         handle=handle,
         campaign_name="test_search",
-        csv_path=Path("dummy.csv"),
+        csv_path=INPUT_CSV_PATH,
     )
 
     target_profile = {
