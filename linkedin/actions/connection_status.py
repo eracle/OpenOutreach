@@ -1,7 +1,10 @@
 # linkedin/actions/connection_status.py
 import logging
+import os
+from datetime import datetime
 from typing import Dict, Any
 
+from linkedin.conf import FIXTURE_PAGES_DIR
 from linkedin.navigation.enums import ConnectionStatus
 from linkedin.sessions.registry import AccountSessionRegistry
 
@@ -18,7 +21,7 @@ def get_connection_status(
     """
     # Ensure browser is ready (safe to call multiple times)
     session.ensure_browser()
-
+    session.wait()
     logger.debug("Checking connection status for %s", profile.get("full_name", "unknown"))
 
     degree = profile.get("connection_degree")
@@ -36,14 +39,18 @@ def get_connection_status(
 
     main_container = session.page.locator('main').first
 
-    # 1. Is there a "Pending" button?
+    # 1a. Is there a "Pending" button?
     if main_container.locator('button[aria-label*="Pending"]:visible').count() > 0:
         logger.debug("Found visible 'Pending' button → PENDING")
         return ConnectionStatus.PENDING
 
-    # 2. Is there a "1st" label?
     main_text = main_container.inner_text()
+    # 1b. Is there a "Pending" label?
+    if any(indicator in main_text for indicator in ["Pending"]):
+        logger.debug("Found visible 'Pending' button → PENDING")
+        return ConnectionStatus.PENDING
 
+    # 2. Is there a "1st" label?
     if any(indicator in main_text for indicator in ["1st", "1st degree", "1º", "1er"]):
         logger.debug("Confirmed 1st degree connection via <main> text")
         return ConnectionStatus.CONNECTED
@@ -54,8 +61,15 @@ def get_connection_status(
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ConnectionStatus.NOT_CONNECTED
 
-    # 4. Nothing clear → play safe
+    # 4. Nothing clear → play safe + SAVE HTML for debugging
     logger.debug("No clear connection indicators → UNKNOWN")
+
+    filepath = FIXTURE_PAGES_DIR / f"{profile.get("public_identifier")}.html"
+    html_content = session.page.content()
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(html_content)
+    logger.info("Saved unknown connection status page → %s", filepath)
+
     return ConnectionStatus.UNKNOWN
 
 

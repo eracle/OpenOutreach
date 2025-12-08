@@ -26,6 +26,10 @@ DATA_DIR = ASSETS_DIR / "data"
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
+FIXTURE_DIR = ROOT_DIR / "tests" / "fixtures"
+FIXTURE_PROFILES_DIR = FIXTURE_DIR / "profiles"
+FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
+
 # ----------------------------------------------------------------------
 # SINGLE secrets file
 # ----------------------------------------------------------------------

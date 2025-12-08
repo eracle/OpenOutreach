@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
+from linkedin.conf import FIXTURE_PROFILES_DIR
 from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
 from ..api.client import PlaywrightLinkedinAPI
 
@@ -71,7 +72,7 @@ if __name__ == "__main__":
     import sys
     from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
-    FIXTURE_PATH = Path(__file__).parent.parent.parent / "tests" / "fixtures" / "linkedin_profile.json"
+    FIXTURE_PATH = FIXTURE_PROFILES_DIR / "linkedin_profile.json"
 
     logging.getLogger().handlers.clear()
     logging.basicConfig(
