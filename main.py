@@ -6,8 +6,7 @@ from linkedin.csv_launcher import launch_connect_follow_up_campaign
 logging.getLogger().handlers.clear()
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s │ %(levelname)-8s │ %(message)s",
-    datefmt="%H:%M:%S",
+    format="%(message)s",
 )
 
 if __name__ == "__main__":

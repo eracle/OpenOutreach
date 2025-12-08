@@ -29,7 +29,7 @@ def goto_page(session: "AccountSession",
     if expected_url_pattern not in page_url:
         raise RuntimeError(f"{error_message}: {expected_url_pattern} not in '{page_url}'")
 
-    logger.info("Navigated to %s", page.url)
+    logger.debug("Navigated to %s", page.url)
 
     try:
         urls = _extract_in_urls(session)

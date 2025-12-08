@@ -40,19 +40,18 @@ def send_connection_request(
         message = ""
 
     logger.debug("3. Checking current connection status...")
-    status = get_connection_status(session, profile)  # now takes session
-    logger.info("Current status → %s", status.value)
+    connection_status = get_connection_status(session, profile)  # now takes session
+    logger.info("Current status → %s", connection_status.value)
 
     skip_reasons = {
         ConnectionStatus.CONNECTED: "Already connected",
         ConnectionStatus.PENDING: "Invitation already pending",
-        ConnectionStatus.UNKNOWN: "Unknown status – playing safe",
     }
 
-    if status in skip_reasons:
+    if connection_status in skip_reasons:
         name = profile.get('full_name', profile.get('url'))
-        logger.info("Skipping send → %s (%s)", name, skip_reasons[status])
-        return status
+        logger.info("Skipping send → %s (%s)", name, skip_reasons[connection_status])
+        return connection_status
 
     # 4. Send invitation WITHOUT note (current active flow)
     _perform_send_invitation_without_note(session)
@@ -143,13 +142,13 @@ if __name__ == "__main__":
     key = SessionKey.make(handle, "test_connect", INPUT_CSV_PATH)
 
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
-    public_identifier = "lexfridman"
+    public_identifier = "benjames01"
     test_profile = {
-        "full_name": "Lex Fridman",
+        "full_name": "Ben James",
         "url": f"https://www.linkedin.com/in/{public_identifier}/",
         "public_identifier": public_identifier,
     }

@@ -34,24 +34,22 @@ def get_connection_status(
         degree
     )
 
-    page = session.page
+    main_container = session.page.locator('main').first
 
     # 1. Is there a "Pending" button?
-    if page.locator('button[aria-label*="Pending"]:visible').count() > 0:
+    if main_container.locator('button[aria-label*="Pending"]:visible').count() > 0:
         logger.debug("Found visible 'Pending' button → PENDING")
         return ConnectionStatus.PENDING
 
-    # 2. Is there a 1st-degree badge? (covers rare cases where API lags)
-    dist_locator = page.locator('span[class*="distance-badge"]:visible')
-    if dist_locator.count() > 0:
-        badge_text = dist_locator.first.inner_text().strip()
-        logger.debug("Distance badge text: %r", badge_text)
-        if badge_text.startswith("1"):
-            logger.debug("Distance badge shows 1st → CONNECTED")
-            return ConnectionStatus.CONNECTED
+    # 2. Is there a "1st" label?
+    main_text = main_container.inner_text()
+
+    if any(indicator in main_text for indicator in ["1st", "1st degree", "1º", "1er"]):
+        logger.debug("Confirmed 1st degree connection via <main> text")
+        return ConnectionStatus.CONNECTED
 
     # 3. Is there a "Connect" button?
-    invite_btn = page.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
+    invite_btn = main_container.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
     if invite_btn.count() > 0:
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ConnectionStatus.NOT_CONNECTED
@@ -84,13 +82,14 @@ if __name__ == "__main__":
         csv_path=INPUT_CSV_PATH,
     )
 
-    profile = {
-        "full_name": "Bill Gates",
-        "url": "https://www.linkedin.com/in/williamhgates/",
-        "public_identifier": "williamhgates",
+    public_identifier = "benjames01"
+    test_profile = {
+        "full_name": "Ben James",
+        "url": f"https://www.linkedin.com/in/{public_identifier}/",
+        "public_identifier": public_identifier,
     }
 
-    print(f"Checking connection status as @{handle} → {profile['full_name']}")
+    print(f"Checking connection status as @{handle} → {test_profile['full_name']}")
     print(f"Session key: {key}")
 
     # Get session and navigate
@@ -99,9 +98,9 @@ if __name__ == "__main__":
         campaign_name=key.campaign_name,
         csv_path=INPUT_CSV_PATH,
     )
-    session.ensure_browser()  # ← ensures page is alive
-    search_profile(session, profile)  # ← now takes session
+    session.ensure_browser()
+    search_profile(session, test_profile)
 
     # Check status
-    status = get_connection_status(session, profile)
+    status = get_connection_status(session, test_profile)
     print(f"Connection status → {status.value}")
