@@ -120,9 +120,9 @@ def _simulate_human_search(session: "AccountSession", profile: Dict[str, Any]) -
 
     _initiate_search(session, full_name)
 
-    max_pages_to_scan = 2
+    max_pages_to_scan = 1
 
-    for current_page in range(1, max_pages_to_scan):
+    for current_page in range(1, max_pages_to_scan + 1):
         logger.info(f"Scanning page {current_page} of search results")
 
         # Look for the exact profile link

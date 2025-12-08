@@ -48,5 +48,5 @@ def _extract_in_urls(session):
             full_url = urljoin(page.url, href.strip())
             clean = urlparse(full_url)._replace(query="", fragment="").geturl()
             urls.add(clean)
-    logger.info(f"Extracted {len(urls)} unique /in/ profiles")
+    logger.debug(f"Extracted {len(urls)} unique /in/ profiles")
     return urls

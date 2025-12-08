@@ -1,4 +1,7 @@
 # linkedin/navigation/throttle.py
+import logging
+
+logger = logging.getLogger(__name__)
 
 _wait_counter = 0
 _debt = 0  # cumulative profiles we still "owe" to scrape smoothly
@@ -26,9 +29,8 @@ def get_smooth_scrape_count(current_pending: int) -> int:
     _debt -= to_scrape
 
     # Optional: pretty logging (remove or customize as you wish)
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(
+
+    logger.debug(
         f"SmoothThrottle | Wait #{_wait_counter:04d} | "
         f"Pending: {current_pending:5d} | Scraping now: {to_scrape:4d} | "
         f"Remaining debt: {_debt:6d}"

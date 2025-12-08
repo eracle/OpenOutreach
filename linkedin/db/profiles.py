@@ -25,7 +25,7 @@ def add_profile_urls(session: AccountSession, urls: List[str]):
     )
     db.commit()
 
-    logger.info(f"Discovered {len(public_ids)} unique LinkedIn profiles")
+    logger.debug(f"Discovered {len(public_ids)} unique LinkedIn profiles")
     for pid in public_ids:
         logger.debug("Profile discovered → %s", public_id_to_url(pid))
 
@@ -48,7 +48,7 @@ def save_scraped_profile(
 
     db.merge(profile)
     db.commit()
-    logger.info(f"Scraped profile saved → {public_id_to_url(public_id)}")
+    logger.debug(f"Scraped profile saved → {public_id_to_url(public_id)}")
 
 
 def get_next_url_to_scrape(session: AccountSession, limit: int = 1) -> List[str]:

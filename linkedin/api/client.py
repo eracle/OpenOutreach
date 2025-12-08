@@ -97,7 +97,7 @@ class PlaywrightLinkedinAPI:
 
             case 403:
                 body = res.json()
-                logger.warning(f"SKIPPING profile – inaccessible/blocked/deleted → {profile_url}")
+                logger.debug(f"SKIPPING profile – inaccessible/blocked/deleted → {profile_url}")
                 logger.debug(f"Body: {json.dumps(body, indent=2)}")
                 return None, None
 
