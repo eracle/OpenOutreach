@@ -5,10 +5,13 @@ from typing import Dict, Any, Optional
 from linkedin.actions.connection_status import get_connection_status
 from linkedin.actions.search import search_profile
 from linkedin.navigation.enums import ConnectionStatus, MessageStatus
+from linkedin.navigation.utils import goto_page
 from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
 from linkedin.templates.renderer import render_template
 
 logger = logging.getLogger(__name__)
+
+LINKEDIN_MESSAGING_URL = "https://www.linkedin.com/messaging/"
 
 
 def send_follow_up_message(
@@ -65,7 +68,7 @@ def get_messaging_availability(session: "AccountSession", profile: Dict[str, Any
     return False
 
 
-def _perform_send_message(session, message: str):
+def _perform_send_message_v1(session: "AccountSession", profile: Dict[str, Any], message: str):
     """Low-level message sending with fallback methods (2025-proof)."""
     session.wait()
 
@@ -108,6 +111,34 @@ def _perform_send_message(session, message: str):
     logger.info("Message sent successfully")
 
 
+def _send_message(session: "AccountSession", profile: Dict[str, Any], message: str):
+    full_name = profile.get("full_name")
+    goto_page(
+        session,
+        action=lambda: session.page.goto(LINKEDIN_MESSAGING_URL),
+        expected_url_pattern="/messaging",
+        timeout=30_000,
+        error_message="Error opening messaging",
+    )
+    # Click the element with class="entry-point"
+    session.page.locator(".entry-point").click(timeout=10_000)
+
+    # Search person
+    session.page.locator('input[class^="msg-connections"]').type(full_name, delay=120)
+
+    selector = 'li[data-view-name="messaging-type-ahead-card"]:first-of-type'
+
+    item = session.page.locator(selector)
+    item.wait_for(state="visible")
+
+    # Scroll into view + click (very reliable on LinkedIn)
+    item.scroll_into_view_if_needed()
+    item.click(delay=200)  # small delay between mousedown/mouseup = very human
+
+    session.page.locator('div[class^="msg-form__contenteditable"]').type(message, delay=120)
+    session.page.locator('div[class^="class="msg-form__send-button"]').press("Enter")
+
+
 def send_message_to_profile(
         session: "AccountSession",
         profile: Dict[str, Any],
@@ -117,7 +148,8 @@ def send_message_to_profile(
         logger.info("Skipping message → not connected or pending")
         return MessageStatus.SKIPPED
 
-    _perform_send_message(session, message)
+    _perform_send_message_v1(session, profile, message)
+    # _send_message(session, profile, message)
     return MessageStatus.SENT
 
 
@@ -152,14 +184,14 @@ if __name__ == "__main__":
     )
     session.ensure_browser()
 
-    profile = {
-        "url": "https://www.linkedin.com/in/elizabethladendorf/",
-        "public_identifier": "elizabethladendorf",
-        "full_name": "Elizabeth Laden Dorf",
+    test_profile = {
+        "full_name": "Bill Gates",
+        "url": "https://www.linkedin.com/in/williamhgates/",
+        "public_identifier": "williamhgates",
     }
 
     send_follow_up_message(
         key=key,
-        profile=profile,
+        profile=test_profile,
         template_file="./assets/templates/messages/followup.j2",
     )
