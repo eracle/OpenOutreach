@@ -13,8 +13,8 @@ from linkedin.sessions.registry import SessionKey
 
 logger = logging.getLogger(__name__)
 
-MIN_DELAY = 2
-MAX_DELAY = 3.5
+MIN_DELAY = 1
+MAX_DELAY = 2
 MIN_API_DELAY = 0.250
 MAX_API_DELAY = 0.500
 
@@ -55,18 +55,15 @@ class AccountSession:
         from linkedin.db.profiles import count_pending_scrape
         from linkedin.db.profiles import get_next_url_to_scrape
         from linkedin.db.profiles import save_scraped_profile
-        logger.info(f"Pausing: {MIN_DELAY}-{MAX_DELAY}s")
+        logger.info(f"Pausing: {MAX_DELAY}s")
         pending = count_pending_scrape(self)
 
-        logger.debug(f"****************************************")
         logger.debug(f"Wait #{_wait_counter:04d} | Profiles still needing scrape: {pending}")
-        logger.debug(f"****************************************")
 
         amount_to_scrape = get_smooth_scrape_count(pending)  # keeps original throttling logic happy
 
         urls = get_next_url_to_scrape(self, limit=amount_to_scrape)
         if urls:
-            logger.info(f"****************************************")
             min_api_delay = max(min_delay / len(urls), MIN_API_DELAY)
             max_api_delay = max(max_delay / len(urls), MAX_API_DELAY)
             api = PlaywrightLinkedinAPI(session=self)

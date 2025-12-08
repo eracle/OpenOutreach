@@ -1,7 +1,5 @@
 # linkedin/actions/connection_status.py
 import logging
-import os
-from datetime import datetime
 from typing import Dict, Any
 
 from linkedin.conf import FIXTURE_PAGES_DIR

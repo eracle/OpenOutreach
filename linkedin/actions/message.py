@@ -52,13 +52,15 @@ def get_messaging_availability(session: "AccountSession", profile: Dict[str, Any
 
     logger.debug("Messaging availability check → %s → %s", profile.get("full_name", "unknown"), status.value)
 
-    if status in (ConnectionStatus.CONNECTED, ConnectionStatus.UNKNOWN):
+    if status == ConnectionStatus.CONNECTED:
         return True
 
     if status == ConnectionStatus.NOT_CONNECTED:
         logger.info("Messaging blocked → not connected")
     elif status == ConnectionStatus.PENDING:
         logger.info("Messaging blocked → connection still pending")
+    elif status == ConnectionStatus.UNKNOWN:
+        logger.info("Connection Unknown saving profile for debugging.")
 
     return False
 

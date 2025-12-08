@@ -15,12 +15,7 @@ def _go_to_profile(session: "AccountSession", url: str, public_identifier: str):
     Go to profile URL only if we're not already on it.
     Checks by public_identifier — most reliable on LinkedIn.
     """
-    current_url = session.page.url
-    if f"/in/{public_identifier}" in current_url:
-        logger.info(f"Already on profile {public_identifier} → skipping navigation")
-        return
-
-    logger.info(f"Navigating directly to profile: {public_identifier}")
+    logger.info(f"Navigating to profile: {public_identifier}")
     goto_page(
         session,
         action=lambda: session.page.goto(url),
@@ -36,17 +31,15 @@ def search_profile(session: "AccountSession", profile: Dict[str, Any]):
     """
 
     url = profile.get("url")
-    public_id = profile.get("public_identifier")
+    public_identifier = profile.get("public_identifier")
 
-    if not url or not public_id:
-        raise ValueError("Profile must have 'url' and 'public_identifier'")
+    if f"/in/{public_identifier}" in session.page.url:
+        return
 
     # Ensure browser is alive before doing anything
     session.ensure_browser()
+    _simulate_human_search(session, profile) or _go_to_profile(session, url, public_identifier)
 
-    if not _simulate_human_search(session, profile):
-        logger.warning("Human search failed → falling back to direct navigation")
-        _go_to_profile(session, url, public_id)
 
 
 def _initiate_search(session: "AccountSession", full_name: str):
