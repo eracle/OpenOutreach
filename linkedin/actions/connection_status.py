@@ -53,11 +53,17 @@ def get_connection_status(
         logger.debug("Confirmed 1st degree connection via <main> text")
         return ConnectionStatus.CONNECTED
 
-    # 3. Is there a "Connect" button?
+    # 3a. Is there a "Connect" button?
     invite_btn = main_container.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
     if invite_btn.count() > 0:
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ConnectionStatus.NOT_CONNECTED
+
+    # 3b. Is there a "Connect" label?
+    if any(indicator in main_text for indicator in ["Connect"]):
+        logger.debug("Found 'Connect' label → NOT_CONNECTED")
+        return ConnectionStatus.NOT_CONNECTED
+
 
     # 4. Nothing clear → play safe + SAVE HTML for debugging
     logger.debug("No clear connection indicators → UNKNOWN")
@@ -67,8 +73,7 @@ def get_connection_status(
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(html_content)
     logger.info("Saved unknown connection status page → %s", filepath)
-
-    return ConnectionStatus.UNKNOWN
+    return ConnectionStatus.NOT_CONNECTED
 
 
 if __name__ == "__main__":

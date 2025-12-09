@@ -4,6 +4,8 @@ from urllib.parse import unquote, urlparse, urljoin
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from linkedin.conf import ENABLE_SCRAPE_IN_WAIT
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,12 +32,12 @@ def goto_page(session: "AccountSession",
         raise RuntimeError(f"{error_message}: {expected_url_pattern} not in '{page_url}'")
 
     logger.debug("Navigated to %s", page.url)
-
-    try:
-        urls = _extract_in_urls(session)
-        add_profile_urls(session, list(urls))
-    except Exception as e:
-        logger.error(f"Failed to extract/save profile URLs after navigation: {e}", exc_info=True)
+    if ENABLE_SCRAPE_IN_WAIT:
+        try:
+            urls = _extract_in_urls(session)
+            add_profile_urls(session, list(urls))
+        except Exception as e:
+            logger.error(f"Failed to extract/save profile URLs after navigation: {e}", exc_info=True)
 
 
 def _extract_in_urls(session):

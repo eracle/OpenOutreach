@@ -46,7 +46,6 @@ def send_connection_request(
     skip_reasons = {
         ConnectionStatus.CONNECTED: "Already connected",
         ConnectionStatus.PENDING: "Invitation already pending",
-        ConnectionStatus.UNKNOWN: "Unknown status – playing safe",
     }
 
     if connection_status in skip_reasons:

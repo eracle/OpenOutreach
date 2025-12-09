@@ -53,7 +53,6 @@ def process_profile_row(
             "status": "skipped",
             "action": "enrichment_failed",
         }
-    logger.debug(f"Enriched keys: {list(enriched.keys())}")
 
     # 2. Send connection request (if needed)
     logger.debug("Sending connection request...")

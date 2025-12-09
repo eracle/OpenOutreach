@@ -30,6 +30,9 @@ FIXTURE_DIR = ROOT_DIR / "tests" / "fixtures"
 FIXTURE_PROFILES_DIR = FIXTURE_DIR / "profiles"
 FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
 
+# ←←← FEATURE FLAG – set to False to completely disable auto-scraping in wait() ←←←
+ENABLE_SCRAPE_IN_WAIT = False
+
 # ----------------------------------------------------------------------
 # SINGLE secrets file
 # ----------------------------------------------------------------------
