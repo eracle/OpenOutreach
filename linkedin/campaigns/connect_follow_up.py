@@ -1,9 +1,10 @@
 # campaigns/connect_follow_up.py
+import json
 import logging
 from pathlib import Path
 
-from linkedin.db.profiles import get_profile_state, set_profile_state, get_profile
-from linkedin.navigation.enums import ProfileState, MessageStatus
+from linkedin.db.profiles import set_profile_state, get_profile, save_scraped_profile
+from linkedin.navigation.enums import MessageStatus
 from linkedin.navigation.exceptions import TerminalStateError
 from linkedin.sessions.registry import SessionKey
 
@@ -25,39 +26,59 @@ FOLLOWUP_TEMPLATE_TYPE = "ai_prompt"
 def process_profile_row(
         key: SessionKey,
         session: "AccountSession",
-        public_identifier: str,
+        profile: dict,
 ):
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.message import send_follow_up_message
     from linkedin.actions.profile import scrape_profile
-    from linkedin.navigation.enums import ConnectionStatus
+    from linkedin.navigation.enums import ConnectionStatus, ProfileState   # ← added ProfileState
 
-    old_state = ProfileState(get_profile_state(session, public_identifier) or ProfileState.DISCOVERED)
-    profile = get_profile(session, public_identifier).profile
+    url = profile['url']
+    public_identifier = profile['public_identifier']
+    profile_row = get_profile(session, public_identifier)
+
+    # ──── FIX START ────
+    if profile_row:
+        current_state = ProfileState(profile_row.state)   # ← string → enum
+        enriched_profile = profile_row.profile or profile
+    else:
+        current_state = ProfileState.DISCOVERED
+        enriched_profile = profile
+    # ──── FIX END ────
+
+    logger.debug(f"Actual state: {public_identifier}  {current_state}")
+
     new_state = None
-
-    match old_state:
+    match current_state:
         case ProfileState.COMPLETED | ProfileState.FAILED:
             return None
 
         case ProfileState.DISCOVERED:
-            profile = scrape_profile(key=key, profile=profile)
-            new_state = ProfileState.FAILED.value if profile is None else ProfileState.ENRICHED.value
+            enriched_profile, data = scrape_profile(key=key, profile=enriched_profile)
+            save_scraped_profile(session, url, enriched_profile, data)   # ← now actually saves (thanks to previous fix)
+            new_state = ProfileState.FAILED if enriched_profile is None else ProfileState.ENRICHED
 
         case ProfileState.ENRICHED:
-            status = send_connection_request(key=key, profile=profile)
-            new_state = ProfileState.CONNECTED.value if status == ConnectionStatus.CONNECTED else ProfileState.ENRICHED.value
+            status = send_connection_request(key=key, profile=enriched_profile)
+            if status != ConnectionStatus.CONNECTED:
+                return False
+            new_state = ProfileState.CONNECTED
 
         case ProfileState.CONNECTED:
             status = send_follow_up_message(
                 key=key,
-                profile=profile,
+                profile=enriched_profile,
                 template_file=FOLLOWUP_TEMPLATE_FILE,
                 template_type=FOLLOWUP_TEMPLATE_TYPE,
             )
-            new_state = ProfileState.COMPLETED if status == MessageStatus.SENT else ProfileState.CONNECTED
-        case _:
-            raise TerminalStateError(f"Profile {public_identifier} is {old_state.value}")
+            if status != MessageStatus.SENT:
+                return False
+            new_state = ProfileState.COMPLETED
 
-    set_profile_state(session, profile, new_state)
-    return profile
+        case _:
+            raise TerminalStateError(f"Profile {public_identifier} is {current_state}")
+
+    set_profile_state(session, public_identifier, new_state.value)
+
+
+    return enriched_profile

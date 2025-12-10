@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Dict, Any
 
 from linkedin.conf import FIXTURE_PROFILES_DIR
-from linkedin.db.profiles import get_profile_from_url, save_scraped_profile
 from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
 from ..api.client import PlaywrightLinkedinAPI
 
@@ -13,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 
 def scrape_profile(key: SessionKey, profile: Dict[str, Any]) -> Dict:
-    print(profile)
     url = profile["url"]
 
     session = AccountSessionRegistry.get_or_create(
@@ -21,12 +19,6 @@ def scrape_profile(key: SessionKey, profile: Dict[str, Any]) -> Dict:
         campaign_name=key.campaign_name,
         csv_hash=key.csv_hash,
     )
-
-    existing = get_profile_from_url(session, url)
-
-    if existing:
-        logger.info("Cache hit! Reusing enriched data → %s", url)
-        return existing.profile
 
     # ── Existing enrichment logic (100% unchanged) ──
     session.ensure_browser()
@@ -39,16 +31,7 @@ def scrape_profile(key: SessionKey, profile: Dict[str, Any]) -> Dict:
 
     logger.info("Profile enriched – %s", profile.get("public_identifier"))
 
-    debug_profile_preview(profile) if logger.isEnabledFor(logging.DEBUG) else None
-
-    save_scraped_profile(session, url, profile, data)
-    return profile
-
-
-def debug_profile_preview(enriched):
-    pretty = json.dumps(enriched, indent=2, ensure_ascii=False, default=str)
-    preview_lines = pretty.splitlines()[:12]
-    logger.debug("=== ENRICHED PROFILE PREVIEW ===\n%s\n...", '\n'.join(preview_lines))
+    return profile, data
 
 
 def _save_profile_to_fixture(enriched_profile: Dict[str, Any], path: str | Path) -> None:
@@ -89,7 +72,7 @@ if __name__ == "__main__":
         "url": "https://www.linkedin.com/in/lexfridman/",
     }
 
-    enriched = scrape_profile(key, test_profile)
+    profile, data = scrape_profile(key, test_profile)
 
-    # _save_profile_to_fixture(raw_json, FIXTURE_PATH)
-    # print(f"Fixture saved → {FIXTURE_PATH}")
+    _save_profile_to_fixture(data, FIXTURE_PATH)
+    print(f"Fixture saved → {FIXTURE_PATH}")

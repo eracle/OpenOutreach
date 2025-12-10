@@ -35,6 +35,7 @@ class AccountSession:
 
         self.account_cfg = get_account_config(self.handle)
         self.db = Database.from_handle(self.handle)
+        self.db_session = self.db.get_session()  # one long-lived session per account run
 
         # Playwright objects – created on first access or after crash
         self.page = None

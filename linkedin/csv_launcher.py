@@ -7,7 +7,7 @@ import pandas as pd
 
 from linkedin.campaigns.connect_follow_up import process_profile_row, CAMPAIGN_NAME, INPUT_CSV_PATH
 from linkedin.conf import get_first_active_account
-from linkedin.db.profiles import url_to_public_id, add_profiles_to_campaign, get_unfinished_profiles
+from linkedin.db.profiles import url_to_public_id, add_profiles_to_campaign
 from linkedin.sessions.registry import AccountSessionRegistry
 
 logger = logging.getLogger(__name__)
@@ -66,15 +66,14 @@ def launch_from_csv(
 
     add_profiles_to_campaign(session, profiles)
 
-    # profiles = get_unfinished_profiles(session)
-
     for profile in profiles:
-        while process_profile_row(
+        while go_ahead := process_profile_row(
                 key=key,
                 session=session,
-                public_identifier=profile['public_identifier'],
+                profile=profile,
         ):
-            pass
+            if not go_ahead:
+                break
 
 
 def launch_connect_follow_up_campaign(

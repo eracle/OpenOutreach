@@ -78,7 +78,7 @@ class Database:
 # CAMPAIGN FUNCTIONS — ONLY AccountSession
 # ─────────────────────────────────────────────────────────────────────────────
 def has_campaign_run(session: "AccountSession", name: str, input_hash: str) -> bool:
-    return session.db.get_session().query(CampaignRun).filter_by(
+    return session.db_session.query(CampaignRun).filter_by(
         name=name, handle=session.handle, input_hash=input_hash
     ).first() is not None
 
@@ -89,7 +89,7 @@ def mark_campaign_run(
         input_hash: str,
         short_id: Optional[str] = None,
 ) -> str:
-    db = session.db.get_session()
+    db = session.db_session
 
     if has_campaign_run(session, name, input_hash):
         existing = db.query(CampaignRun.short_id).filter_by(
@@ -110,7 +110,7 @@ def mark_campaign_run(
 
 
 def get_campaign_short_id(session: "AccountSession", name: str, input_hash: str) -> Optional[str]:
-    return session.db.get_session().query(CampaignRun.short_id).filter_by(
+    return session.db_session.query(CampaignRun.short_id).filter_by(
         name=name, handle=session.handle, input_hash=input_hash
     ).scalar()
 
@@ -127,7 +127,7 @@ def update_campaign_stats(
         increment_followup_sent: int = 0,
         increment_completed: int = 0,
 ):
-    db = session.db.get_session()
+    db = session.db_session
     run = db.query(CampaignRun).filter_by(
         name=name, handle=session.handle, input_hash=input_hash
     ).first()
@@ -154,7 +154,7 @@ def update_campaign_stats(
 
 
 def get_campaign_stats(session: "AccountSession", name: str, input_hash: str) -> Optional[dict]:
-    run = session.db.get_session().query(CampaignRun).filter_by(
+    run = session.db_session.query(CampaignRun).filter_by(
         name=name, handle=session.handle, input_hash=input_hash
     ).first()
     if not run:
