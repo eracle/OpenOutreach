@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from linkedin.navigation.enums import ConnectionStatus
+from linkedin.navigation.exceptions import SkipProfile
 from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
 
 logger = logging.getLogger(__name__)
@@ -55,36 +56,58 @@ def send_connection_request(
         return connection_status
 
     # Send invitation WITHOUT note (current active flow)
-    _perform_send_invitation_without_note(session)
+    s1 = _connect_direct(session)
+    s2 = s1 or _connect_via_more(session)
 
-    logger.info("Connection request sent → %s", public_identifier)
-    return ConnectionStatus.PENDING
+    s3 = s2 and _click_without_note(session)
+    success = s3
+
+    status = ConnectionStatus.PENDING if success else ConnectionStatus.NOT_CONNECTED
+    logger.info(f"Connection request {status} → {public_identifier}")
+    return status
 
 
-def _perform_send_invitation_without_note(session):
-    """Click flow: sends connection request instantly without note."""
+def _connect_direct(session):
+    session.wait()
+    top_card = session.page.locator('section:has(div.top-card-background-hero-image)')
+    direct = top_card.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
+    if direct.count() == 0:
+        return False
+
+    direct.first.click()
+    logger.debug("Clicked direct 'Connect' button")
+
+    error = session.page.locator('div[data-test-artdeco-toast-item-type="error"]')
+    if error.count() != 0:
+        raise SkipProfile(f"{error.inner_text().strip()}")
+
+    return True
+
+
+def _connect_via_more(session):
     session.wait()
     top_card = session.page.locator('section:has(div.top-card-background-hero-image)')
 
-    # Direct "Connect" button
-    direct = top_card.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
-    if direct.count() > 0:
-        direct.first.click()
-        logger.debug("Clicked direct 'Connect' button")
-    else:
-        # Fallback: More → Connect
-        more = top_card.locator(
-            'button[id*="overflow"]:visible, '
-            'button[aria-label*="More actions"]:visible'
-        ).first
-        more.click()
-        session.wait()
-        connect_option = top_card.locator(
-            'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]'
-        ).first
-        connect_option.click()
-        logger.debug("Used 'More → Connect' flow")
+    # Fallback: More → Connect
+    more = top_card.locator(
+        'button[id*="overflow"]:visible, '
+        'button[aria-label*="More actions"]:visible'
+    ).first
+    more.click()
 
+    session.wait()
+
+    connect_option = top_card.locator(
+        'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]'
+    ).first
+    connect_option.click()
+    logger.debug("Used 'More → Connect' flow")
+
+    return True
+
+
+def _click_without_note(session):
+    """Click flow: sends connection request instantly without note."""
     session.wait()
 
     # Click "Send now" / "Send without a note"
@@ -96,6 +119,8 @@ def _perform_send_invitation_without_note(session):
     send_btn.first.click(force=True)
     session.wait()
     logger.debug("Connection request submitted (no note)")
+
+    return True
 
 
 # ===================================================================

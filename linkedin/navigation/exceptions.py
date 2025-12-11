@@ -6,3 +6,8 @@ class AuthenticationError(Exception):
 class TerminalStateError(Exception):
     """Profile is already done or dead — caller must skip it"""
     pass
+
+
+class SkipProfile(Exception):
+    """Profile must be skipped."""
+    pass

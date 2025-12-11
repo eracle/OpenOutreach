@@ -8,6 +8,7 @@ import pandas as pd
 from linkedin.campaigns.connect_follow_up import process_profile_row, CAMPAIGN_NAME, INPUT_CSV_PATH
 from linkedin.conf import get_first_active_account
 from linkedin.db.profiles import url_to_public_id
+from linkedin.navigation.exceptions import SkipProfile
 from linkedin.sessions.registry import AccountSessionRegistry
 
 logger = logging.getLogger(__name__)
@@ -65,13 +66,20 @@ def launch_from_csv(
     )
 
     for profile in profiles:
-        while go_ahead := process_profile_row(
-                key=key,
-                session=session,
-                profile=profile,
-        ):
-            if not go_ahead:
-                break
+        go_ahead = True
+        while go_ahead:
+            try:
+
+                profile = process_profile_row(
+                    key=key,
+                    session=session,
+                    profile=profile,
+                )
+                go_ahead = bool(profile)
+            except SkipProfile as e:
+                public_identifier = profile["public_identifier"]
+                logger.info(f"Skipping profile: {public_identifier} reason: {e}")
+                go_ahead = False
 
 
 def launch_connect_follow_up_campaign(

@@ -10,7 +10,6 @@ class ConnectionStatus(Enum):
 class MessageStatus(Enum):
     SENT = "sent"
     SKIPPED = "skipped"
-    UNKNOWN = "unknown"
 
 
 class ProfileState(str, Enum):
