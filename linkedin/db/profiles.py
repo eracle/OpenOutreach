@@ -71,21 +71,19 @@ def save_scraped_profile(
 
 
 def get_next_url_to_scrape(session: "AccountSession", limit: int = 1) -> List[str]:
-    # Terminal profile states
-    to_scrape_states = [ProfileState.DISCOVERED]
-
-    rows = session.db_session \
-        .query(Profile.public_identifier) \
-        .filter_by(Profile.state.in_(to_scrape_states)) \
-        .limit(limit).all()
+    rows = (session.db_session
+            .query(Profile.public_identifier)
+            .filter(Profile.state == ProfileState.DISCOVERED.value)
+            .limit(limit)
+            .all())
     return [public_id_to_url(row.public_identifier) for row in rows]
 
 
 def count_pending_scrape(session: "AccountSession") -> int:
-    to_scrape_states = [ProfileState.DISCOVERED]
     return (session.db_session
             .query(Profile)
-            .filter_by(Profile.state.in_(to_scrape_states)).count())
+            .filter(Profile.state != ProfileState.DISCOVERED.value)
+            .count())
 
 
 def url_to_public_id(url: str) -> str:

@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any
 from urllib.parse import urlparse, parse_qs, urlencode
 
-from linkedin.conf import ENABLE_SCRAPE_IN_WAIT
+from linkedin.conf import SYNC_PROFILES
 from linkedin.navigation.utils import goto_page
 from linkedin.sessions.registry import AccountSessionRegistry
 
@@ -30,7 +30,7 @@ def search_profile(session: "AccountSession", profile: Dict[str, Any]):
     # Ensure browser is alive before doing anything
     session.ensure_browser()
 
-    search = _simulate_human_search(session, profile) if ENABLE_SCRAPE_IN_WAIT else False
+    search = _simulate_human_search(session, profile) if SYNC_PROFILES else False
 
     url = profile.get("url")
     search or _go_to_profile(session, url, public_identifier)

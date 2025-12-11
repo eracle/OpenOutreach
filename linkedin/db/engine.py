@@ -5,9 +5,10 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 
-from linkedin.api.logging import log_profiles
+from linkedin.api.cloud_sync import sync_profiles
 from linkedin.conf import get_account_config
-from linkedin.db.models import Base, Profile as DbProfile
+from linkedin.db.models import Base, Profile
+from linkedin.navigation.enums import ProfileState
 
 logger = logging.getLogger(__name__)
 
@@ -42,19 +43,19 @@ class Database:
     def _sync_all_unsynced_profiles(self):
         with self.get_session() as db_session:
             # Fixed: was filtering on non-existent `scraped` column
-            unsynced = db_session.query(DbProfile).filter_by(
+            unsynced = db_session.query(Profile).filter_by(
                 cloud_synced=False
-            ).filter(DbProfile.profile.isnot(None)).all()
+            ).filter(Profile.profile.isnot([ProfileState.DISCOVERED.value])).all()
 
             if not unsynced:
                 logger.info("All profiles already synced")
                 return
 
-            payload = [p.profile for p in unsynced if p.profile]
+            payload = [p.data for p in unsynced if p.data]
             if not payload:
                 return
 
-            success = log_profiles(payload)
+            success = sync_profiles(payload)
 
             if success:
                 for p in unsynced:

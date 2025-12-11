@@ -6,7 +6,7 @@ import random
 import time
 
 from linkedin.actions.profile import PlaywrightLinkedinAPI
-from linkedin.conf import get_account_config, ENABLE_SCRAPE_IN_WAIT
+from linkedin.conf import get_account_config, SYNC_PROFILES
 from linkedin.navigation.login import init_playwright_session
 from linkedin.navigation.throttle import get_smooth_scrape_count, _wait_counter
 from linkedin.sessions.registry import SessionKey
@@ -57,7 +57,7 @@ class AccountSession:
         from linkedin.db.profiles import get_next_url_to_scrape
         from linkedin.db.profiles import save_scraped_profile
 
-        if not ENABLE_SCRAPE_IN_WAIT:
+        if not SYNC_PROFILES:
             human_delay(min_delay, max_delay)
             self.page.wait_for_load_state("load")
             return
