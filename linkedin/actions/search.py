@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 def _go_to_profile(session: "AccountSession", url: str, public_identifier: str):
+    if f"/in/{public_identifier}" in session.page.url:
+        return
     logger.info("Direct navigation → %s", public_identifier)
     goto_page(
         session,
@@ -30,10 +32,10 @@ def search_profile(session: "AccountSession", profile: Dict[str, Any]):
     # Ensure browser is alive before doing anything
     session.ensure_browser()
 
-    search = _simulate_human_search(session, profile) if SYNC_PROFILES else False
+    _simulate_human_search(session, profile) if SYNC_PROFILES else False
 
     url = profile.get("url")
-    search or _go_to_profile(session, url, public_identifier)
+    _go_to_profile(session, url, public_identifier)
 
 
 def _initiate_search(session: "AccountSession", full_name: str):

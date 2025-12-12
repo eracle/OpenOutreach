@@ -1,5 +1,4 @@
 # campaigns/connect_follow_up.py
-import json
 import logging
 from pathlib import Path
 
@@ -31,14 +30,14 @@ def process_profile_row(
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.message import send_follow_up_message
     from linkedin.actions.profile import scrape_profile
-    from linkedin.navigation.enums import ConnectionStatus, ProfileState   # ← added ProfileState
+    from linkedin.navigation.enums import ConnectionStatus, ProfileState  # ← added ProfileState
 
     url = profile['url']
     public_identifier = profile['public_identifier']
     profile_row = get_profile(session, public_identifier)
 
     if profile_row:
-        current_state = ProfileState(profile_row.state)   # ← string → enum
+        current_state = ProfileState(profile_row.state)  # ← string → enum
         enriched_profile = profile_row.profile or profile
     else:
         current_state = ProfileState.DISCOVERED
@@ -53,8 +52,11 @@ def process_profile_row(
 
         case ProfileState.DISCOVERED:
             enriched_profile, data = scrape_profile(key=key, profile=enriched_profile)
-            save_scraped_profile(session, url, enriched_profile, data)   # ← now actually saves (thanks to previous fix)
-            new_state = ProfileState.FAILED if enriched_profile is None else ProfileState.ENRICHED
+            if enriched_profile is None:
+                new_state = ProfileState.FAILED
+            else:
+                new_state = ProfileState.ENRICHED
+                save_scraped_profile(session, url, enriched_profile, data)
 
         case ProfileState.ENRICHED:
             status = send_connection_request(key=key, profile=enriched_profile)
@@ -77,6 +79,5 @@ def process_profile_row(
             raise TerminalStateError(f"Profile {public_identifier} is {current_state}")
 
     set_profile_state(session, public_identifier, new_state.value)
-
 
     return enriched_profile

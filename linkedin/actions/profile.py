@@ -11,7 +11,7 @@ from ..api.client import PlaywrightLinkedinAPI
 logger = logging.getLogger(__name__)
 
 
-def scrape_profile(key: SessionKey, profile: Dict[str, Any]) -> Dict:
+def scrape_profile(key: SessionKey, profile: dict):
     url = profile["url"]
 
     session = AccountSessionRegistry.get_or_create(
@@ -29,7 +29,7 @@ def scrape_profile(key: SessionKey, profile: Dict[str, Any]) -> Dict:
     logger.info("Enriching profile → %s", url)
     profile, data = api.get_profile(profile_url=url)
 
-    logger.info("Profile enriched – %s", profile.get("public_identifier"))
+    logger.info("Profile enriched – %s", profile.get("public_identifier")) if profile else None
 
     return profile, data
 
