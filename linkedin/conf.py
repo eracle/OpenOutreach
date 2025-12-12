@@ -1,4 +1,6 @@
 # linkedin/conf.py
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from typing import Dict, Any, List
@@ -29,6 +31,9 @@ DATA_DIR.mkdir(exist_ok=True)
 FIXTURE_DIR = ROOT_DIR / "tests" / "fixtures"
 FIXTURE_PROFILES_DIR = FIXTURE_DIR / "profiles"
 FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
+
+MIN_DELAY = 5
+MAX_DELAY = 8
 
 # ←←← FEATURE FLAG – set to False to completely disable auto-scraping in wait() ←←←
 SYNC_PROFILES = False
@@ -131,3 +136,4 @@ if __name__ == "__main__":
         print("-" * 60)
         first = get_first_active_account()
         print(f"First active account → {first or 'None'}")
+

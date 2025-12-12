@@ -6,15 +6,13 @@ import random
 import time
 
 from linkedin.actions.profile import PlaywrightLinkedinAPI
-from linkedin.conf import get_account_config, SYNC_PROFILES
+from linkedin.conf import get_account_config, SYNC_PROFILES, MIN_DELAY, MAX_DELAY
 from linkedin.navigation.login import init_playwright_session
 from linkedin.navigation.throttle import get_smooth_scrape_count, _wait_counter
 from linkedin.sessions.registry import SessionKey
 
 logger = logging.getLogger(__name__)
 
-MIN_DELAY = 1
-MAX_DELAY = 2
 MIN_API_DELAY = 0.250
 MAX_API_DELAY = 0.500
 
