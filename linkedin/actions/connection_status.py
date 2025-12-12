@@ -23,23 +23,27 @@ def get_connection_status(
 
     logger.debug("Checking connection status → %s", profile.get("public_identifier"))
 
-    degree = profile.get("connection_degree")
+    degree = profile.get("connection_degree", None)
 
     # Fast path: API says 1st degree → trust it
     if degree == 1:
         logger.debug("API reports 1st degree → instantly trusted as CONNECTED")
         return ConnectionStatus.CONNECTED
 
+    if degree:
+        logger.debug("API reports present → NOT CONNECTED")
+        return ConnectionStatus.NOT_CONNECTED
+
     logger.debug("connection_degree=%s → API unreliable, switching to UI inspection", degree or "None")
 
-    main_container = session.page.locator('main').first
+    top_card = session.page.locator('section:has(div.top-card-background-hero-image)')
 
     # 1. Pending invitation?
-    if main_container.locator('button[aria-label*="Pending"]:visible').count() > 0:
+    if top_card.locator('button[aria-label*="Pending"]:visible').count() > 0:
         logger.debug("Detected 'Pending' button → PENDING")
         return ConnectionStatus.PENDING
 
-    main_text = main_container.inner_text()
+    main_text = top_card.inner_text()
     # 1b. Is there a "Pending" label?
     if any(x in main_text for x in ["Pending"]):
         logger.debug("Detected 'Pending' text in page → PENDING")
@@ -51,7 +55,7 @@ def get_connection_status(
         return ConnectionStatus.CONNECTED
 
     # 3a. Connect button visible?
-    invite_btn = main_container.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
+    invite_btn = top_card.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
     if invite_btn.count() > 0:
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ConnectionStatus.NOT_CONNECTED

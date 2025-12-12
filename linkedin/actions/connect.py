@@ -99,8 +99,10 @@ def _connect_via_more(session):
 
     connect_option = top_card.locator(
         'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]'
-    ).first
-    connect_option.click()
+    )
+    if connect_option.count() == 0:
+        return False
+    connect_option.first.click()
     logger.debug("Used 'More → Connect' flow")
 
     return True
