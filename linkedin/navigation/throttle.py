@@ -1,51 +1,38 @@
 # linkedin/navigation/throttle.py
 import logging
 
+from linkedin.db.profiles import count_pending_scrape
+
 logger = logging.getLogger(__name__)
 
-_wait_counter = 0
-_debt = 0  # cumulative profiles we still "owe" to scrape smoothly
+# Simple state
+_state = {
+    "wait_count": 0,
+    "last_pending": 0,
+    "total_scraped": 0,
+}
 
 
 def determine_batch_size(session: "AccountSession") -> int:
-    from linkedin.db.profiles import count_pending_scrape
-    pending = count_pending_scrape(session)
+    current_pending = count_pending_scrape(session)
+    s = _state
 
-    logger.debug(f"Wait #{_wait_counter:04d} | Profiles still needing scrape: {pending}")
+    s["wait_count"] += 1
+    wait_no = s["wait_count"]
 
-    amount_to_scrape = get_smooth_scrape_count(pending)
-    return amount_to_scrape
+    delta = current_pending - s["last_pending"] if wait_no > 1 else 0
+    s["last_pending"] = current_pending
+    s["total_scraped"] += max(delta, 0)
 
+    avg_per_cycle = s["total_scraped"] // wait_no if wait_no > 1 else delta
+    batch_size = min(current_pending, max(1, avg_per_cycle))
 
-def get_smooth_scrape_count(current_pending: int) -> int:
-    """
-    Call this every time you finish a page load / human_delay.
-    It tells you how many profiles you should scrape *right now*
-    to keep activity perfectly smooth and natural — even if:
-      • the script starts with 10k already pending
-      • you add new profiles in big batches later
-      • pending sometimes drops to 0
-
-    No magic constants. Pure math. Battle-tested on LinkedIn.
-    """
-    global _wait_counter, _debt
-
-    _wait_counter += 1
-    _debt += current_pending
-
-    ideal_this_round = _debt // _wait_counter
-    to_scrape = min(current_pending, ideal_this_round)
-
-    _debt -= to_scrape * _wait_counter  # proper amortization
-
-    # Cyber-ninja throttle log — beautiful, compact, informative
     logger.debug(
-        "Throttle | Cycle:%04d | Pending:%5d → Scrape:%3d | Debt:%6d | Pace:%.2f/hr",
-        _wait_counter,
-        current_pending,
-        to_scrape,
-        _debt,
-        (_wait_counter * 3600) / max(1, _wait_counter)  # dummy pace, replace if you track real time
+        f"Throttle | Cycle {wait_no:04d} | "
+        f"Pending {current_pending:4d} | "
+        f"Scraped {delta:3d} | "
+        f"Avg {avg_per_cycle:3d} | "
+        f"Batch {batch_size:3d}"
     )
 
-    return to_scrape
+    return batch_size
