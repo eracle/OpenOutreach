@@ -32,11 +32,8 @@ FIXTURE_DIR = ROOT_DIR / "tests" / "fixtures"
 FIXTURE_PROFILES_DIR = FIXTURE_DIR / "profiles"
 FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
 
-MIN_DELAY = 1
-MAX_DELAY = 2
-
-# ←←← FEATURE FLAG – set to False to completely disable auto-scraping in wait() ←←←
-SYNC_PROFILES = False
+MIN_DELAY = 2
+MAX_DELAY = 3
 
 # ----------------------------------------------------------------------
 # SINGLE secrets file
@@ -136,4 +133,3 @@ if __name__ == "__main__":
         print("-" * 60)
         first = get_first_active_account()
         print(f"First active account → {first or 'None'}")
-

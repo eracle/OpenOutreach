@@ -4,7 +4,7 @@ from urllib.parse import unquote, urlparse, urljoin
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from linkedin.conf import SYNC_PROFILES, FIXTURE_PAGES_DIR
+from linkedin.conf import FIXTURE_PAGES_DIR
 from linkedin.navigation.exceptions import SkipProfile
 
 logger = logging.getLogger(__name__)
@@ -33,12 +33,11 @@ def goto_page(session: "AccountSession",
         raise RuntimeError(f"{error_message} → expected '{expected_url_pattern}' | got '{current}'")
 
     logger.debug("Navigated to %s", page.url)
-    if SYNC_PROFILES:
-        try:
-            urls = _extract_in_urls(session)
-            add_profile_urls(session, list(urls))
-        except Exception as e:
-            logger.error(f"Failed to extract/save profile URLs after navigation: {e}", exc_info=True)
+    try:
+        urls = _extract_in_urls(session)
+        add_profile_urls(session, list(urls))
+    except Exception as e:
+        logger.error(f"Failed to extract/save profile URLs after navigation: {e}", exc_info=True)
 
 
 def _extract_in_urls(session):

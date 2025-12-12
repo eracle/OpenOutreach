@@ -6,7 +6,7 @@ import random
 import time
 
 from linkedin.actions.profile import PlaywrightLinkedinAPI
-from linkedin.conf import get_account_config, SYNC_PROFILES, MIN_DELAY, MAX_DELAY
+from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY
 from linkedin.navigation.login import init_playwright_session
 from linkedin.navigation.throttle import determine_batch_size
 from linkedin.sessions.registry import SessionKey
@@ -51,11 +51,6 @@ class AccountSession:
             )
 
     def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY):
-        if not SYNC_PROFILES:
-            human_delay(min_delay, max_delay)
-            self.page.wait_for_load_state("load")
-            return
-
         from linkedin.db.profiles import get_next_url_to_scrape
 
         logger.debug(f"Pausing: {MAX_DELAY}s")
