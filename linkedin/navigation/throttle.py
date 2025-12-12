@@ -7,6 +7,16 @@ _wait_counter = 0
 _debt = 0  # cumulative profiles we still "owe" to scrape smoothly
 
 
+def determine_batch_size(session: "AccountSession") -> int:
+    from linkedin.db.profiles import count_pending_scrape
+    pending = count_pending_scrape(session)
+
+    logger.debug(f"Wait #{_wait_counter:04d} | Profiles still needing scrape: {pending}")
+
+    amount_to_scrape = get_smooth_scrape_count(pending)
+    return amount_to_scrape
+
+
 def get_smooth_scrape_count(current_pending: int) -> int:
     """
     Call this every time you finish a page load / human_delay.

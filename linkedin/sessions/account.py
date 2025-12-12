@@ -8,7 +8,7 @@ import time
 from linkedin.actions.profile import PlaywrightLinkedinAPI
 from linkedin.conf import get_account_config, SYNC_PROFILES, MIN_DELAY, MAX_DELAY
 from linkedin.navigation.login import init_playwright_session
-from linkedin.navigation.throttle import get_smooth_scrape_count, _wait_counter
+from linkedin.navigation.throttle import determine_batch_size
 from linkedin.sessions.registry import SessionKey
 
 logger = logging.getLogger(__name__)
@@ -51,36 +51,32 @@ class AccountSession:
             )
 
     def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY):
-        from linkedin.db.profiles import count_pending_scrape
-        from linkedin.db.profiles import get_next_url_to_scrape
-        from linkedin.db.profiles import save_scraped_profile
-
         if not SYNC_PROFILES:
             human_delay(min_delay, max_delay)
             self.page.wait_for_load_state("load")
             return
 
-        logger.info(f"Pausing: {MAX_DELAY}s")
-        pending = count_pending_scrape(self)
+        from linkedin.db.profiles import get_next_url_to_scrape
 
-        logger.debug(f"Wait #{_wait_counter:04d} | Profiles still needing scrape: {pending}")
-
-        amount_to_scrape = get_smooth_scrape_count(pending)  # keeps original throttling logic happy
+        logger.debug(f"Pausing: {MAX_DELAY}s")
+        amount_to_scrape = determine_batch_size(self)
 
         urls = get_next_url_to_scrape(self, limit=amount_to_scrape)
-        if urls:
-            min_api_delay = max(min_delay / len(urls), MIN_API_DELAY)
-            max_api_delay = max(max_delay / len(urls), MAX_API_DELAY)
-            api = PlaywrightLinkedinAPI(session=self)
-
-            for url in urls:
-                human_delay(min_api_delay, max_api_delay)
-                profile, data = api.get_profile(profile_url=url)
-                save_scraped_profile(self, url, profile, data)
-                logger.debug(f"Auto-scraped → {profile.get('full_name')} – {url}") if profile else None
-        else:
+        if not urls:
             human_delay(min_delay, max_delay)
             self.page.wait_for_load_state("load")
+            return
+
+        from linkedin.db.profiles import save_scraped_profile
+        min_api_delay = max(min_delay / len(urls), MIN_API_DELAY)
+        max_api_delay = max(max_delay / len(urls), MAX_API_DELAY)
+        api = PlaywrightLinkedinAPI(session=self)
+
+        for url in urls:
+            human_delay(min_api_delay, max_api_delay)
+            profile, data = api.get_profile(profile_url=url)
+            save_scraped_profile(self, url, profile, data)
+            logger.debug(f"Auto-scraped → {profile.get('full_name')} – {url}") if profile else None
 
     def close(self):
         if self.context:
