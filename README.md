@@ -14,7 +14,7 @@
 
 ### See it in action!
 
-<img src="docs/demo.gif" alt="Demo Animation" width="60%"/>
+<img src="docs/demo.gif" alt="Demo Animation" width="80%"/>
 
 
 </div>
