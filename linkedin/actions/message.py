@@ -146,6 +146,7 @@ def send_message_to_profile(
     s1 = _send_msg_pop_up(session, profile, message)
     s2 = s1 or _send_message(session, profile, message)
     success = s2
+    logger.info(f"Message sent: {message}") if success else None
     return MessageStatus.SENT if success else MessageStatus.SKIPPED
 
 

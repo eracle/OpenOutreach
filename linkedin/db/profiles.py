@@ -66,7 +66,7 @@ def save_scraped_profile(
 
     debug_profile_preview(profile) if logger.isEnabledFor(logging.DEBUG) else None
 
-    logger.info(f"SUCCESS: Saved enriched profile → {public_id}")
+    logger.debug(f"SUCCESS: Saved enriched profile → {public_id}")
 
 
 def get_next_url_to_scrape(session: "AccountSession", limit: int = 1) -> List[str]:

@@ -66,7 +66,7 @@ def init_playwright_session(session: "AccountSession", handle: str):
     if storage_state:
         logger.info("Devouring saved cookies → %s", state_file)
 
-    page, context, browser, playwright = build_playwright(storage_state=storage_state)
+    session.page, session.context, session.browser, session.playwright = build_playwright(storage_state=storage_state)
 
     if not storage_state:
         playwright_login(session)
