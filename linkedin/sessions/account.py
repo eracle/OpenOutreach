@@ -45,12 +45,14 @@ class AccountSession:
         """Launch or recover browser + login if needed. Call before using .page"""
         if not self.page or self.page.is_closed():
             logger.info("Launching/recovering browser for %s – %s", self.handle, self.campaign_name)
-            self.page, self.context, self.browser, self.playwright = init_playwright_session(
-                session=self,
-                handle=self.handle
-            )
+            init_playwright_session(session=self, handle=self.handle)
 
-    def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY):
+    def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY, to_scrape=True):
+        if not to_scrape:
+            human_delay(min_delay, max_delay)
+            self.page.wait_for_load_state("load")
+            return
+
         from linkedin.db.profiles import get_next_url_to_scrape
 
         logger.debug(f"Pausing: {MAX_DELAY}s")

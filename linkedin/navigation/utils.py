@@ -14,7 +14,9 @@ def goto_page(session: "AccountSession",
               action,
               expected_url_pattern: str,
               timeout: int = 10_000,
-              error_message: str = ""):
+              error_message: str = "",
+              to_scrape=True,
+              ):
     from linkedin.db.profiles import add_profile_urls
     page = session.page
     action()
@@ -26,7 +28,7 @@ def goto_page(session: "AccountSession",
     except PlaywrightTimeoutError:
         pass  # we still continue and check URL below
 
-    session.wait()
+    session.wait(to_scrape=to_scrape)
 
     current = unquote(page.url)
     if expected_url_pattern not in current:

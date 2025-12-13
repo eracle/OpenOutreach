@@ -31,12 +31,13 @@ def playwright_login(session: "AccountSession"):
         action=lambda: page.goto(LINKEDIN_LOGIN_URL),
         expected_url_pattern="/login",
         error_message="Failed to load login page",
+        to_scrape=False
     )
 
     page.locator(SELECTORS["email"]).type(config["username"], delay=80)
-    session.wait()
+    session.wait(to_scrape=False)
     page.locator(SELECTORS["password"]).type(config["password"], delay=80)
-    session.wait()
+    session.wait(to_scrape=False)
 
     goto_page(
         session,
@@ -44,6 +45,7 @@ def playwright_login(session: "AccountSession"):
         expected_url_pattern="/feed",
         timeout=40_000,
         error_message="Login failed – no redirect to feed",
+        to_scrape=False
     )
 
 
@@ -71,20 +73,20 @@ def init_playwright_session(session: "AccountSession", handle: str):
     if not storage_state:
         playwright_login(session)
         state_file.parent.mkdir(parents=True, exist_ok=True)
-        context.storage_state(path=str(state_file))
+        session.context.storage_state(path=str(state_file))
         logger.info("\033[92mLogin successful – session saved → %s\033[0m", state_file)
     else:
         goto_page(
             session,
-            action=lambda: page.goto(LINKEDIN_FEED_URL),
+            action=lambda: session.page.goto(LINKEDIN_FEED_URL),
             expected_url_pattern="/feed",
             timeout=30_000,
             error_message="Saved session invalid",
+            to_scrape=False
         )
 
-    page.wait_for_load_state("load")
+    session.page.wait_for_load_state("load")
     logger.info("\033[1;32mBrowser awake and fully authenticated!\033[0m")
-    return page, context, browser, playwright
 
 
 if __name__ == "__main__":
@@ -113,6 +115,6 @@ if __name__ == "__main__":
 
     session.ensure_browser()
 
-    page, context, browser, playwright = init_playwright_session(session=session, handle=handle)
+    init_playwright_session(session=session, handle=handle)
     print("Logged in! Close browser manually.")
-    page.pause()
+    session.page.pause()
