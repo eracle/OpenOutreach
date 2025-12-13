@@ -1,22 +1,30 @@
-![Logo](docs/logo.png)
+![OpenOutreach Logo](docs/logo.png)
 
-> The open-source growth engine that puts your LinkedIn B2B lead generation on autopilot.
+> **The open-source growth engine that puts your LinkedIn B2B lead generation on autopilot.**
 
 <div align="center">
 
-[![GitHub stars](https://img.shields.io/github/stars/eracle/OpenOutreach.svg)](https://github.com/eracle/OpenOutreach/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/eracle/OpenOutreach.svg)](https://github.com/eracle/OpenOutreach/network)
-[![GPLv3 License](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Open Issues](https://img.shields.io/github/issues/eracle/OpenOutreach)](https://github.com/eracle/OpenOutreach/issues)
+### See it in action!
+
+<img src="docs/demo.gif" alt="Demo Animation" width="60%"/>
+
+<br/>
+
+[![GitHub stars](https://img.shields.io/github/stars/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/network/members)
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
+[![Open Issues](https://img.shields.io/github/issues/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/issues)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
 
 </div>
 
 ---
 
+<div align="center">
+
 ## 🚀 Quick Start
 
-Get up and running with a few simple commands:
+Get up and running in minutes:
 
 ```bash
 git clone https://github.com/eracle/OpenOutreach.git
@@ -24,9 +32,12 @@ cd OpenOutreach
 make up
 ```
 
+</div>
+
 ---
 
 ## 📚 Table of Contents
+
 - [Features](#-features)
 - [Installation](#-installation)
 - [Usage](#-usage)
@@ -35,94 +46,85 @@ make up
 - [Configuration](#-configuration)
 - [Community](#-community)
 - [License](#-license)
+- [Legal Disclaimer](#-legal-disclaimer)
 
 ---
 
 ## ✨ Features
 
-- **🤖 Advanced Browser Automation:** Utilizes Playwright for robust, human-like interaction with a stealth plugin to minimize detection.
-- **🛡️ Reliable Data Scraping:** Bypasses traditional HTML scraping by using LinkedIn's internal Voyager API for structured and reliable profile data.
-- **🐍 Python-Native Campaigns:** Define sophisticated automation sequences directly in Python for maximum flexibility and control.
-- **🔄 Stateful Workflow Engine:** Tracks the state of each profile (e.g., `DISCOVERED`, `ENRICHED`, `CONNECTED`, `COMPLETED`) in a local database, ensuring campaigns can be stopped and resumed without losing progress.
-- **💾 Persistent Local Database:** Full ownership and access to your data with a dedicated SQLite database for each LinkedIn account.
-- **🐳 Containerized Environment:** One-command builds and deployment with Docker and Make.
-- **🖥️ Visual Debugging:** Watch the automation in real-time with a built-in VNC server, accessible at `localhost:5900`.
-- **✍️ AI-Ready Templating:** Easily integrate with generative AI (e.g., GPT) for hyper-personalized messages using a powerful prompt-based templating system.
+| Feature                            | Description                                                                                                          |
+|------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
+| 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
+| 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
+| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `CONNECTED` → `COMPLETED`) in a local DB – resumable at any time. |
+| 💾 **Persistent Local Database**   | Full data ownership via dedicated SQLite DB per account.                                                             |
+| 🐳 **Containerized Setup**         | One-command Docker + Make deployment.                                                                                |
+| 🖥️ **Visual Debugging**           | Real-time browser view via built-in VNC server (`localhost:5900`).                                                   |
+| ✍️ **AI-Ready Templating**         | Jinja or AI-prompt templates for hyper-personalized messages (easy GPT integration).                                 |
 
 ---
 
 ## 🛠️ Installation
 
 ### Prerequisites
-- [make](https://www.gnu.org/software/make/)
+
+- [Make](https://www.gnu.org/software/make/)
 - [Docker](https://www.docker.com/)
 - [Docker Compose](https://docs.docker.com/compose/)
 - [Git](https://git-scm.com/)
 
 ### Steps
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/eracle/OpenOutreach.git
-    cd OpenOutreach
-    ```
 
-2.  **Configure Accounts:**
-    Create your account secrets file from the template and add your LinkedIn credentials. You can add multiple accounts.
-    ```bash
-    cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
-    ```
-    Now, edit `assets/accounts.secrets.yaml` with your details.
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/eracle/OpenOutreach.git
+   cd OpenOutreach
+   ```
 
-3.  **Define Targets:**
-    Add the LinkedIn profile URLs you want to target to the `assets/inputs/urls.csv` file.
+2. **Configure LinkedIn accounts**
+   ```bash
+   cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
+   ```
+   Edit `assets/accounts.secrets.yaml` and add your credentials (multiple accounts supported).
 
-4.  **Build and Run:**
-    Use the `Makefile` to build and run the Docker containers.
-    ```bash
-    make up
-    ```
-    The application will start, pick the first active account from your secrets file, and begin processing the profiles in `urls.csv`.
+3. **Add target profiles**
+   Add LinkedIn profile URLs to `assets/inputs/urls.csv`.
+
+4. **Build & run**
+   ```bash
+   make up
+   ```
+   The tool will select the first active account and begin processing.
 
 ---
 
-## Usage
+## 📖 Usage
 
-The primary workflow is the **Connect and Follow-Up Campaign**, defined in `linkedin/campaigns/connect_follow_up.py`. This campaign automates the process of building your network and initiating conversations.
+The default **Connect and Follow-Up Campaign** (`linkedin/campaigns/connect_follow_up.py`) automates:
 
-The workflow operates as a state machine for each profile loaded from `assets/inputs/urls.csv`:
+- Profile enrichment via Voyager API
+- Sending connection requests
+- Personalized follow-up messages after acceptance
 
--   **`DISCOVERED`**: The initial state for a new profile URL.
--   **`ENRICHED`**: The bot scrapes the profile using LinkedIn's internal API to gather detailed, structured data. This data is saved to the local SQLite database (`assets/data/<your_handle>.db`) for future use.
--   **`CONNECTED`**: The bot sends a connection request. The state is updated once the connection is accepted.
--   **`COMPLETED`**: After a successful connection, the bot sends a personalized follow-up message using the templates defined in the campaign file.
--   **`FAILED`**: If any step fails, the profile is marked as `FAILED` for later review.
+**Profile states:**
 
-To run the campaign, simply execute `make up`. The system is designed to be resumable, so if you stop and restart it, it will pick up where it left off for each profile.
+- `DISCOVERED` → `ENRICHED` → `CONNECTED` → `COMPLETED` (or `FAILED`)
 
-You can modify the campaign logic and message templates directly in the `linkedin/campaigns/connect_follow_up.py` file.
+The system is fully resumable – stop and restart without losing progress.
+
+Customize campaign logic and message templates directly in the Python campaign file.
 
 ---
 
 ## 🖥️ Visual Debugging
 
-The application includes a VNC server to allow you to see the browser automation in real-time.
+Watch the browser automation live:
 
-0.  **Install a VNC Viewer (e.g., Vinagre on Ubuntu):**
-    ```bash
-    sudo apt-get update
-    sudo apt-get install vinagre
-    ```
-    Then, connect to `localhost:5900`.
-
-1.  **Build the Docker containers**:
-    ```bash
-    make build
-    ```
-
-2.  **Start the application in view mode**:
-    ```bash
-    make up-view
-    ```
+1. Install a VNC viewer (e.g., on Ubuntu: `sudo apt install vinagre`)
+2. Build containers: `make build`
+3. Run in view mode: `make up-view`
+4. Connect to `localhost:5900` with your VNC client (password: `secret`)
 
 ---
 
@@ -130,53 +132,57 @@ The application includes a VNC server to allow you to see the browser automation
 
 ```
 ├── assets/
-│   ├── accounts.secrets.yaml   # Your LinkedIn credentials (add this yourself)
+│   ├── accounts.secrets.yaml      # Your LinkedIn credentials
 │   └── inputs/
-│       └── urls.csv            # Target profile URLs
+│       └── urls.csv               # Target profile URLs
 ├── linkedin/
-│   ├── actions/                # Reusable low-level browser tasks (e.g., send message)
-│   ├── api/                    # Client for LinkedIn's internal Voyager API
-│   ├── campaigns/              # High-level automation workflows
-│   ├── db/                     # Database models and functions (SQLite)
-│   ├── navigation/             # Browser control, login, and utilities
-│   └── sessions/               # Manages account sessions and state
-├── main.py                     # Main entry point for the application
-├── local.yml                   # Docker Compose configuration
-└── Makefile                    # Helper commands for build, run, test, etc.
+│   ├── actions/                   # Low-level browser actions
+│   ├── api/                       # Voyager API client
+│   ├── campaigns/                 # Automation workflows
+│   ├── db/                        # SQLite models & utilities
+│   ├── navigation/                # Login & navigation helpers
+│   └── sessions/                  # Account session management
+├── main.py                        # Application entry point
+├── local.yml                      # Docker Compose config
+└── Makefile                       # Build/run shortcuts
 ```
 
 ---
 
 ## ⚙️ Configuration
 
--   **`assets/accounts.secrets.yaml`**: Manage your LinkedIn account(s). Set `active: true` for the accounts you want to run.
--   **`assets/inputs/urls.csv`**: The list of LinkedIn profile URLs to target.
--   **`linkedin/campaigns/connect_follow_up.py`**: Configure campaign-specific settings, such as template paths and types (`jinja` or `ai_prompt`).
+- `assets/accounts.secrets.yaml` – Add accounts and set `active: true`
+- `assets/inputs/urls.csv` – List of target LinkedIn profile URLs
+- Campaign file – Edit templates (Jinja or AI-prompt) and workflow logic
 
 ---
 
 ## 💬 Community
 
-Join the conversation and get help from the community:
-- [Telegram Group](https://t.me/+Y5bh9Vg8UVg5ODU0)
+Join the discussion and get support:  
+[Telegram Group](https://t.me/+Y5bh9Vg8UVg5ODU0)
 
 ---
 
 ## ⚖️ License
-This project is licensed under the GNU General Public License v3 - see the [LICENCE.md](LICENCE.md) file for details.
+
+Licensed under the [GNU GPLv3](https://www.gnu.org/licenses/gpl-3.0) – see [LICENCE.md](LICENCE.md) for details.
 
 ---
 
 ## 📜 Legal Disclaimer
 
-This code is not affiliated with, authorized, maintained, sponsored, or endorsed by LinkedIn or any of its affiliates or
-subsidiaries. This is an independent and unofficial project. Use at your own risk.
+This project is **not affiliated with, endorsed by, or sponsored by LinkedIn**.
 
-This project violates LinkedIn's User Agreement Section 8.2. As a result, LinkedIn may temporarily or permanently ban
-your account. We are not responsible for any actions taken by LinkedIn in response to the use of this tool.
+Use of automation tools may violate LinkedIn's User Agreement (Section 8.2). LinkedIn may suspend or terminate accounts
+detected using such tools. The authors and contributors assume no liability for any consequences resulting from its use.
+
+**Use entirely at your own risk.**
 
 ---
 
-<p align="center">
-Made with ❤️
-</p>
+<div align="center">
+
+**Made with ❤️ by the open-source community**
+
+</div>
