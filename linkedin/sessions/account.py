@@ -6,7 +6,7 @@ import random
 import time
 
 from linkedin.actions.profile import PlaywrightLinkedinAPI
-from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY
+from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY, OPPORTUNISTIC_SCRAPING
 from linkedin.navigation.login import init_playwright_session
 from linkedin.navigation.throttle import determine_batch_size
 from linkedin.sessions.registry import SessionKey
@@ -47,7 +47,7 @@ class AccountSession:
             logger.info("Launching/recovering browser for %s – %s", self.handle, self.campaign_name)
             init_playwright_session(session=self, handle=self.handle)
 
-    def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY, to_scrape=True):
+    def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY, to_scrape=OPPORTUNISTIC_SCRAPING):
         if not to_scrape:
             human_delay(min_delay, max_delay)
             self.page.wait_for_load_state("load")

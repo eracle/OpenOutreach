@@ -35,6 +35,8 @@ FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
 MIN_DELAY = 2
 MAX_DELAY = 3
 
+OPPORTUNISTIC_SCRAPING = False
+
 # ----------------------------------------------------------------------
 # SINGLE secrets file
 # ----------------------------------------------------------------------

@@ -9,7 +9,7 @@ from linkedin.campaigns.connect_follow_up import process_profile_row, CAMPAIGN_N
 from linkedin.conf import get_first_active_account
 from linkedin.db.profiles import get_updated_at_df
 from linkedin.db.profiles import url_to_public_id
-from linkedin.navigation.exceptions import SkipProfile
+from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.navigation.utils import save_page
 from linkedin.sessions.registry import AccountSessionRegistry
 
@@ -106,7 +106,7 @@ def launch_from_csv(
     logger.info(f"Loaded {len(profiles):,} profiles from CSV – ready for battle!")
 
     session.ensure_browser()
-
+    perform_connections = True
     for profile in profiles:
         go_ahead = True
         while go_ahead:
@@ -115,6 +115,7 @@ def launch_from_csv(
                     key=key,
                     session=session,
                     profile=profile,
+                    perform_connections=perform_connections,
                 )
                 go_ahead = bool(profile)
             except SkipProfile as e:
@@ -122,7 +123,10 @@ def launch_from_csv(
                 logger.info(f"\033[91mSkipping profile: {public_identifier} reason: {e}\033[0m")
                 save_page(session, profile)
                 go_ahead = False
-
+            except ReachedConnectionLimit as e:
+                perform_connections = False
+                public_identifier = profile["public_identifier"]
+                logger.info(f"\033[91mSkipping profile: {public_identifier} reason: {e}\033[0m")
 
 def launch_connect_follow_up_campaign(
         handle: Optional[str] = None,

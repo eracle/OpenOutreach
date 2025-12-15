@@ -38,6 +38,7 @@ def process_profile_row(
         key: SessionKey,
         session: "AccountSession",
         profile: dict,
+        perform_connections=True,
 ):
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.message import send_follow_up_message
@@ -69,7 +70,7 @@ def process_profile_row(
                 save_scraped_profile(session, url, enriched_profile, data)
 
         case ProfileState.ENRICHED | ProfileState.PENDING:
-            status = send_connection_request(key=key, profile=enriched_profile)
+            status = send_connection_request(key=key, profile=enriched_profile) if perform_connections else ConnectionStatus.NOT_CONNECTED
             new_state = connection_status_to_state.get(status, ProfileState.ENRICHED)
             enriched_profile = False if status != ConnectionStatus.CONNECTED else enriched_profile
 

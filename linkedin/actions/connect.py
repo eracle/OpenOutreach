@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Any
 
 from linkedin.navigation.enums import ConnectionStatus
-from linkedin.navigation.exceptions import SkipProfile
+from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.navigation.utils import get_top_card
 from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
 
@@ -61,13 +61,20 @@ def send_connection_request(
     s2 = s1 or _connect_via_more(session)
 
     s3 = s2 and _click_without_note(session)
-    success = s3
+    s4 = s3 and _check_weekly_invitation_limit(session)
+    success = s4
 
     status = ConnectionStatus.PENDING if success else ConnectionStatus.NOT_CONNECTED
     logger.info(f"Connection request {status} → {public_identifier}")
     return status
 
 
+def _check_weekly_invitation_limit(session):
+    weekly_invitation_limit = session.page.locator('div[class*="ip-fuse-limit-alert__warning"]')
+    if weekly_invitation_limit.count() != 0:
+        raise ReachedConnectionLimit("Weekly connection limit pop up appeared")
+
+    return True
 def _connect_direct(session):
     session.wait()
     top_card = get_top_card(session)

@@ -11,3 +11,8 @@ class TerminalStateError(Exception):
 class SkipProfile(Exception):
     """Profile must be skipped."""
     pass
+
+
+class ReachedConnectionLimit(Exception):
+    """ Weekly connection limit reached. """
+    pass
