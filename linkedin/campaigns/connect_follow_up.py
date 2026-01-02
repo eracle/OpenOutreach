@@ -94,8 +94,8 @@ def process_profile_row(
 def process_profiles(key, session, profiles: list[dict]):
     perform_connections = True
     for profile in profiles:
-        go_ahead = True
-        while go_ahead:
+        continue_same_profile = True
+        while continue_same_profile:
             try:
                 profile = process_profile_row(
                     key=key,
@@ -103,18 +103,18 @@ def process_profiles(key, session, profiles: list[dict]):
                     profile=profile,
                     perform_connections=perform_connections,
                 )
-                go_ahead = bool(profile)
+                continue_same_profile = bool(profile)
             except SkipProfile as e:
                 public_identifier = profile["public_identifier"]
                 logger.info(
                     colored(f"Skipping profile: {public_identifier} reason: {e}", "red", attrs=["bold"])
                 )
                 save_page(session, profile)
-                go_ahead = False
+                continue_same_profile = False
             except ReachedConnectionLimit as e:
                 perform_connections = False
                 public_identifier = profile["public_identifier"]
                 logger.info(
                     colored(f"Skipping profile: {public_identifier} reason: {e}", "red", attrs=["bold"])
                 )
-                go_ahead = False
+                continue_same_profile = False
