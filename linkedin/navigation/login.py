@@ -108,7 +108,7 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    session, key = AccountSessionRegistry.get_or_create_from_path(
+    key, session = AccountSessionRegistry.get_or_create_from_path(
         handle=handle,
         campaign_name="test_message",
         csv_path=INPUT_CSV_PATH,

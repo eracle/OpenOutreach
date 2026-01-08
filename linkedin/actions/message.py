@@ -149,7 +149,7 @@ if __name__ == "__main__":
         csv_path=INPUT_CSV_PATH,
     )
 
-    session, _ = AccountSessionRegistry.get_or_create_from_path(
+    _, session = AccountSessionRegistry.get_or_create_from_path(
         handle=handle,
         campaign_name="test_message",
         csv_path=INPUT_CSV_PATH,

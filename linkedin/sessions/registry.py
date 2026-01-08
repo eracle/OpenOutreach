@@ -39,7 +39,7 @@ class AccountSessionRegistry:
     ) -> "AccountSession":
         csv_path = Path(csv_path)
         key = SessionKey.make(handle, campaign_name, csv_path)
-        return cls.get_or_create(key.handle, key.campaign_name, key.csv_hash), key
+        return key, cls.get_or_create(key.handle, key.campaign_name, key.csv_hash)
 
     @classmethod
     def get_existing(cls, key: SessionKey) -> Optional["AccountSession"]:
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     CAMPAIGN_NAME = "connect_follow_up"
     INPUT_CSV_PATH = Path("./assets/inputs/urls.csv")
 
-    session, _ = AccountSessionRegistry.get_or_create_from_path(
+    _, session = AccountSessionRegistry.get_or_create_from_path(
         handle=handle,
         campaign_name=CAMPAIGN_NAME,
         csv_path=INPUT_CSV_PATH,

@@ -5,7 +5,8 @@ from typing import Optional
 
 import pandas as pd
 
-from linkedin.campaigns.connect_follow_up import CAMPAIGN_NAME, INPUT_CSV_PATH, process_profiles
+from linkedin.campaigns.connect_follow_up import CAMPAIGN_NAME, INPUT_CSV_PATH
+from linkedin.campaigns.engine import start_campaign
 from linkedin.conf import get_first_active_account
 from linkedin.db.profiles import get_updated_at_df
 from linkedin.db.profiles import url_to_public_id
@@ -89,7 +90,7 @@ def launch_from_csv(
         csv_path: Path | str = INPUT_CSV_PATH,
         campaign_name: str = CAMPAIGN_NAME,
 ):
-    session, key = AccountSessionRegistry.get_or_create_from_path(
+    key, session = AccountSessionRegistry.get_or_create_from_path(
         handle=handle,
         campaign_name=campaign_name,
         csv_path=csv_path,
@@ -103,8 +104,7 @@ def launch_from_csv(
     profiles = profiles_df.to_dict(orient="records")
     logger.info(f"Loaded {len(profiles):,} profiles from CSV – ready for battle!")
 
-    session.ensure_browser()
-    process_profiles(key, session, profiles)
+    start_campaign(key, session, profiles)
 
 
 def launch_connect_follow_up_campaign(

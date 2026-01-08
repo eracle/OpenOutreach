@@ -162,7 +162,7 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    session, _ = AccountSessionRegistry.get_or_create_from_path(
+    _, session = AccountSessionRegistry.get_or_create_from_path(
         handle=handle,
         campaign_name="test_search",
         csv_path=INPUT_CSV_PATH,

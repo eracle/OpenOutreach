@@ -106,7 +106,7 @@ if __name__ == "__main__":
     print(f"Session key: {key}")
 
     # Get session and navigate
-    session, _ = AccountSessionRegistry.get_or_create_from_path(
+    _, session = AccountSessionRegistry.get_or_create_from_path(
         handle=key.handle,
         campaign_name=key.campaign_name,
         csv_path=INPUT_CSV_PATH,
