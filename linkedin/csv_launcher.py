@@ -50,13 +50,13 @@ def load_profiles_df(csv_path: Path | str):
     return urls_df
 
 
-def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> pd.DataFrame:
+def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> list:
     """
     Return a new DataFrame sorted by updated_at (oldest first).
     Profiles not in the database come first.
     """
     if profiles_df.empty:
-        return profiles_df.copy()
+        return []
 
     public_ids = profiles_df["public_identifier"].tolist()
 
@@ -67,8 +67,13 @@ def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> pd.Da
     merged = profiles_df.merge(db_df, on="public_identifier", how="left")
 
     # Sentinel for profiles not in DB
-    sentinel = pd.Timestamp("1970-01-01")
-    merged["updated_at"] = merged["updated_at"].fillna(sentinel)
+    sentinel = pd.Timestamp("1970-01-01 00:00:00")
+
+    # Force datetime conversion first + fillna
+    merged["updated_at"] = (
+        pd.to_datetime(merged["updated_at"], errors="coerce")
+        .fillna(sentinel)
+    )
 
     # Sort: oldest (including new profiles) first
     sorted_df = merged.sort_values(by="updated_at").drop(columns="updated_at")
@@ -81,30 +86,7 @@ def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> pd.Da
         f"Sorted {len(sorted_df):,} profiles by last updated: "
         f"{not_in_db} new, {len(sorted_df) - not_in_db} existing (oldest first)"
     )
-
-    return sorted_df
-
-
-def launch_from_csv(
-        handle: str,
-        csv_path: Path | str = INPUT_CSV_PATH,
-        campaign_name: str = CAMPAIGN_NAME,
-):
-    key, session = AccountSessionRegistry.get_or_create_from_path(
-        handle=handle,
-        campaign_name=campaign_name,
-        csv_path=csv_path,
-    )
-
-    logger.info(f"Launching campaign '{campaign_name}' → running as @{handle} | CSV: {csv_path}")
-
-    profiles_df = load_profiles_df(csv_path)
-    profiles_df = sort_profiles(session, profiles_df)
-
-    profiles = profiles_df.to_dict(orient="records")
-    logger.info(f"Loaded {len(profiles):,} profiles from CSV – ready for battle!")
-
-    start_campaign(key, session, profiles)
+    return sorted_df.to_dict(orient="records")
 
 
 def launch_connect_follow_up_campaign(
@@ -125,4 +107,17 @@ def launch_connect_follow_up_campaign(
             )
         logger.info(f"No handle chosen → auto-picking the boss account: @{handle}")
 
-    launch_from_csv(handle=handle)
+    key, session = AccountSessionRegistry.get_or_create_from_path(
+        handle=handle,
+        campaign_name=CAMPAIGN_NAME,
+        csv_path=INPUT_CSV_PATH,
+    )
+
+    logger.info(f"Launching campaign '{CAMPAIGN_NAME}' → running as @{handle} | CSV: {INPUT_CSV_PATH}")
+
+    profiles_df = load_profiles_df(INPUT_CSV_PATH)
+    profiles = sort_profiles(session, profiles_df)
+
+    logger.info(f"Loaded {len(profiles):,} profiles from CSV – ready for battle!")
+
+    start_campaign(key, session, profiles)

@@ -7,7 +7,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from linkedin.conf import AI_MODEL, OPENAI_API_KEY
-from linkedin.sessions.account import AccountSession
 
 logger = logging.getLogger(__name__)
 

@@ -5,5 +5,5 @@ logger = logging.getLogger(__name__)
 
 
 def sync_profiles(data: list[dict]):
-    logger.debug(f"Logging {len(data)} profiles.")
+    # logger.debug(f"Logging {len(data)} profiles.")
     return True
