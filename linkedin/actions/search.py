@@ -91,30 +91,25 @@ def _paginate_to_next_page(session: "AccountSession", page_num: int):
 
 
 def _simulate_human_search(session: "AccountSession", profile: Dict[str, Any]) -> bool:
-    full_name = profile.get("full_name", None)
+    full_name = profile.get("full_name")
     public_identifier = profile.get("public_identifier")
 
-    # Log the incoming profile info (redact sensitive data if needed)
-    logger.debug(
-        "Starting human search simulation for profile - "
-        f"full_name: '{full_name}', public_identifier: '{public_identifier}'"
-    )
-
+    # Reconstruct full_name if it's missing
     if not full_name:
-        logger.error(
-            f"Missing full_name in profile. public_identifier was: '{public_identifier}'. "
-            "Cannot perform human search simulation without a name."
-        )
-        return False
+        first = profile.get("first_name", "").strip()
+        last = profile.get("last_name", "").strip()
+        if first or last:
+            full_name = f"{first} {last}".strip() if first and last else (first or last)
+        else:
+            logger.error(f"No name available for {public_identifier}")
+            logger.debug(profile)
+            return False
 
     if not public_identifier:
-        logger.error(
-            f"Missing public_identifier in profile. full_name was: '{full_name}'. "
-            "Cannot perform human search simulation without a public ID."
-        )
-        raise ValueError("public_identifier is required for human search simulation")
+        logger.error(f"Missing public_identifier for '{full_name}'")
+        raise ValueError("public_identifier is required")
 
-    logger.info("Human search → '%s' (target: %s)", full_name, public_identifier)
+    logger.info(f"Human search → '{full_name}' (target: {public_identifier})")
 
     _initiate_search(session, full_name)
 
