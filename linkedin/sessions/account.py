@@ -9,7 +9,6 @@ from linkedin.actions.profile import PlaywrightLinkedinAPI
 from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY, OPPORTUNISTIC_SCRAPING
 from linkedin.navigation.login import init_playwright_session
 from linkedin.navigation.throttle import determine_batch_size
-from linkedin.sessions.registry import SessionKey
 
 logger = logging.getLogger(__name__)
 
@@ -17,23 +16,21 @@ MIN_API_DELAY = 0.250
 MAX_API_DELAY = 0.500
 
 
-def human_delay(min, max):
-    delay = random.uniform(min, max)
+def human_delay(min_val, max_val):
+    delay = random.uniform(min_val, max_val)
     logger.debug(f"Pause: {delay:.2f}s")
     time.sleep(delay)
 
 
 class AccountSession:
-    def __init__(self, key: "SessionKey"):
+    def __init__(self, handle: str):
         from linkedin.db.engine import Database
-        self.key = key
-        self.handle = key.handle
-        self.campaign_name = key.campaign_name
-        self.csv_hash = key.csv_hash
+
+        self.handle = handle.strip().lower()
 
         self.account_cfg = get_account_config(self.handle)
         self.db = Database.from_handle(self.handle)
-        self.db_session = self.db.get_session()  # one long-lived session per account run
+        self.db_session = self.db.get_session()  # long-lived session per account
 
         # Playwright objects – created on first access or after crash
         self.page = None
@@ -44,7 +41,7 @@ class AccountSession:
     def ensure_browser(self):
         """Launch or recover browser + login if needed. Call before using .page"""
         if not self.page or self.page.is_closed():
-            logger.info("Launching/recovering browser for %s – %s", self.handle, self.campaign_name)
+            logger.info("Launching/recovering browser for %s", self.handle)
             init_playwright_session(session=self, handle=self.handle)
 
     def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY, to_scrape=OPPORTUNISTIC_SCRAPING):
@@ -90,7 +87,7 @@ class AccountSession:
                 self.page = self.context = self.browser = self.playwright = None
 
         self.db.close()
-        logger.info("Account session closed → %s", self.key)
+        logger.info("Account session closed → %s", self.handle)
 
     def __del__(self):
         try:
@@ -99,4 +96,4 @@ class AccountSession:
             pass
 
     def __repr__(self) -> str:
-        return f"<AccountSession {self.key}>"
+        return f"<AccountSession {self.handle}>"

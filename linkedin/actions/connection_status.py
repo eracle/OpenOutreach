@@ -5,7 +5,6 @@ from typing import Dict, Any
 from linkedin.actions.search import search_profile
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.utils import get_top_card
-from linkedin.sessions.registry import AccountSessionRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +75,7 @@ def get_connection_status(
 if __name__ == "__main__":
     import sys
     import logging
-    from linkedin.sessions.registry import SessionKey
-    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
+    from linkedin.sessions.registry import get_session
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -89,11 +87,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     handle = sys.argv[1]
-    key = SessionKey.make(
-        handle=handle,
-        campaign_name="test_status",
-        csv_path=INPUT_CSV_PATH,
-    )
 
     public_identifier = "benjames01"
     test_profile = {
@@ -103,13 +96,10 @@ if __name__ == "__main__":
     }
 
     print(f"Checking connection status as @{handle} → {test_profile['full_name']}")
-    print(f"Session key: {key}")
 
     # Get session and navigate
-    _, session = AccountSessionRegistry.get_or_create_from_path(
-        handle=key.handle,
-        campaign_name=key.campaign_name,
-        csv_path=INPUT_CSV_PATH,
+    session = get_session(
+        handle=handle,
     )
 
     # Check status

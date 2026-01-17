@@ -1,6 +1,5 @@
 # campaigns/connect_follow_up.py
 import logging
-from pathlib import Path
 
 from termcolor import colored
 
@@ -10,18 +9,8 @@ from linkedin.navigation.enums import MessageStatus
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import TerminalStateError, SkipProfile, ReachedConnectionLimit
 from linkedin.navigation.utils import save_page
-from linkedin.sessions.registry import SessionKey
 
 logger = logging.getLogger(__name__)
-
-# ———————————————————————————————— USER CONFIGURATION ————————————————————————————————
-CAMPAIGN_NAME = "connect_follow_up"
-INPUT_CSV_PATH = Path("./assets/inputs/urls.csv")
-
-# ———————————————————————————————— Template Config ————————————————————————————————
-
-FOLLOWUP_TEMPLATE_FILE = "./assets/templates/prompts/followup.j2"
-FOLLOWUP_TEMPLATE_TYPE = "ai_prompt"
 
 message_status_to_state = {
     MessageStatus.SENT: ProfileState.COMPLETED,
@@ -29,9 +18,8 @@ message_status_to_state = {
 }
 
 
-# ———————————————————————————————— Core Logic ————————————————————————————————
 def process_profile_row(
-        key: SessionKey,
+        handle: str,
         session: "AccountSession",
         simple_profile: dict,
         perform_connections=True,
@@ -39,6 +27,7 @@ def process_profile_row(
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.message import send_follow_up_message
     from linkedin.actions.profile import scrape_profile
+
     url = simple_profile['url']
     public_identifier = simple_profile['public_identifier']
     profile_row = get_profile(session, public_identifier)
@@ -58,7 +47,7 @@ def process_profile_row(
             return None
 
         case ProfileState.DISCOVERED:
-            profile, data = scrape_profile(key=key, profile=profile)
+            profile, data = scrape_profile(handle=handle, profile=profile)
             if profile is None:
                 new_state = ProfileState.FAILED
             else:
@@ -68,17 +57,15 @@ def process_profile_row(
         case ProfileState.ENRICHED:
             if not perform_connections:
                 return None
-            new_state = send_connection_request(key=key, profile=profile)
+            new_state = send_connection_request(handle=handle, profile=profile)
             profile = None if new_state != ProfileState.CONNECTED else profile
         case ProfileState.PENDING:
             new_state = get_connection_status(session, profile)
             profile = None if new_state != ProfileState.CONNECTED else profile
         case ProfileState.CONNECTED:
             status = send_follow_up_message(
-                key=key,
+                handle=handle,
                 profile=profile,
-                template_file=FOLLOWUP_TEMPLATE_FILE,
-                template_type=FOLLOWUP_TEMPLATE_TYPE,
             )
             new_state = message_status_to_state.get(status, ProfileState.CONNECTED)
             profile = None if status != MessageStatus.SENT else profile
@@ -91,14 +78,14 @@ def process_profile_row(
     return profile
 
 
-def process_profiles(key, session, profiles: list[dict]):
+def process_profiles(handle, session, profiles: list[dict]):
     perform_connections = True
     for simple_profile in profiles:
         continue_same_profile = True
         while continue_same_profile:
             try:
                 profile = process_profile_row(
-                    key=key,
+                    handle=handle,
                     session=session,
                     simple_profile=simple_profile,
                     perform_connections=perform_connections,
