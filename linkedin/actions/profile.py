@@ -5,19 +5,17 @@ from pathlib import Path
 from typing import Dict, Any
 
 from linkedin.conf import FIXTURE_PROFILES_DIR
-from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
+from linkedin.sessions.registry import get_session
 from ..api.client import PlaywrightLinkedinAPI
 
 logger = logging.getLogger(__name__)
 
 
-def scrape_profile(key: SessionKey, profile: dict):
+def scrape_profile(handle: str, profile: dict):
     url = profile["url"]
 
-    session = AccountSessionRegistry.get_or_create(
-        handle=key.handle,
-        campaign_name=key.campaign_name,
-        csv_hash=key.csv_hash,
+    session = get_session(
+        handle=handle,
     )
 
     # ── Existing enrichment logic (100% unchanged) ──
@@ -63,17 +61,11 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    key = SessionKey.make(
-        handle=handle,
-        campaign_name="test_profile",
-        csv_path=INPUT_CSV_PATH,
-    )
-
     test_profile = {
         "url": "https://www.linkedin.com/in/me/",
     }
 
-    profile, data = scrape_profile(key, test_profile)
+    profile, data = scrape_profile(handle, test_profile)
     from pprint import pprint
 
     pprint(profile)

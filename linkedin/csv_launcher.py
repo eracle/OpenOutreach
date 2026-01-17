@@ -5,12 +5,11 @@ from typing import Optional
 
 import pandas as pd
 
-from linkedin.campaigns.connect_follow_up import CAMPAIGN_NAME, INPUT_CSV_PATH
 from linkedin.campaigns.engine import start_campaign
 from linkedin.conf import get_first_active_account
 from linkedin.db.profiles import get_updated_at_df
 from linkedin.db.profiles import url_to_public_id
-from linkedin.sessions.registry import AccountSessionRegistry
+from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -107,17 +106,16 @@ def launch_connect_follow_up_campaign(
             )
         logger.info(f"No handle chosen → auto-picking the boss account: @{handle}")
 
-    key, session = AccountSessionRegistry.get_or_create_from_path(
+    session = get_session(
         handle=handle,
-        campaign_name=CAMPAIGN_NAME,
-        csv_path=INPUT_CSV_PATH,
     )
 
-    logger.info(f"Launching campaign '{CAMPAIGN_NAME}' → running as @{handle} | CSV: {INPUT_CSV_PATH}")
+    input_csv = session.account_cfg['input_csv']
+    logger.info(f"Launching campaign → running as @{handle} | CSV: {input_csv}")
 
-    profiles_df = load_profiles_df(INPUT_CSV_PATH)
+    profiles_df = load_profiles_df(input_csv)
     profiles = sort_profiles(session, profiles_df)
 
     logger.info(f"Loaded {len(profiles):,} profiles from CSV – ready for battle!")
 
-    start_campaign(key, session, profiles)
+    start_campaign(handle, session, profiles)

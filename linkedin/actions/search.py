@@ -5,7 +5,7 @@ from typing import Dict, Any
 from urllib.parse import urlparse, parse_qs, urlencode
 
 from linkedin.navigation.utils import goto_page
-from linkedin.sessions.registry import AccountSessionRegistry
+from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -157,10 +157,8 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    _, session = AccountSessionRegistry.get_or_create_from_path(
+    session = get_session(
         handle=handle,
-        campaign_name="test_search",
-        csv_path=INPUT_CSV_PATH,
     )
 
     # Make sure browser is up

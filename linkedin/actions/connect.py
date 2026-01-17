@@ -5,13 +5,13 @@ from typing import Dict, Any
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.navigation.utils import get_top_card
-from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
+from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
 
 
 def send_connection_request(
-        key: SessionKey,
+        handle: str,
         profile: Dict[str, Any],
 ) -> ProfileState:
     """
@@ -20,10 +20,8 @@ def send_connection_request(
     """
     from linkedin.actions.connection_status import get_connection_status
 
-    session = AccountSessionRegistry.get_or_create(
-        handle=key.handle,
-        campaign_name=key.campaign_name,
-        csv_hash=key.csv_hash,
+    session = get_session(
+        handle=handle,
     )
 
     public_identifier = profile.get('public_identifier')
@@ -155,15 +153,12 @@ def _perform_send_invitation_with_note(session, message: str):
 
 if __name__ == "__main__":
     import sys
-    from linkedin.sessions.registry import SessionKey
-    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
     if len(sys.argv) != 2:
         print("Usage: python -m linkedin.actions.connect <handle>")
         sys.exit(1)
 
     handle = sys.argv[1]
-    key = SessionKey.make(handle, "test_connect", INPUT_CSV_PATH)
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -177,11 +172,10 @@ if __name__ == "__main__":
         "public_identifier": public_identifier,
     }
 
-    print(f"Testing connection request as @{handle} (session: {key})")
+    print(f"Testing connection request as @{handle} )")
     status = send_connection_request(
-        key=key,
+        handle=handle,
         profile=test_profile,
-        template_file="./assets/templates/messages/followup.j2",
     )
 
     print(f"Finished → Status: {status.value}")

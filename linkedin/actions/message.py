@@ -1,12 +1,13 @@
 # linkedin/actions/message.py
 import json
 import logging
-from typing import Dict, Any, Optional
+import sys
+from typing import Dict, Any
 
 from linkedin.actions.connection_status import get_connection_status
 from linkedin.navigation.enums import ProfileState, MessageStatus
 from linkedin.navigation.utils import goto_page
-from linkedin.sessions.registry import AccountSessionRegistry, SessionKey
+from linkedin.sessions.registry import get_session
 from linkedin.templates.renderer import render_template
 
 logger = logging.getLogger(__name__)
@@ -15,18 +16,15 @@ LINKEDIN_MESSAGING_URL = "https://www.linkedin.com/messaging/thread/new/"
 
 
 def send_follow_up_message(
-        key: SessionKey,
+        handle: str,
         profile: Dict[str, Any],
-        *,
-        template_file: Optional[str] = None,
-        template_type: str = "jinja",
-        message: Optional[str] = None,
 ):
-    session = AccountSessionRegistry.get_or_create(
-        handle=key.handle,
-        campaign_name=key.campaign_name,
-        csv_hash=key.csv_hash,
+    session = get_session(
+        handle=handle,
     )
+    template_file = session.account_cfg["followup_template"]
+    template_type = session.account_cfg["followup_template_type"]
+
     status = get_connection_status(session, profile)
 
     public_identifier = profile.get("public_identifier")
@@ -127,9 +125,6 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
 
 
 if __name__ == "__main__":
-    import sys
-    from linkedin.sessions.registry import SessionKey
-    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
     logging.getLogger().handlers.clear()
     logging.basicConfig(
@@ -144,16 +139,8 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    key = SessionKey.make(
+    session = get_session(
         handle=handle,
-        campaign_name="test_message",
-        csv_path=INPUT_CSV_PATH,
-    )
-
-    _, session = AccountSessionRegistry.get_or_create_from_path(
-        handle=handle,
-        campaign_name="test_message",
-        csv_path=INPUT_CSV_PATH,
     )
     session.ensure_browser()
 
@@ -164,7 +151,6 @@ if __name__ == "__main__":
     }
 
     send_follow_up_message(
-        key=key,
+        handle=handle,
         profile=test_profile,
-        template_file="./assets/templates/messages/followup.j2",
     )

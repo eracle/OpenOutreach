@@ -60,28 +60,39 @@ _accounts_config = _raw_config.get("accounts", {})
 # Public API
 # ----------------------------------------------------------------------
 def get_account_config(handle: str) -> Dict[str, Any]:
-    """Return full config (public + secrets) for a handle from the single file."""
     if handle not in _accounts_config:
         raise KeyError(f"Account '{handle}' not found in {SECRETS_PATH}")
 
     acct = _accounts_config[handle]
 
-    # Per-account database path
+    input_csv_rel = acct.get("input_csv")
+    followup_rel  = acct.get("followup_template")
+    template_type = acct.get("followup_template_type")
+
+    if input_csv_rel is None:
+        raise ValueError(f"Missing 'input_csv' for account '{handle}'")
+    if followup_rel is None:
+        raise ValueError(f"Missing 'followup_template' for account '{handle}'")
+    if template_type is None:
+        raise ValueError(f"Missing 'followup_template_type' for account '{handle}'")
+
     account_db_path = DATA_DIR / f"{handle}.db"
 
     return {
         "handle": handle,
         "active": acct.get("active", True),
-        # Only the fields that still exist in the new template
         "username": acct.get("username"),
         "password": acct.get("password"),
         "subscribe_newsletter": acct.get("subscribe_newsletter", None),
         "booking_link": acct.get("booking_link"),
-        # Runtime paths
+
         "cookie_file": COOKIES_DIR / f"{handle}.json",
         "db_path": account_db_path,
-    }
 
+        "input_csv": ASSETS_DIR / input_csv_rel,
+        "followup_template": ASSETS_DIR / followup_rel,
+        "followup_template_type": template_type,
+    }
 
 def list_active_accounts() -> List[str]:
     """Return list of active account handles (order preserved from YAML)."""
