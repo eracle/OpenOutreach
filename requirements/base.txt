@@ -1,5 +1,5 @@
 playwright
-playwright-stealth
+playwright-stealth==2.0.1
 pydantic
 python-dotenv
 SQLAlchemy
