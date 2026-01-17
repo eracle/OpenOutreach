@@ -85,8 +85,9 @@ class PlaywrightLinkedinAPI:
                 logger.error("LinkedIn API → 401 Unauthorized (session expired or blocked)")
                 raise AuthenticationError("LinkedIn API returned 401 Unauthorized.")
 
-            case 403:
-                logger.info("Profile inaccessible → private / deleted / restricted → %s", public_identifier)
+            case 403 | 404:
+                logger.info("Profile inaccessible → private / deleted / restricted → %s (HTTP %d)",
+                           public_identifier, res.status)
                 logger.debug(f"Body: {json.dumps(res.json(), indent=2)}")
                 return None, None
 
