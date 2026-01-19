@@ -3,7 +3,7 @@ playwright-stealth
 pydantic
 python-dotenv
 SQLAlchemy
-jsonpath-ng
+jsonpath-ng==1.7.0
 pandas
 langchain
 langchain-openai
