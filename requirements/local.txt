@@ -3,4 +3,4 @@
 # Testing
 pytest
 pytest-mock
-factory-boy
+factory-boy==3.3.3
