@@ -1,6 +1,6 @@
 -r base.txt
 
 # Testing
-pytest
+pytest==9.0.1
 pytest-mock
 factory-boy
