@@ -5,7 +5,7 @@ python-dotenv
 SQLAlchemy
 jsonpath-ng
 pandas
-langchain
+langchain==1.2.5
 langchain-openai
 jinja2
 termcolor
