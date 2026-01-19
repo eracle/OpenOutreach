@@ -1,6 +1,6 @@
 playwright
 playwright-stealth
-pydantic
+pydantic==2.12.5
 python-dotenv
 SQLAlchemy
 jsonpath-ng
