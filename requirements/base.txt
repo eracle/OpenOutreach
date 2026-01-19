@@ -2,7 +2,7 @@ playwright
 playwright-stealth
 pydantic
 python-dotenv
-SQLAlchemy
+SQLAlchemy==2.0.44
 jsonpath-ng
 pandas
 langchain
