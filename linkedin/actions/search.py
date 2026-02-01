@@ -31,7 +31,7 @@ def search_profile(session: "AccountSession", profile: Dict[str, Any]):
     if f"/in/{public_identifier}" in session.page.url:
         return
 
-    _simulate_human_search(session, profile)
+    #_simulate_human_search(session, profile)
 
     url = profile.get("url")
     _go_to_profile(session, url, public_identifier)
