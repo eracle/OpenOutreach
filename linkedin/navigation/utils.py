@@ -73,6 +73,9 @@ def get_top_card(session):
         top_card = session.page.locator('section:has(> div[class*="pv-top-card"])')
 
     if top_card.count() == 0:
+        top_card = session.page.locator('section[componentkey*="com.linkedin.sdui.profile.card"]')
+
+    if top_card.count() == 0:
         logger.info("Skipping profile")
         raise SkipProfile("Top Card section not found")
 
