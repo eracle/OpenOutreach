@@ -1,12 +1,12 @@
 # linkedin/csv_launcher.py
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Dict, Any
 
 import pandas as pd
 
 from linkedin.campaigns.engine import start_campaign
-from linkedin.conf import get_first_active_account
+from linkedin.conf import get_first_active_account, is_notion_enabled
 from linkedin.db.profiles import get_updated_at_df
 from linkedin.db.profiles import url_to_public_id
 from linkedin.sessions.registry import get_session
@@ -47,6 +47,47 @@ def load_profiles_df(csv_path: Path | str):
                  )
     logger.info(f"Loaded {len(urls_df):,} pristine LinkedIn profile URLs")
     return urls_df
+
+
+def load_profiles_from_source(session: "AccountSession") -> pd.DataFrame:
+    """
+    Load profiles from the configured input source (CSV or Notion).
+
+    Checks account config for 'input_source':
+    - "notion": Load from Notion database
+    - "csv" or not set: Load from CSV file
+    """
+    input_source = session.account_cfg.get("input_source", "csv")
+
+    if input_source == "notion":
+        if not is_notion_enabled():
+            raise RuntimeError(
+                "input_source is 'notion' but Notion is not configured. "
+                "Set NOTION_API_KEY, NOTION_DATABASE_ID, and NOTION_SYNC_ENABLED=true"
+            )
+
+        from linkedin.inputs.notion_source import load_profiles_from_notion
+
+        logger.info("Loading profiles from Notion database...")
+        profiles_list = load_profiles_from_notion()
+
+        if not profiles_list:
+            logger.warning("No profiles found in Notion to process")
+            return pd.DataFrame(columns=["url", "public_identifier"])
+
+        # Convert to DataFrame for compatibility with existing sort logic
+        df = pd.DataFrame(profiles_list)
+        logger.info(f"Loaded {len(df):,} profiles from Notion")
+        return df
+
+    else:
+        # Default: CSV source
+        input_csv = session.account_cfg.get("input_csv")
+        if not input_csv:
+            raise ValueError("No input_csv configured for account")
+
+        logger.info(f"Loading profiles from CSV: {input_csv}")
+        return load_profiles_df(input_csv)
 
 
 def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> list:
@@ -110,12 +151,12 @@ def launch_connect_follow_up_campaign(
         handle=handle,
     )
 
-    input_csv = session.account_cfg['input_csv']
-    logger.info(f"Launching campaign → running as @{handle} | CSV: {input_csv}")
+    input_source = session.account_cfg.get("input_source", "csv")
+    logger.info(f"Launching campaign → running as @{handle} | Source: {input_source}")
 
-    profiles_df = load_profiles_df(input_csv)
+    profiles_df = load_profiles_from_source(session)
     profiles = sort_profiles(session, profiles_df)
 
-    logger.info(f"Loaded {len(profiles):,} profiles from CSV – ready for battle!")
+    logger.info(f"Loaded {len(profiles):,} profiles – ready for battle!")
 
     start_campaign(handle, session, profiles)

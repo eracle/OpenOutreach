@@ -16,3 +16,6 @@ def start_campaign(handle: str, session: AccountSession, profiles: list[dict]):
     ensure_newsletter_subscription(session)
 
     process_profiles(handle, session, profiles)
+
+    # Close session to trigger Notion sync
+    session.close()

@@ -25,11 +25,32 @@ class Database:
         logger.info("Initializing local DB → %s", Path(db_path).name)
         self.engine = create_engine(db_url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(bind=self.engine)
+        self._run_migrations()
         logger.debug("DB schema ready (tables ensured)")
 
         session_factory = sessionmaker(bind=self.engine)
         self.Session = scoped_session(session_factory)
         self.db_path = Path(db_path)
+
+    def _run_migrations(self):
+        """Run schema migrations for existing databases."""
+        from sqlalchemy import text, inspect
+
+        inspector = inspect(self.engine)
+        columns = [col['name'] for col in inspector.get_columns('profiles')]
+
+        with self.engine.connect() as conn:
+            # Migration: Add message_sent column if missing
+            if 'message_sent' not in columns:
+                logger.info("Migration: Adding 'message_sent' column to profiles table")
+                conn.execute(text("ALTER TABLE profiles ADD COLUMN message_sent VARCHAR"))
+                conn.commit()
+
+            # Migration: Add notion_page_id column if missing
+            if 'notion_page_id' not in columns:
+                logger.info("Migration: Adding 'notion_page_id' column to profiles table")
+                conn.execute(text("ALTER TABLE profiles ADD COLUMN notion_page_id VARCHAR"))
+                conn.commit()
 
     def get_session(self):
         return self.Session()
@@ -42,26 +63,34 @@ class Database:
 
     def _sync_all_unsynced_profiles(self):
         with self.get_session() as db_session:
-            # Fixed: was filtering on non-existent `scraped` column
+            # Sync all unsynced profiles that have profile data (not just discovered)
             unsynced = db_session.query(Profile).filter_by(
                 cloud_synced=False
-            ).filter(Profile.profile.isnot([ProfileState.DISCOVERED.value])).all()
+            ).filter(Profile.state != ProfileState.DISCOVERED.value).all()
 
             if not unsynced:
                 logger.info("All profiles already synced")
                 return
 
-            payload = [p.data for p in unsynced if p.data]
-            if not payload:
+            # Debug: log profile data availability
+            for p in unsynced:
+                has_data = bool(p.profile and p.profile.get("full_name"))
+                logger.debug("Profile %s: state=%s, has_enriched_data=%s",
+                            p.public_identifier, p.state, has_data)
+
+            # Pass full Profile rows to sync (not just data) for state/timestamps
+            profiles_to_sync = [p for p in unsynced if p.profile]
+            if not profiles_to_sync:
+                logger.warning("No profiles with data to sync (all had empty profile JSON)")
                 return
 
-            success = sync_profiles(payload)
+            success = sync_profiles(profiles_to_sync)
 
             if success:
                 for p in unsynced:
                     p.cloud_synced = True
                 db_session.commit()
-                logger.info("Synced %s new profile(s) to cloud", len(payload))
+                logger.info("Synced %s new profile(s) to cloud", len(profiles_to_sync))
             else:
                 logger.error("Cloud sync failed — will retry on next close()")
 

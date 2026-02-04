@@ -9,3 +9,4 @@ langchain
 langchain-openai
 jinja2
 termcolor
+notion-client
