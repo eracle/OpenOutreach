@@ -14,6 +14,7 @@ load_dotenv()
 # Global OpenAI config
 # ----------------------------------------------------------------------
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
 
 # ----------------------------------------------------------------------

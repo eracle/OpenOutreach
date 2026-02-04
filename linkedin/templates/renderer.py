@@ -6,7 +6,7 @@ import jinja2
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from linkedin.conf import AI_MODEL, OPENAI_API_KEY
+from linkedin.conf import AI_MODEL, OPENAI_API_KEY, OPENAI_API_BASE
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def call_llm(prompt: str) -> str:
     logger.info(f"Calling '{AI_MODEL}'.")
 
     # Initialize the LangChain ChatOpenAI model with explicit API key
-    llm = ChatOpenAI(model=AI_MODEL, temperature=0.7, api_key=OPENAI_API_KEY)  # Pass API key explicitly
+    llm = ChatOpenAI(model=AI_MODEL, temperature=0.7, api_key=OPENAI_API_KEY, base_url=OPENAI_API_BASE)
 
     # Create a simple prompt template
     chat_prompt = ChatPromptTemplate.from_messages([
