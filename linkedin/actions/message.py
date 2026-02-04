@@ -18,7 +18,13 @@ LINKEDIN_MESSAGING_URL = "https://www.linkedin.com/messaging/thread/new/"
 def send_follow_up_message(
         handle: str,
         profile: Dict[str, Any],
-):
+) -> tuple:
+    """
+    Send a follow-up message to a connected profile.
+
+    Returns:
+        Tuple of (MessageStatus, message_content or None)
+    """
     session = get_session(
         handle=handle,
     )
@@ -32,8 +38,9 @@ def send_follow_up_message(
 
     if status != ProfileState.CONNECTED:
         logger.info(f"Message skipped → not connected with {public_identifier}")
-        return MessageStatus.SKIPPED
+        return MessageStatus.SKIPPED, None
     else:
+        message = None
         if template_file:
             message = render_template(session, template_file, template_type, profile)
 
@@ -41,7 +48,11 @@ def send_follow_up_message(
         s2 = s1 or _send_message(session, profile, message)
         success = s2
         logger.info(f"Message sent: {message}") if success else None
-        return MessageStatus.SENT if success else MessageStatus.SKIPPED
+
+        if success:
+            return MessageStatus.SENT, message
+        else:
+            return MessageStatus.SKIPPED, None
 
 
 def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:

@@ -26,3 +26,7 @@ class Profile(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     state = Column(String, nullable=False, default="discovered")
+    message_sent = Column(String, nullable=True)
+
+    # Notion page ID for profiles loaded from Notion (for direct updates)
+    notion_page_id = Column(String, nullable=True)

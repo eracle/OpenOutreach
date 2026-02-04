@@ -40,6 +40,7 @@ def save_scraped_profile(
         url: str,
         profile: Dict[str, Any],
         data: Optional[Dict[str, Any]] = None,
+        notion_page_id: Optional[str] = None,
 ):
     public_id = url_to_public_id(url)
     if not public_id:
@@ -64,6 +65,10 @@ def save_scraped_profile(
     # Force re-sync on next close()
     profile_db.updated_at = func.now()
     profile_db.state = ProfileState.ENRICHED.value
+
+    # Store Notion page ID if provided (for direct updates later)
+    if notion_page_id:
+        profile_db.notion_page_id = notion_page_id
 
     db.commit()
 
@@ -135,7 +140,12 @@ def get_profile(session: "AccountSession", public_identifier: str) -> Any:
         .first()
 
 
-def set_profile_state(session: "AccountSession", public_identifier, new_state: str):
+def set_profile_state(
+    session: "AccountSession",
+    public_identifier: str,
+    new_state: str,
+    message_sent: Optional[str] = None,
+):
     db = session.db_session
     row = db.get(Profile, public_identifier)
     if not row:
@@ -143,6 +153,14 @@ def set_profile_state(session: "AccountSession", public_identifier, new_state: s
         db.add(row)
     else:
         row.state = new_state
+
+    # Save message content if provided (when state is COMPLETED)
+    if message_sent is not None:
+        row.message_sent = message_sent
+
+    # Mark for re-sync to Notion
+    row.cloud_synced = False
+
     db.commit()
 
     log_msg = None

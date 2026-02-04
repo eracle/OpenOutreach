@@ -42,6 +42,8 @@ def process_profile_row(
     logger.debug(f"Actual state: {public_identifier}  {current_state}")
 
     new_state = None
+    message_content = None  # Track message for saving to DB
+
     match current_state:
         case ProfileState.COMPLETED | ProfileState.FAILED:
             return None
@@ -52,7 +54,9 @@ def process_profile_row(
                 new_state = ProfileState.FAILED
             else:
                 new_state = ProfileState.ENRICHED
-                save_scraped_profile(session, url, profile, data)
+                # Pass notion_page_id if available (for profiles loaded from Notion)
+                notion_page_id = simple_profile.get("notion_page_id")
+                save_scraped_profile(session, url, profile, data, notion_page_id=notion_page_id)
 
         case ProfileState.ENRICHED:
             if not perform_connections:
@@ -63,7 +67,7 @@ def process_profile_row(
             new_state = get_connection_status(session, profile)
             profile = None if new_state != ProfileState.CONNECTED else profile
         case ProfileState.CONNECTED:
-            status = send_follow_up_message(
+            status, message_content = send_follow_up_message(
                 handle=handle,
                 profile=profile,
             )
@@ -73,7 +77,9 @@ def process_profile_row(
         case _:
             raise TerminalStateError(f"Profile {public_identifier} is {current_state}")
 
-    set_profile_state(session, public_identifier, new_state.value)
+    # Save message content when completing
+    message_to_save = message_content if new_state == ProfileState.COMPLETED else None
+    set_profile_state(session, public_identifier, new_state.value, message_sent=message_to_save)
 
     return profile
 

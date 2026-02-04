@@ -17,6 +17,18 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
 
 # ----------------------------------------------------------------------
+# Notion Sync config (optional)
+# ----------------------------------------------------------------------
+NOTION_API_KEY = os.getenv("NOTION_API_KEY")
+NOTION_DATABASE_ID = os.getenv("NOTION_DATABASE_ID")
+NOTION_SYNC_ENABLED = os.getenv("NOTION_SYNC_ENABLED", "false").lower() == "true"
+
+
+def is_notion_enabled() -> bool:
+    """Check if Notion sync is properly configured and enabled."""
+    return bool(NOTION_SYNC_ENABLED and NOTION_API_KEY and NOTION_DATABASE_ID)
+
+# ----------------------------------------------------------------------
 # Paths (all under assets/)
 # ----------------------------------------------------------------------
 ROOT_DIR = Path(__file__).parent.parent
@@ -65,12 +77,13 @@ def get_account_config(handle: str) -> Dict[str, Any]:
 
     acct = _accounts_config[handle]
 
+    input_source = acct.get("input_source", "csv")
     input_csv_rel = acct.get("input_csv")
     followup_rel  = acct.get("followup_template")
     template_type = acct.get("followup_template_type")
 
-    if input_csv_rel is None:
-        raise ValueError(f"Missing 'input_csv' for account '{handle}'")
+    if input_source == "csv" and input_csv_rel is None:
+        raise ValueError(f"Missing 'input_csv' for account '{handle}' (required when input_source is 'csv')")
     if followup_rel is None:
         raise ValueError(f"Missing 'followup_template' for account '{handle}'")
     if template_type is None:
@@ -89,7 +102,8 @@ def get_account_config(handle: str) -> Dict[str, Any]:
         "cookie_file": COOKIES_DIR / f"{handle}.json",
         "db_path": account_db_path,
 
-        "input_csv": ASSETS_DIR / input_csv_rel,
+        "input_source": acct.get("input_source", "csv"),
+        "input_csv": ASSETS_DIR / input_csv_rel if input_csv_rel else None,
         "followup_template": ASSETS_DIR / followup_rel,
         "followup_template_type": template_type,
     }
