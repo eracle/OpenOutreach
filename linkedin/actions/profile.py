@@ -44,7 +44,6 @@ def _save_profile_to_fixture(enriched_profile: Dict[str, Any], path: str | Path)
 # python -m linkedin.actions.profile
 if __name__ == "__main__":
     import sys
-    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
     FIXTURE_PATH = FIXTURE_PROFILES_DIR / "linkedin_profile.json"
 
