@@ -9,6 +9,11 @@ from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
 
+SELECTORS = {
+    "search_bar": "//input[contains(@placeholder, 'Search')]",
+    "profile_links": 'a[href*="/in/"]',
+}
+
 
 def _go_to_profile(session: "AccountSession", url: str, public_identifier: str):
     if f"/in/{public_identifier}" in session.page.url:
@@ -49,7 +54,7 @@ def _initiate_search(session: "AccountSession", full_name: str):
             error_message="Failed to reach LinkedIn feed"
         )
 
-    search_bar = page.locator("//input[contains(@placeholder, 'Search')]")
+    search_bar = page.locator(SELECTORS["search_bar"])
     search_bar.click()
     search_bar.type(full_name, delay=120)
 
@@ -119,7 +124,7 @@ def _simulate_human_search(session: "AccountSession", profile: Dict[str, Any]) -
         logger.info("Scanning search results page %s", current_page)
 
         target_locator = None
-        for link in session.page.locator('a[href*="/in/"]').all():
+        for link in session.page.locator(SELECTORS["profile_links"]).all():
             href = link.get_attribute("href") or ""
             if f"/in/{public_identifier}" in href:
                 target_locator = link
@@ -144,7 +149,6 @@ def _simulate_human_search(session: "AccountSession", profile: Dict[str, Any]) -
 # ——————————————————————————————————————————————————————————————
 if __name__ == "__main__":
     import sys
-    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
     logging.basicConfig(
         level=logging.DEBUG,

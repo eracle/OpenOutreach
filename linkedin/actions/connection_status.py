@@ -8,6 +8,11 @@ from linkedin.navigation.utils import get_top_card
 
 logger = logging.getLogger(__name__)
 
+SELECTORS = {
+    "pending_button": 'button[aria-label*="Pending"]:visible',
+    "invite_to_connect": 'button[aria-label*="Invite"][aria-label*="to connect"]:visible',
+}
+
 
 def get_connection_status(
         session: "AccountSession",
@@ -36,7 +41,7 @@ def get_connection_status(
     top_card = get_top_card(session)
 
     # 1. Pending invitation?
-    if top_card.locator('button[aria-label*="Pending"]:visible').count() > 0:
+    if top_card.locator(SELECTORS["pending_button"]).count() > 0:
         logger.debug("Detected 'Pending' button → PENDING")
         return ProfileState.PENDING
 
@@ -52,7 +57,7 @@ def get_connection_status(
         return ProfileState.CONNECTED
 
     # 3a. Connect button visible?
-    invite_btn = top_card.locator('button[aria-label*="Invite"][aria-label*="to connect"]:visible')
+    invite_btn = top_card.locator(SELECTORS["invite_to_connect"])
     if invite_btn.count() > 0:
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ProfileState.ENRICHED

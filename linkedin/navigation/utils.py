@@ -57,29 +57,30 @@ def _extract_in_urls(session):
     return urls
 
 
+def first_matching(page, selectors: list[str]):
+    """Try selectors in order, return first locator that matches."""
+    for selector in selectors:
+        locator = page.locator(selector)
+        if locator.count() > 0:
+            return locator.first
+    return None
+
+
+TOP_CARD_SELECTORS = [
+    'section:has(div.top-card-background-hero-image)',
+    'section[data-member-id]',
+    'section.artdeco-card:has(> div.pv-top-card)',
+    'section:has(> div[class*="pv-top-card"])',
+    'section[componentkey*="com.linkedin.sdui.profile.card"]',
+]
+
+
 def get_top_card(session):
-    top_card = session.page.locator('section:has(div.top-card-background-hero-image)')
-
-    if top_card.count() == 0:
-        top_card = session.page.locator('section[data-member-id]')
-
-    if top_card.count() == 0:
-        top_card = session.page.locator('section.artdeco-card:has(> div.pv-top-card)')
-
-    if top_card.count() == 0:
-        top_card = session.page.locator('section[data-member-id] >> div.pv-top-card').locator('..')
-
-    if top_card.count() == 0:
-        top_card = session.page.locator('section:has(> div[class*="pv-top-card"])')
-
-    if top_card.count() == 0:
-        top_card = session.page.locator('section[componentkey*="com.linkedin.sdui.profile.card"]')
-
-    if top_card.count() == 0:
+    top_card = first_matching(session.page, TOP_CARD_SELECTORS)
+    if top_card is None:
         logger.info("Skipping profile")
         raise SkipProfile("Top Card section not found")
-
-    return top_card.first  # there’s always only one
+    return top_card
 
 
 def save_page(session: "AccountSession", profile: dict, ):

@@ -65,13 +65,12 @@ def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> list:
     # Left join: keep all input profiles
     merged = profiles_df.merge(db_df, on="public_identifier", how="left")
 
-    # Sentinel for profiles not in DB
-    sentinel = pd.Timestamp("1970-01-01 00:00:00")
+    NOT_IN_DB = pd.Timestamp("1970-01-01 00:00:00")
 
     # Force datetime conversion first + fillna
     merged["updated_at"] = (
         pd.to_datetime(merged["updated_at"], errors="coerce")
-        .fillna(sentinel)
+        .fillna(NOT_IN_DB)
     )
 
     # Sort: oldest (including new profiles) first
@@ -80,7 +79,7 @@ def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> list:
     logger.debug(f"Sorted:\n"
                  f"{sorted_df.head(10).to_string(index=False)}"
                  )
-    not_in_db = (merged["updated_at"] == sentinel).sum()
+    not_in_db = (merged["updated_at"] == NOT_IN_DB).sum()
     logger.info(
         f"Sorted {len(sorted_df):,} profiles by last updated: "
         f"{not_in_db} new, {len(sorted_df) - not_in_db} existing (oldest first)"

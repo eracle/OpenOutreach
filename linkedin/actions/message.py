@@ -14,6 +14,18 @@ logger = logging.getLogger(__name__)
 
 LINKEDIN_MESSAGING_URL = "https://www.linkedin.com/messaging/thread/new/"
 
+SELECTORS = {
+    "message_button": 'button[aria-label*="Message"]:visible',
+    "overflow_action": 'button[id$="profile-overflow-action"]:visible',
+    "message_option": 'div[aria-label$="to message"]:visible',
+    "message_input": 'div[class*="msg-form__contenteditable"]:visible',
+    "send_button": 'button[type="submit"][class*="msg-form"]:visible',
+    "connections_input": 'input[class^="msg-connections"]',
+    "search_result_row": 'div[class*="msg-connections-typeahead__search-result-row"]',
+    "compose_input": 'div[class^="msg-form__contenteditable"]',
+    "compose_send": 'button[class^="msg-form__send-button"]',
+}
+
 
 def send_follow_up_message(
         handle: str,
@@ -50,21 +62,21 @@ def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message
     public_identifier = profile.get("public_identifier")
 
     try:
-        direct = page.locator('button[aria-label*="Message"]:visible')
+        direct = page.locator(SELECTORS["message_button"])
         if direct.count() > 0:
             direct.first.click()
             logger.debug("Opened Message popup (direct button)")
         else:
-            more = page.locator('button[id$="profile-overflow-action"]:visible').first
+            more = page.locator(SELECTORS["overflow_action"]).first
             more.click()
             session.wait()
-            msg_option = page.locator('div[aria-label$="to message"]:visible').first
+            msg_option = page.locator(SELECTORS["message_option"]).first
             msg_option.click()
             logger.debug("Opened Message via More → Message")
 
         session.wait()
 
-        input_area = page.locator('div[class*="msg-form__contenteditable"]:visible').first
+        input_area = page.locator(SELECTORS["message_input"]).first
 
         try:
             input_area.fill(message, timeout=10000)
@@ -77,7 +89,7 @@ def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message
             input_area.press("ControlOrMeta+V")
             session.wait()
 
-        send_btn = page.locator('button[type="submit"][class*="msg-form"]:visible').first
+        send_btn = page.locator(SELECTORS["send_button"]).first
         send_btn.click(force=True)
         session.wait(4, 5)
 
@@ -103,19 +115,19 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
     )
     try:
         # Search person
-        session.page.locator('input[class^="msg-connections"]').type(full_name, delay=50)
+        session.page.locator(SELECTORS["connections_input"]).type(full_name, delay=50)
         session.wait(0.5, 1)
 
-        item = session.page.locator('div[class*="msg-connections-typeahead__search-result-row"]').first
+        item = session.page.locator(SELECTORS["search_result_row"]).first
         session.wait(0.5, 1)
 
         # Scroll into view + click (very reliable on LinkedIn)
         item.scroll_into_view_if_needed()
         item.click(delay=200)  # small delay between mousedown/mouseup = very human
 
-        session.page.locator('div[class^="msg-form__contenteditable"]').type(message, delay=10)
+        session.page.locator(SELECTORS["compose_input"]).type(message, delay=10)
 
-        session.page.locator('button[class^="msg-form__send-button"]').click(delay=200)
+        session.page.locator(SELECTORS["compose_send"]).click(delay=200)
         session.wait(0.5, 1)
         return True
     except Exception as e:
