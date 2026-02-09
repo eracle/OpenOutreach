@@ -7,8 +7,6 @@ services:
       dockerfile: ./compose/linkedin/Dockerfile
       args:
         - BUILD_ENV=local
-    env_file:
-      - .env
     command: /start
     volumes:
       - .:/app
