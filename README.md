@@ -21,8 +21,7 @@
 
 ### 🚀 What is OpenOutreach?
 
-OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** designed for B2B lead generation, without the
-risks and costs of cloud SaaS services.
+OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** designed for B2B lead generation, without the risks and costs of cloud SaaS services.
 
 It automates the entire outreach process in a **stealthy, human-like way**:
 
@@ -37,10 +36,9 @@ It automates the entire outreach process in a **stealthy, human-like way**:
 - 🐍 **Fully customizable** — Python-based campaigns for unlimited flexibility
 - 💾 **Local execution** — You own your workflow
 - 🐳 **Easy deployment** — Dockerized, one-command setup
-- ✨ **AI-ready** — Built-in templating for hyper-personalized messages (integrate GPT easily)
+- ✨ **AI-ready** — Built-in templating for hyper-personalized messages (easy integration with latest models like GPT-5.3-Codex)
 
-Perfect for founders, sales teams, and agencies who want powerful automation **without account bans or subscription
-lock-in**.
+Perfect for founders, sales teams, and agencies who want powerful automation **without account bans or subscription lock-in**.
 
 ---
 
@@ -67,7 +65,7 @@ It's highly recommended to use a virtual environment to manage dependencies.
 python -m venv venv
 
 # Activate it
-source venv/bin/activate
+source venv/bin/activate          # Windows: venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
@@ -86,11 +84,11 @@ playwright install --with-deps chromium
 ### 4. Configure the Application
 You need to provide your LinkedIn credentials and target profiles.
 
-1. **Configure LinkedIn accounts**
+1. **Configure LinkedIn accounts + optional OpenAI key**
    ```bash
    cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
    ```
-   Edit `assets/accounts.secrets.yaml` with your credentials.
+   Edit `assets/accounts.secrets.yaml` with your credentials (and add your OpenAI key under `env:` if you want AI follow-ups).
 
 2. **Add target profiles**  
    Paste LinkedIn profile URLs into `assets/inputs/urls.csv`.
@@ -122,7 +120,7 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 | 💾 **Persistent Local Database**   | Full data ownership via dedicated SQLite DB per account.                                                             |
 | 🐳 **Containerized Setup**         | One-command Docker + Make deployment.                                                                                |
 | 🖥️ **Visual Debugging**           | Real-time browser view via built-in VNC server (`localhost:5900`).                                                   |
-| ✍️ **AI-Ready Templating**         | Jinja or AI-prompt templates for hyper-personalized messages (easy GPT integration).                                 |
+| ✍️ **AI-Ready Templating**         | Jinja or AI-prompt templates for hyper-personalized messages (plug in latest models like GPT-5.3-Codex easily).     |
 
 ---
 
@@ -130,8 +128,7 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 
 This project is built in spare time to provide powerful, **free** open-source growth tools.
 
-Maintaining stealth, fixing bugs, adding features (multi-account scaling, better templates, AI enhancements), and
-staying ahead of LinkedIn changes takes serious effort.
+Maintaining stealth, fixing bugs, adding features (multi-account scaling, better templates, AI enhancements), and staying ahead of LinkedIn changes takes serious effort.
 
 **Your sponsorship funds faster updates and keeps it free for everyone.**
 

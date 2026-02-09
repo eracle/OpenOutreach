@@ -11,13 +11,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ----------------------------------------------------------------------
-# Global OpenAI config
-# ----------------------------------------------------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
-AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
-
-# ----------------------------------------------------------------------
 # Paths (all under assets/)
 # ----------------------------------------------------------------------
 ROOT_DIR = Path(__file__).parent.parent
@@ -56,6 +49,24 @@ with open(SECRETS_PATH, "r", encoding="utf-8") as f:
 
 _accounts_config = _raw_config.get("accounts", {})
 
+# ----------------------------------------------------------------------
+# Global OpenAI / LLM config
+# ----------------------------------------------------------------------
+# Loaded from gitignored accounts.secrets.yaml/env section first,
+# then .env / os.getenv fallback. Defaults applied if missing.
+env_config = _raw_config.get("env", {}) or {}
+
+OPENAI_API_KEY = env_config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+OPENAI_API_BASE = env_config.get("OPENAI_API_BASE") or os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+AI_MODEL = env_config.get("AI_MODEL") or os.getenv("AI_MODEL", "gpt-5.3-codex")  # latest frontier agentic model (Feb 2026 release)
+
+if not OPENAI_API_KEY:
+    raise ValueError(
+        "OPENAI_API_KEY is required.\n"
+        "Add it under the 'env:' section in accounts.secrets.yaml, e.g.:\n"
+        "env:\n  OPENAI_API_KEY: sk-proj-...\n"
+        "or set it via .env file or environment variable."
+    )
 
 # ----------------------------------------------------------------------
 # Public API
@@ -102,27 +113,20 @@ def list_active_accounts() -> List[str]:
         if cfg.get("active", True)
     ]
 
-
 def get_first_active_account() -> str | None:
     """
     Return the first active account handle from the config, or None if no active accounts.
-
-    The order is deterministic: it follows the insertion order in accounts.secrets.yaml
-    (YAML dictionaries preserve order since Python 3.7+).
+    The order is deterministic (follows insertion order in YAML).
     """
     active = list_active_accounts()
     return active[0] if active else None
 
-
 def get_first_account_config() -> Dict[str, Any] | None:
-    """
-    Return the complete config dict for the first active account, or None if none exist.
-    """
+    """Return the complete config dict for the first active account, or None."""
     handle = get_first_active_account()
     if handle is None:
         return None
     return get_account_config(handle)
-
 
 # ----------------------------------------------------------------------
 # Debug output when run directly
@@ -143,7 +147,6 @@ if __name__ == "__main__":
             print(f"{status} • {handle}")
             print("  Config values:")
             for key, value in cfg.items():
-                # Make paths prettier and handle None
                 if isinstance(value, Path):
                     value = value.as_posix()
                 elif value is None:
