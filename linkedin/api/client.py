@@ -2,10 +2,9 @@
 import json
 import logging
 from typing import Optional, Any
-from urllib.parse import urlparse
 
 from linkedin.api.voyager import parse_linkedin_voyager_response
-from linkedin.db.profiles import url_to_public_id
+from linkedin.db.crm_profiles import url_to_public_id
 from linkedin.navigation.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
@@ -87,7 +86,7 @@ class PlaywrightLinkedinAPI:
 
             case 403 | 404:
                 logger.info("Profile inaccessible → private / deleted / restricted → %s (HTTP %d)",
-                           public_identifier, res.status)
+                            public_identifier, res.status)
                 logger.debug(f"Body: {json.dumps(res.json(), indent=2)}")
                 return None, None
 

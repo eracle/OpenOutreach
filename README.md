@@ -28,13 +28,13 @@ It automates the entire outreach process in a **stealthy, human-like way**:
 - Discovers and enriches target profiles
 - Sends personalized connection requests
 - Follows up with custom messages after acceptance
-- Tracks everything in a local database (full data ownership, resumable workflows)
+- Tracks everything in a built-in CRM with web UI (full data ownership, resumable workflows)
 
 **Why choose OpenOutreach?**
 
 - 🛡️ **Undetectable** — Playwright + stealth plugins mimic real user behavior
 - 🐍 **Fully customizable** — Python-based campaigns for unlimited flexibility
-- 💾 **Local execution** — You own your workflow
+- 💾 **Local execution + CRM** — You own your data, browse it in a web UI
 - 🐳 **Easy deployment** — Dockerized, one-command setup
 - ✨ **AI-ready** — Built-in templating for hyper-personalized messages (easy integration with latest models like GPT-5.3-Codex)
 
@@ -68,14 +68,11 @@ python -m venv venv
 source venv/bin/activate          # Windows: venv\Scripts\activate
 ```
 
-### 3. Install Dependencies
-We use `uv` for fast dependency management, which will be installed first.
+### 3. Install Dependencies & Set Up the CRM
+We use `uv` for fast dependency management and DjangoCRM for the local database.
 ```bash
-# Install uv
-pip install uv
-
-# Install project dependencies
-uv pip install -r requirements/local.txt
+# Install deps, run migrations, and bootstrap CRM data
+make setup
 
 # Install required browser assets
 playwright install --with-deps chromium
@@ -90,16 +87,30 @@ You need to provide your LinkedIn credentials and target profiles.
    ```
    Edit `assets/accounts.secrets.yaml` with your credentials (and add your OpenAI key under `env:` if you want AI follow-ups).
 
-2. **Add target profiles**  
+2. **Add target profiles**
    Paste LinkedIn profile URLs into `assets/inputs/urls.csv`.
 
 ### 5. Run the Application
 
-You can run the main script directly:
 ```bash
-python main.py
+make run                    # run with first active account
+make run HANDLE=myhandle    # run with a specific account
 ```
 The tool is fully resumable — stop/restart anytime without losing progress.
+
+### 6. View Your Data (CRM Admin)
+
+OpenOutreach includes a full CRM web interface powered by DjangoCRM:
+```bash
+# Create an admin account (first time only)
+python manage_crm.py createsuperuser
+
+# Start the web server
+make admin
+```
+Then open:
+- **Django Admin:** http://localhost:8000/admin/
+- **CRM UI:** http://localhost:8000/crm/
 ---
 
 ## 🐳 Docker Installation
@@ -116,8 +127,8 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 | 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
 | 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
 | 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
-| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `CONNECTED` → `COMPLETED`) in a local DB – resumable at any time. |
-| 💾 **Persistent Local Database**   | Full data ownership via dedicated SQLite DB per account.                                                             |
+| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
+| 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI -- browse Leads, Contacts, Companies, and Deals in your browser. |
 | 🐳 **Containerized Setup**         | One-command Docker + Make deployment.                                                                                |
 | 🖥️ **Visual Debugging**           | Real-time browser view via built-in VNC server (`localhost:5900`).                                                   |
 | ✍️ **AI-Ready Templating**         | Jinja or AI-prompt templates for hyper-personalized messages (plug in latest models like GPT-5.3-Codex easily).     |
@@ -195,12 +206,15 @@ Edit the campaign file directly for custom logic, templates, or AI integration.
 │   ├── actions/                   # Browser actions
 │   ├── api/                       # Voyager API client
 │   ├── campaigns/                 # Workflows
-│   ├── db/                        # SQLite utilities
+│   ├── db/crm_profiles.py         # CRM-backed profile CRUD (Lead, Contact, Company, Deal)
+│   ├── django_settings.py         # Django/CRM settings (SQLite at assets/data/crm.db)
+│   ├── management/setup_crm.py    # Idempotent CRM bootstrap (Dept, Stages, Users)
 │   ├── navigation/                # Login helpers
 │   └── sessions/                  # Session management
-├── main.py                        # Entry point
+├── main.py                        # Entry point (bootstraps Django)
+├── manage_crm.py                  # Django manage.py (migrate, runserver, createsuperuser)
 ├── local.yml                      # Docker Compose
-└── Makefile                       # Shortcuts
+└── Makefile                       # Shortcuts (setup, run, admin, test, etc.)
 ```
 
 ---

@@ -2,7 +2,7 @@
 
 import logging
 
-from linkedin.db.profiles import count_pending_scrape
+from linkedin.db.crm_profiles import count_pending_scrape
 
 logger = logging.getLogger(__name__)
 

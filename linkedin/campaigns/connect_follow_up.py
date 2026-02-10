@@ -4,7 +4,7 @@ import logging
 from termcolor import colored
 
 from linkedin.actions.connection_status import get_connection_status
-from linkedin.db.profiles import set_profile_state, get_profile, save_scraped_profile
+from linkedin.db.crm_profiles import set_profile_state, get_profile, save_scraped_profile
 from linkedin.navigation.enums import MessageStatus
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import TerminalStateError, SkipProfile, ReachedConnectionLimit

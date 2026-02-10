@@ -1,0 +1,1 @@
+django-crm-admin @ git+https://github.com/DjangoCRM/django-crm.git

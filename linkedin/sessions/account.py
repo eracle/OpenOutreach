@@ -24,13 +24,21 @@ def human_delay(min_val, max_val):
 
 class AccountSession:
     def __init__(self, handle: str):
-        from linkedin.db.engine import Database
+        from django.contrib.auth.models import User
 
         self.handle = handle.strip().lower()
 
         self.account_cfg = get_account_config(self.handle)
-        self.db = Database.from_handle(self.handle)
-        self.db_session = self.db.get_session()  # long-lived session per account
+
+        # Look up or create the Django User for this handle
+        self.django_user, created = User.objects.get_or_create(
+            username=self.handle,
+            defaults={"is_staff": True, "is_active": True},
+        )
+        if created:
+            self.django_user.set_unusable_password()
+            self.django_user.save()
+            logger.info("Auto-created Django user for %s", self.handle)
 
         # Playwright objects – created on first access or after crash
         self.page = None
@@ -50,7 +58,7 @@ class AccountSession:
             self.page.wait_for_load_state("load")
             return
 
-        from linkedin.db.profiles import get_next_url_to_scrape
+        from linkedin.db.crm_profiles import get_next_url_to_scrape
 
         logger.debug(f"Pausing: {MAX_DELAY}s")
         amount_to_scrape = determine_batch_size(self)
@@ -61,7 +69,7 @@ class AccountSession:
             self.page.wait_for_load_state("load")
             return
 
-        from linkedin.db.profiles import save_scraped_profile
+        from linkedin.db.crm_profiles import save_scraped_profile
         min_api_delay = max(min_delay / len(urls), MIN_API_DELAY)
         max_api_delay = max(max_delay / len(urls), MAX_API_DELAY)
         api = PlaywrightLinkedinAPI(session=self)
@@ -86,7 +94,6 @@ class AccountSession:
             finally:
                 self.page = self.context = self.browser = self.playwright = None
 
-        self.db.close()
         logger.info("Account session closed → %s", self.handle)
 
     def __del__(self):

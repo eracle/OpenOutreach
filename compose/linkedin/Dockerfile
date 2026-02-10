@@ -15,10 +15,11 @@ ARG BUILD_ENV=production
 RUN pip install uv
 
 # Copy requirements folder and install the dependencies based on BUILD_ENV using uv
+# DjangoCRM is installed with --no-deps first to skip mysqlclient (we use SQLite)
 COPY ./requirements /requirements
-RUN uv pip install --system -r /requirements/${BUILD_ENV}.txt
+RUN uv pip install --system --no-deps -r /requirements/crm.txt \
+    && uv pip install --system -r /requirements/${BUILD_ENV}.txt
 
-# ← ADD THIS LINE (and only this line)
 RUN playwright install --with-deps chromium
 
 # Copy necessary startup scripts

@@ -7,8 +7,8 @@ import pandas as pd
 
 from linkedin.campaigns.engine import start_campaign
 from linkedin.conf import get_first_active_account
-from linkedin.db.profiles import get_updated_at_df
-from linkedin.db.profiles import url_to_public_id
+from linkedin.db.crm_profiles import get_updated_at_df
+from linkedin.db.crm_profiles import url_to_public_id
 from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> list:
     # Left join: keep all input profiles
     merged = profiles_df.merge(db_df, on="public_identifier", how="left")
 
-    NOT_IN_DB = pd.Timestamp("1970-01-01 00:00:00")
+    NOT_IN_DB = pd.Timestamp("1970-01-01 00:00:00", tz="UTC")
 
     # Force datetime conversion first + fillna
     merged["updated_at"] = (

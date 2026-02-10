@@ -17,7 +17,7 @@ def goto_page(session: "AccountSession",
               error_message: str = "",
               to_scrape=True,
               ):
-    from linkedin.db.profiles import add_profile_urls
+    from linkedin.db.crm_profiles import add_profile_urls
     page = session.page
     action()
     if not page:

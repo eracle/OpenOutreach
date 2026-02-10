@@ -2,5 +2,6 @@
 
 # Testing
 pytest
+pytest-django
 pytest-mock
 factory-boy

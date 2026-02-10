@@ -1,39 +1,44 @@
 # tests/conftest.py
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
+from django.contrib.auth.models import User, Group
 
-from linkedin.db.models import Base
+from linkedin.management.setup_crm import setup_crm
 
 
-@pytest.fixture(scope="function")
-def db_session():
+@pytest.fixture(autouse=True)
+def _ensure_crm_data(db):
     """
-    Yields a clean, in-memory SQLite session with all tables created.
-    Every test gets its own fresh database → no state leaks.
+    Ensure CRM bootstrap data exists before every test.
+    Uses `db` fixture (not transactional_db) for compatibility.
+    Since transaction=True tests rollback, we re-create data each time.
     """
-    engine = create_engine("sqlite:///:memory:", echo=False, future=True)
-    Base.metadata.create_all(bind=engine)
-
-    SessionFactory = sessionmaker(bind=engine)
-    Session = scoped_session(SessionFactory)
-    session = Session()
-
-    yield session
-
-    session.close()
-    Base.metadata.drop_all(bind=engine)
-    Session.remove()
+    # DjangoCRM's user creation signal expects "co-workers" group
+    Group.objects.get_or_create(name="co-workers")
+    setup_crm()
 
 
 class FakeAccountSession:
-    """Minimal stand-in for AccountSession — only exposes db_session."""
+    """Minimal stand-in for AccountSession — exposes django_user."""
 
-    def __init__(self, db_session):
-        self.db_session = db_session
+    def __init__(self, django_user):
+        self.django_user = django_user
+        self.handle = django_user.username
 
 
 @pytest.fixture
-def fake_session(db_session):
-    """An AccountSession-like object backed by the in-memory db_session."""
-    return FakeAccountSession(db_session)
+def fake_session(db):
+    """An AccountSession-like object backed by the Django test DB."""
+    from common.models import Department
+
+    # Ensure CRM data exists (co-workers group, department, stages, etc.)
+    Group.objects.get_or_create(name="co-workers")
+    setup_crm()
+
+    user, _ = User.objects.get_or_create(
+        username="testuser",
+        defaults={"is_staff": True, "is_active": True},
+    )
+    dept = Department.objects.get(name="LinkedIn Outreach")
+    if dept not in user.groups.all():
+        user.groups.add(dept)
+    return FakeAccountSession(django_user=user)

@@ -20,5 +20,9 @@ export DISPLAY=:99
 # Start x11vnc attached to the Xvfb display (no password for simplicity; add -passwd 'yourpass' if needed)
 x11vnc -display :99 -forever -shared -nopw &
 
+# Run Django migrations and bootstrap CRM data
+python manage_crm.py migrate --no-input
+python -m linkedin.management.setup_crm
+
 # Run the main Python script/module
 python main.py
