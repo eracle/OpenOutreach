@@ -2,6 +2,6 @@
 
 # Testing
 pytest
-pytest-django
+pytest-django==4.11.1
 pytest-mock
 factory-boy
