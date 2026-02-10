@@ -6,6 +6,6 @@ SQLAlchemy
 jsonpath-ng
 pandas
 langchain
-langchain-openai
+langchain-openai==1.1.8
 jinja2
 termcolor
