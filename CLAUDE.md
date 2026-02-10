@@ -38,7 +38,7 @@ make up-view  # run + open VNC viewer
 ## Architecture
 
 ### Entry Flow
-`main.py` (Django bootstrap) → `csv_launcher.launch_connect_follow_up_campaign()` → `campaigns.engine.start_campaign()` → `campaigns.connect_follow_up.process_profiles()`
+`main.py` (Django bootstrap + CRM auto-setup) → `csv_launcher.launch_connect_follow_up_campaign()` → `campaigns.connect_follow_up.process_profiles()`
 
 ### Profile State Machine
 Each profile progresses through states defined in `navigation/enums.py:ProfileState`:
@@ -57,7 +57,7 @@ The campaign engine (`campaigns/connect_follow_up.py`) uses `match/case` on the 
 
 ### Key Modules
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
-- **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. Same public API as the old SQLAlchemy layer. Contains `ProfileRow` wrapper for campaign compatibility.
+- **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. CRM lookups are `@lru_cache`d.
 - **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. All paths derived from `ASSETS_DIR`.
 - **`api/voyager.py`** — Parses LinkedIn's Voyager API JSON responses into clean dicts via internal dataclasses (`LinkedInProfile`, `Position`, `Education`). Uses URN reference resolution from the `included` array.
 - **`django_settings.py`** — Django settings importing DjangoCRM's default settings. SQLite DB at `assets/data/crm.db`.

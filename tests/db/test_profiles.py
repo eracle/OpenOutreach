@@ -7,7 +7,7 @@ from linkedin.db.crm_profiles import (
     set_profile_state,
     get_profile,
     save_scraped_profile,
-    get_updated_at_df,
+    get_updated_at_map,
     add_profile_urls,
     get_next_url_to_scrape,
     count_pending_scrape,
@@ -67,13 +67,13 @@ class TestSetAndGetProfile:
         set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
         row = get_profile(fake_session, "alice")
         assert row is not None
-        assert row.state == ProfileState.DISCOVERED.value
+        assert row["state"] == ProfileState.DISCOVERED.value
 
     def test_set_state_updates_existing(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
         set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)
         row = get_profile(fake_session, "alice")
-        assert row.state == ProfileState.ENRICHED.value
+        assert row["state"] == ProfileState.ENRICHED.value
 
     def test_get_nonexistent_returns_none(self, fake_session):
         assert get_profile(fake_session, "nobody") is None
@@ -92,8 +92,8 @@ class TestSaveScrapedProfile:
         )
         row = get_profile(fake_session, "alicesmith")
         assert row is not None
-        assert row.profile["full_name"] == "Alice Smith"
-        assert row.state == ProfileState.ENRICHED.value
+        assert row["profile"]["full_name"] == "Alice Smith"
+        assert row["state"] == ProfileState.ENRICHED.value
 
     def test_updates_existing_profile(self, fake_session):
         set_profile_state(fake_session, "alicesmith", ProfileState.DISCOVERED.value)
@@ -104,8 +104,8 @@ class TestSaveScrapedProfile:
             None,
         )
         row = get_profile(fake_session, "alicesmith")
-        assert row.profile["full_name"] == "Alice Smith v2"
-        assert row.state == ProfileState.ENRICHED.value
+        assert row["profile"]["full_name"] == "Alice Smith v2"
+        assert row["state"] == ProfileState.ENRICHED.value
 
     def test_invalid_url_raises(self, fake_session):
         with pytest.raises(ValueError, match="Not a valid /in/ profile URL"):
@@ -177,18 +177,17 @@ class TestCountPendingScrape:
 
 
 @pytest.mark.django_db
-class TestGetUpdatedAtDf:
+class TestGetUpdatedAtMap:
     def test_returns_timestamps_for_existing(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)
-        df = get_updated_at_df(fake_session, ["alice", "nobody"])
-        assert len(df) == 1
-        assert df.iloc[0]["public_identifier"] == "alice"
+        result = get_updated_at_map(fake_session, ["alice", "nobody"])
+        assert len(result) == 1
+        assert "alice" in result
 
-    def test_empty_input_returns_empty_df(self, fake_session):
-        df = get_updated_at_df(fake_session, [])
-        assert len(df) == 0
-        assert list(df.columns) == ["public_identifier", "updated_at"]
+    def test_empty_input_returns_empty_dict(self, fake_session):
+        result = get_updated_at_map(fake_session, [])
+        assert result == {}
 
-    def test_no_matches_returns_empty_df(self, fake_session):
-        df = get_updated_at_df(fake_session, ["nobody"])
-        assert len(df) == 0
+    def test_no_matches_returns_empty_dict(self, fake_session):
+        result = get_updated_at_map(fake_session, ["nobody"])
+        assert result == {}

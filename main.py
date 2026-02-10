@@ -7,6 +7,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
 import django
 django.setup()
 
+from linkedin.management.setup_crm import setup_crm
 from linkedin.csv_launcher import launch_connect_follow_up_campaign
 
 logging.getLogger().handlers.clear()
@@ -16,5 +17,6 @@ logging.basicConfig(
 )
 
 if __name__ == "__main__":
+    setup_crm()
     handle = sys.argv[1] if len(sys.argv) > 1 else None
     launch_connect_follow_up_campaign(handle)

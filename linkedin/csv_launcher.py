@@ -1,13 +1,15 @@
 # linkedin/csv_launcher.py
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 
-from linkedin.campaigns.engine import start_campaign
+from linkedin.api.emails import ensure_newsletter_subscription
+from linkedin.campaigns.connect_follow_up import process_profiles
 from linkedin.conf import get_first_active_account
-from linkedin.db.crm_profiles import get_updated_at_df
+from linkedin.db.crm_profiles import get_updated_at_map
 from linkedin.db.crm_profiles import url_to_public_id
 from linkedin.sessions.registry import get_session
 
@@ -51,40 +53,29 @@ def load_profiles_df(csv_path: Path | str):
 
 def sort_profiles(session: "AccountSession", profiles_df: pd.DataFrame) -> list:
     """
-    Return a new DataFrame sorted by updated_at (oldest first).
+    Return profiles sorted by updated_at (oldest first).
     Profiles not in the database come first.
     """
     if profiles_df.empty:
         return []
 
-    public_ids = profiles_df["public_identifier"].tolist()
+    records = profiles_df.to_dict(orient="records")
+    public_ids = [r["public_identifier"] for r in records]
 
-    # Get DB timestamps as DataFrame
-    db_df = get_updated_at_df(session, public_ids)
+    # Get DB timestamps as dict: public_id → datetime
+    ts_map = get_updated_at_map(session, public_ids)
 
-    # Left join: keep all input profiles
-    merged = profiles_df.merge(db_df, on="public_identifier", how="left")
+    NOT_IN_DB = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
-    NOT_IN_DB = pd.Timestamp("1970-01-01 00:00:00", tz="UTC")
+    # Sort: profiles not in DB (NOT_IN_DB) come first, then oldest
+    records.sort(key=lambda r: ts_map.get(r["public_identifier"], NOT_IN_DB))
 
-    # Force datetime conversion first + fillna
-    merged["updated_at"] = (
-        pd.to_datetime(merged["updated_at"], errors="coerce")
-        .fillna(NOT_IN_DB)
-    )
-
-    # Sort: oldest (including new profiles) first
-    sorted_df = merged.sort_values(by="updated_at").drop(columns="updated_at")
-
-    logger.debug(f"Sorted:\n"
-                 f"{sorted_df.head(10).to_string(index=False)}"
-                 )
-    not_in_db = (merged["updated_at"] == NOT_IN_DB).sum()
+    not_in_db = sum(1 for r in records if r["public_identifier"] not in ts_map)
     logger.info(
-        f"Sorted {len(sorted_df):,} profiles by last updated: "
-        f"{not_in_db} new, {len(sorted_df) - not_in_db} existing (oldest first)"
+        f"Sorted {len(records):,} profiles by last updated: "
+        f"{not_in_db} new, {len(records) - not_in_db} existing (oldest first)"
     )
-    return sorted_df.to_dict(orient="records")
+    return records
 
 
 def launch_connect_follow_up_campaign(
@@ -117,4 +108,6 @@ def launch_connect_follow_up_campaign(
 
     logger.info(f"Loaded {len(profiles):,} profiles from CSV – ready for battle!")
 
-    start_campaign(handle, session, profiles)
+    session.ensure_browser()
+    ensure_newsletter_subscription(session)
+    process_profiles(handle, session, profiles)

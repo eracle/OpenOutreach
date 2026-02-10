@@ -30,11 +30,11 @@ def process_profile_row(
 
     url = simple_profile['url']
     public_identifier = simple_profile['public_identifier']
-    profile_row = get_profile(session, public_identifier)
+    profile_data = get_profile(session, public_identifier)
 
-    if profile_row:
-        current_state = ProfileState(profile_row.state)
-        profile = profile_row.profile or simple_profile
+    if profile_data:
+        current_state = ProfileState(profile_data["state"])
+        profile = profile_data["profile"] or simple_profile
     else:
         current_state = ProfileState.DISCOVERED
         profile = simple_profile

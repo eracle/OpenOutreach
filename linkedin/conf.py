@@ -88,8 +88,6 @@ def get_account_config(handle: str) -> Dict[str, Any]:
     if template_type is None:
         raise ValueError(f"Missing 'followup_template_type' for account '{handle}'")
 
-    account_db_path = DATA_DIR / f"{handle}.db"
-
     return {
         "handle": handle,
         "active": acct.get("active", True),
@@ -99,7 +97,6 @@ def get_account_config(handle: str) -> Dict[str, Any]:
         "booking_link": acct.get("booking_link"),
 
         "cookie_file": COOKIES_DIR / f"{handle}.json",
-        "db_path": account_db_path,
 
         "input_csv": ASSETS_DIR / input_csv_rel,
         "followup_template": ASSETS_DIR / followup_rel,
@@ -134,7 +131,6 @@ def get_first_account_config() -> Dict[str, Any] | None:
 if __name__ == "__main__":
     print("LinkedIn Automation – Active accounts")
     print(f"Config file : {SECRETS_PATH}")
-    print(f"Databases stored in: {DATA_DIR}")
     print("-" * 60)
 
     active_handles = list_active_accounts()
