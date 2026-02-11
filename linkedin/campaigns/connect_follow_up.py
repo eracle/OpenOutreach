@@ -81,8 +81,7 @@ def process_profile_row(
 def process_profiles(handle, session, profiles: list[dict]):
     perform_connections = True
     for simple_profile in profiles:
-        continue_same_profile = True
-        while continue_same_profile:
+        while True:
             try:
                 profile = process_profile_row(
                     handle=handle,
@@ -90,18 +89,19 @@ def process_profiles(handle, session, profiles: list[dict]):
                     simple_profile=simple_profile,
                     perform_connections=perform_connections,
                 )
-                continue_same_profile = bool(profile)
+                if not profile:
+                    break  # done with this profile
             except SkipProfile as e:
-                public_identifier = simple_profile["public_identifier"]
-                logger.info(
-                    colored(f"Skipping profile: {public_identifier} reason: {e}", "red", attrs=["bold"])
-                )
+                logger.info(colored(
+                    f"Skipping profile: {simple_profile['public_identifier']} reason: {e}",
+                    "red", attrs=["bold"],
+                ))
                 save_page(session, simple_profile)
-                continue_same_profile = False
+                break
             except ReachedConnectionLimit as e:
+                logger.info(colored(
+                    f"Skipping profile: {simple_profile['public_identifier']} reason: {e}",
+                    "red", attrs=["bold"],
+                ))
                 perform_connections = False
-                public_identifier = simple_profile["public_identifier"]
-                logger.info(
-                    colored(f"Skipping profile: {public_identifier} reason: {e}", "red", attrs=["bold"])
-                )
-                continue_same_profile = False
+                break

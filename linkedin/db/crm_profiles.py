@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse, unquote
 
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.utils import timezone
 from termcolor import colored
 
@@ -158,6 +159,85 @@ def add_profile_urls(session: "AccountSession", urls: List[str]):
     logger.debug("Discovered %d unique LinkedIn profiles", count)
 
 
+def _update_lead_fields(lead, profile: Dict[str, Any]):
+    """Update Lead model fields from parsed LinkedIn profile."""
+    lead.first_name = profile.get("first_name", "") or ""
+    lead.last_name = profile.get("last_name", "") or ""
+    lead.title = profile.get("headline", "") or ""
+    lead.city_name = profile.get("location_name", "") or ""
+
+    if profile.get("email"):
+        lead.email = profile["email"]
+    if profile.get("phone"):
+        lead.phone = profile["phone"]
+
+    positions = profile.get("positions", [])
+    if positions:
+        lead.company_name = positions[0].get("company_name", "") or ""
+
+    lead.description = json.dumps(profile, ensure_ascii=False, default=str)
+    lead.save()
+
+
+def _ensure_company(lead, profile: Dict[str, Any]):
+    """Create or get Company from first position. Returns Company or None."""
+    from crm.models import Company
+
+    positions = profile.get("positions", [])
+    if not positions or not positions[0].get("company_name"):
+        return None
+
+    company, _ = Company.objects.get_or_create(
+        full_name=positions[0]["company_name"],
+        defaults={"owner": lead.owner, "department": lead.department},
+    )
+    lead.company = company
+    return company
+
+
+def _ensure_contact(lead, company):
+    """Create Contact if lead has a name and company. Requires company (NOT NULL on crm_contact)."""
+    from crm.models import Contact
+
+    if not lead.first_name or not company:
+        return
+
+    contact = Contact.objects.filter(
+        first_name=lead.first_name,
+        last_name=lead.last_name or "",
+        company=company,
+    ).first()
+
+    if contact is None:
+        contact = Contact.objects.create(
+            first_name=lead.first_name,
+            last_name=lead.last_name or "",
+            company=company,
+            title=lead.title or "",
+            owner=lead.owner,
+            department=lead.department,
+        )
+
+    lead.contact = contact
+    lead.save()
+
+
+def _attach_raw_data(lead, public_id: str, data: Dict[str, Any]):
+    """Save raw Voyager JSON as TheFile attached to the Lead."""
+    from common.models import TheFile
+    from django.contrib.contenttypes.models import ContentType
+
+    ct = ContentType.objects.get_for_model(lead)
+    raw_json = json.dumps(data, ensure_ascii=False, default=str)
+    the_file = TheFile(content_type=ct, object_id=lead.pk)
+    the_file.file.save(
+        f"{public_id}_voyager.json",
+        ContentFile(raw_json.encode("utf-8")),
+        save=True,
+    )
+
+
+@transaction.atomic
 def save_scraped_profile(
     session: "AccountSession",
     url: str,
@@ -168,68 +248,14 @@ def save_scraped_profile(
     Update Lead fields from parsed profile, create/update Contact + Company,
     move Deal to 'Enriched' stage, attach raw data as TheFile.
     """
-    from crm.models import Contact, Company
-    from common.models import TheFile
-
     public_id = url_to_public_id(url)
     clean_url = public_id_to_url(public_id)
 
     lead, deal = _get_or_create_lead_and_deal(session, public_id, clean_url)
 
-    # Update Lead from parsed profile
-    lead.first_name = profile.get("first_name", "") or ""
-    lead.last_name = profile.get("last_name", "") or ""
-    lead.title = profile.get("headline", "") or ""
-    lead.city_name = profile.get("location_name", "") or ""
-
-    # Store phone/email if available
-    if profile.get("email"):
-        lead.email = profile["email"]
-    if profile.get("phone"):
-        lead.phone = profile["phone"]
-
-    # Store company name from first position
-    positions = profile.get("positions", [])
-    if positions:
-        lead.company_name = positions[0].get("company_name", "") or ""
-
-    # Store full parsed profile as JSON in description
-    lead.description = json.dumps(profile, ensure_ascii=False, default=str)
-    lead.save()
-
-    # Create/update Company from first position
-    company = None
-    if positions and positions[0].get("company_name"):
-        company_name = positions[0]["company_name"]
-        company, _ = Company.objects.get_or_create(
-            full_name=company_name,
-            defaults={
-                "owner": lead.owner,
-                "department": lead.department,
-            },
-        )
-        lead.company = company
-
-    # Create/update Contact (requires company — NOT NULL on crm_contact)
-    if lead.first_name and company:
-        contact = Contact.objects.filter(
-            first_name=lead.first_name,
-            last_name=lead.last_name or "",
-            company=company,
-        ).first()
-
-        if contact is None:
-            contact = Contact.objects.create(
-                first_name=lead.first_name,
-                last_name=lead.last_name or "",
-                company=company,
-                title=lead.title or "",
-                owner=lead.owner,
-                department=lead.department,
-            )
-
-        lead.contact = contact
-        lead.save()
+    _update_lead_fields(lead, profile)
+    company = _ensure_company(lead, profile)
+    _ensure_contact(lead, company)
 
     # Move Deal to Enriched stage
     enriched_stage = _get_stage(ProfileState.ENRICHED)
@@ -241,20 +267,8 @@ def save_scraped_profile(
         deal.contact = lead.contact
     deal.save()
 
-    # Attach raw Voyager JSON as TheFile
     if data:
-        from django.contrib.contenttypes.models import ContentType
-        ct = ContentType.objects.get_for_model(lead)
-        raw_json = json.dumps(data, ensure_ascii=False, default=str)
-        the_file = TheFile(
-            content_type=ct,
-            object_id=lead.pk,
-        )
-        the_file.file.save(
-            f"{public_id}_voyager.json",
-            ContentFile(raw_json.encode("utf-8")),
-            save=True,
-        )
+        _attach_raw_data(lead, public_id, data)
 
     debug_profile_preview(profile) if logger.isEnabledFor(logging.DEBUG) else None
     logger.debug("SUCCESS: Saved enriched profile → %s", public_id)
@@ -294,23 +308,16 @@ def set_profile_state(session: "AccountSession", public_identifier: str, new_sta
 
     deal.save()
 
-    # Log state change with colors
-    log_msg = None
-    match new_state:
-        case ProfileState.DISCOVERED:
-            log_msg = colored("DISCOVERED", "green")
-        case ProfileState.ENRICHED:
-            log_msg = colored("ENRICHED", "yellow", attrs=["bold"])
-        case ProfileState.PENDING:
-            log_msg = colored("PENDING", "yellow", attrs=["bold"])
-        case ProfileState.CONNECTED:
-            log_msg = colored("CONNECTED", "green")
-        case ProfileState.COMPLETED:
-            log_msg = colored("COMPLETED", "green", attrs=["bold"])
-        case _:
-            log_msg = colored("ERROR", "red", attrs=["bold"])
-
-    logger.info("%s %s", public_identifier, log_msg)
+    _STATE_LOG_STYLE = {
+        ProfileState.DISCOVERED: ("DISCOVERED", "green", []),
+        ProfileState.ENRICHED: ("ENRICHED", "yellow", ["bold"]),
+        ProfileState.PENDING: ("PENDING", "yellow", ["bold"]),
+        ProfileState.CONNECTED: ("CONNECTED", "green", []),
+        ProfileState.COMPLETED: ("COMPLETED", "green", ["bold"]),
+        ProfileState.FAILED: ("FAILED", "red", ["bold"]),
+    }
+    label, color, attrs = _STATE_LOG_STYLE.get(ps, ("ERROR", "red", ["bold"]))
+    logger.info("%s %s", public_identifier, colored(label, color, attrs=attrs))
 
 
 def get_profile(session: "AccountSession", public_identifier: str) -> Optional[dict]:

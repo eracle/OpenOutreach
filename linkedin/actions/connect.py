@@ -52,24 +52,21 @@ def send_connection_request(
         return connection_status
 
     # Send invitation WITHOUT note (current active flow)
-    s1 = _connect_direct(session)
-    s2 = s1 or _connect_via_more(session)
+    if not _connect_direct(session) and not _connect_via_more(session):
+        logger.info(f"Connection request ENRICHED → {public_identifier}")
+        return ProfileState.ENRICHED
 
-    s3 = s2 and _click_without_note(session)
-    s4 = s3 and _check_weekly_invitation_limit(session)
-    success = s4
+    _click_without_note(session)
+    _check_weekly_invitation_limit(session)
 
-    status = ProfileState.PENDING if success else ProfileState.ENRICHED
-    logger.info(f"Connection request {status} → {public_identifier}")
-    return status
+    logger.info(f"Connection request PENDING → {public_identifier}")
+    return ProfileState.PENDING
 
 
 def _check_weekly_invitation_limit(session):
     weekly_invitation_limit = session.page.locator(SELECTORS["weekly_limit"])
     if weekly_invitation_limit.count() > 0:
         raise ReachedConnectionLimit("Weekly connection limit pop up appeared")
-
-    return True
 
 
 def _connect_direct(session):
@@ -119,8 +116,6 @@ def _click_without_note(session):
     send_btn.first.click(force=True)
     session.wait()
     logger.debug("Connection request submitted (no note)")
-
-    return True
 
 
 # ===================================================================
