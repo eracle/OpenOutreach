@@ -40,38 +40,32 @@ def get_connection_status(
 
     top_card = get_top_card(session)
 
-    # 1. Pending invitation?
+    # Check pending button in DOM first (most reliable)
     if top_card.locator(SELECTORS["pending_button"]).count() > 0:
         logger.debug("Detected 'Pending' button → PENDING")
         return ProfileState.PENDING
 
     main_text = top_card.inner_text()
-    # 1b. Is there a "Pending" label?
-    if any(x in main_text for x in ["Pending"]):
-        logger.debug("Detected 'Pending' text in page → PENDING")
-        return ProfileState.PENDING
 
-    # 2. Already connected?
-    if any(x in main_text for x in ["1st", "1st degree", "1º", "1er"]):
-        logger.debug("Confirmed 1st degree via page text → CONNECTED")
-        return ProfileState.CONNECTED
+    # Text-based indicators, checked in priority order
+    TEXT_INDICATORS = [
+        (["Pending"], ProfileState.PENDING, "Detected 'Pending' text → PENDING"),
+        (["1st", "1st degree", "1º", "1er"], ProfileState.CONNECTED, "Confirmed 1st degree via text → CONNECTED"),
+    ]
+    for keywords, state, msg in TEXT_INDICATORS:
+        if any(kw in main_text for kw in keywords):
+            logger.debug(msg)
+            return state
 
-    # 3a. Connect button visible?
-    invite_btn = top_card.locator(SELECTORS["invite_to_connect"])
-    if invite_btn.count() > 0:
+    # Connect button or label visible → not connected
+    if top_card.locator(SELECTORS["invite_to_connect"]).count() > 0:
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ProfileState.ENRICHED
 
-    # 3b. Is there a "Connect" label?
-    if any(indicator in main_text for indicator in ["Connect"]):
-        logger.debug("Found 'Connect' label in page → NOT_CONNECTED")
+    if "Connect" in main_text or degree:
+        logger.debug("Connect label or degree present → NOT_CONNECTED")
         return ProfileState.ENRICHED
 
-    if degree:
-        logger.debug("API reports present → NOT CONNECTED")
-        return ProfileState.ENRICHED
-
-    # 4. Ambiguous → default safe
     logger.debug("No clear indicators → defaulting to NOT_CONNECTED")
     # save_page(profile, session)  # uncomment if you want HTML dumps
     return ProfileState.ENRICHED

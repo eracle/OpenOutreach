@@ -45,15 +45,15 @@ def send_follow_up_message(
     if status != ProfileState.CONNECTED:
         logger.info(f"Message skipped → not connected with {public_identifier}")
         return MessageStatus.SKIPPED
-    else:
-        if template_file:
-            message = render_template(session, template_file, template_type, profile)
 
-        s1 = _send_msg_pop_up(session, profile, message)
-        s2 = s1 or _send_message(session, profile, message)
-        success = s2
-        logger.info(f"Message sent: {message}") if success else None
-        return MessageStatus.SENT if success else MessageStatus.SKIPPED
+    if template_file:
+        message = render_template(session, template_file, template_type, profile)
+
+    if _send_msg_pop_up(session, profile, message) or _send_message(session, profile, message):
+        logger.info(f"Message sent: {message}")
+        return MessageStatus.SENT
+
+    return MessageStatus.SKIPPED
 
 
 def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:

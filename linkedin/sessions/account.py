@@ -53,23 +53,24 @@ class AccountSession:
             init_playwright_session(session=self, handle=self.handle)
 
     def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY, to_scrape=OPPORTUNISTIC_SCRAPING):
-        if not to_scrape:
+        if to_scrape:
+            self._scrape_during_wait(min_delay, max_delay)
+        else:
             human_delay(min_delay, max_delay)
             self.page.wait_for_load_state("load")
-            return
 
-        from linkedin.db.crm_profiles import get_next_url_to_scrape
+    def _scrape_during_wait(self, min_delay, max_delay):
+        """Use wait time to opportunistically scrape discovered profiles via API."""
+        from linkedin.db.crm_profiles import get_next_url_to_scrape, save_scraped_profile
 
-        logger.debug(f"Pausing: {MAX_DELAY}s")
         amount_to_scrape = determine_batch_size(self)
-
         urls = get_next_url_to_scrape(self, limit=amount_to_scrape)
+
         if not urls:
             human_delay(min_delay, max_delay)
             self.page.wait_for_load_state("load")
             return
 
-        from linkedin.db.crm_profiles import save_scraped_profile
         min_api_delay = max(min_delay / len(urls), MIN_API_DELAY)
         max_api_delay = max(max_delay / len(urls), MAX_API_DELAY)
         api = PlaywrightLinkedinAPI(session=self)
@@ -78,7 +79,8 @@ class AccountSession:
             human_delay(min_api_delay, max_api_delay)
             profile, data = api.get_profile(profile_url=url)
             save_scraped_profile(self, url, profile, data)
-            logger.debug(f"Auto-scraped → {profile.get('full_name')} – {url}") if profile else None
+            if profile:
+                logger.debug(f"Auto-scraped → {profile.get('full_name')} – {url}")
 
     def close(self):
         if self.context:
@@ -99,7 +101,7 @@ class AccountSession:
     def __del__(self):
         try:
             self.close()
-        except:
+        except Exception:
             pass
 
     def __repr__(self) -> str:
