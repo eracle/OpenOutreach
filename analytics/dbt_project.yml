@@ -1,0 +1,15 @@
+name: openoutreach_analytics
+version: "1.0.0"
+
+profile: openoutreach
+
+model-paths: ["models"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  openoutreach_analytics:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

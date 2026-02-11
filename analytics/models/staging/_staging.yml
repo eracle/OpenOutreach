@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: crm
+    schema: crm
+    tables:
+      - name: crm_lead
+        description: "LinkedIn leads with profile data"
+      - name: crm_deal
+        description: "Pipeline deals tracking profile state"
+      - name: crm_stage
+        description: "Deal stage definitions"

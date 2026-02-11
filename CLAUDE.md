@@ -16,6 +16,8 @@ playwright install --with-deps chromium
 python main.py                       # run with first active account
 python main.py <handle>              # run with specific account
 python manage_crm.py runserver       # Django Admin at http://localhost:8000/admin/
+make analytics                       # build dbt models (DuckDB analytics)
+make analytics-test                  # run dbt schema tests
 ```
 
 ### Testing
@@ -69,10 +71,20 @@ The campaign engine (`campaigns/connect_follow_up.py`) uses `match/case` on the 
 ### Configuration
 - **`assets/accounts.secrets.yaml`** — Account credentials, input CSV path, template path, and template type per account. Copy from `assets/accounts.secrets.template.yaml`.
 - **`.env`** — `OPENAI_API_KEY`, `OPENAI_API_BASE`, `AI_MODEL` (defaults to `gpt-4o-mini`).
-- **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps), `local.txt` (adds pytest/factory-boy), `production.txt`.
+- **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`.
+
+### Analytics Layer (dbt + DuckDB)
+The `analytics/` directory contains a dbt project that reads from the CRM SQLite DB (via DuckDB's SQLite attach) to build ML training sets. No CRM data is modified.
+
+- **`analytics/profiles.yml`** — DuckDB profile config. Attaches `assets/data/crm.db` as `crm`. Memory limit set to 2GB.
+- **`analytics/models/staging/`** — Staging views over CRM tables (`stg_leads`, `stg_deals`, `stg_stages`). Lead JSON fields are parsed here.
+- **`analytics/models/marts/ml_connection_accepted.sql`** — Binary classification training set: did a connection request get accepted? Target=1 (reached CONNECTED/COMPLETED), Target=0 (stuck at PENDING). Excludes DISCOVERED/ENRICHED/FAILED profiles.
+- **Output:** `assets/data/analytics.duckdb` — query with `duckdb.connect("assets/data/analytics.duckdb")`.
+- **Deps:** `dbt-core 1.8.x` + `dbt-duckdb 1.8.x` (pinned to 1.8 — versions 1.9+ have a memory regression that causes ~25GB RSS on startup).
 
 ### Error Handling Convention
 The application should crash on unexpected errors. `try/except` blocks should only handle expected, recoverable errors. Custom exceptions in `navigation/exceptions.py`: `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 
 ### Dependencies
 Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin` (installed via `--no-deps` to skip mysqlclient), `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`
+Analytics: `dbt-core` 1.8.x, `dbt-duckdb` 1.8.x (do NOT use 1.9+ — memory regression)

@@ -1,0 +1,12 @@
+openoutreach:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('ANALYTICS_DB', '../assets/data/analytics.duckdb') }}"
+      settings:
+        memory_limit: "2GB"
+      attach:
+        - path: "../assets/data/crm.db"
+          alias: crm
+          type: sqlite
