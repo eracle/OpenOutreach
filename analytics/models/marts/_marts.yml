@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: ml_connection_accepted
+    description: >
+      Binary classification training set: did a LinkedIn connection request
+      get accepted? One row per profile that reached PENDING stage.
+      Target=1 means accepted (reached CONNECTED or COMPLETED),
+      Target=0 means not accepted (stuck at PENDING).
+    columns:
+      - name: deal_id
+        description: "Unique deal identifier"
+        tests:
+          - unique
+          - not_null
+      - name: lead_id
+        description: "Lead identifier"
+        tests:
+          - not_null
+      - name: accepted
+        description: "Target variable: 1=accepted, 0=not accepted"
+        tests:
+          - accepted_values:
+              values: [0, 1]

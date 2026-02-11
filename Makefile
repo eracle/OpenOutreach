@@ -44,6 +44,12 @@ admin: ## start the Django Admin web server
 	@echo ""
 	python manage_crm.py runserver
 
+analytics: ## run dbt models (build analytics tables)
+	cd analytics && dbt run
+
+analytics-test: ## run dbt schema tests
+	cd analytics && dbt test
+
 view: ## open vinagre to view the app
 	@sh -c 'vinagre vnc://127.0.0.1:5900 > /dev/null 2>&1 &'
 

@@ -1,3 +1,4 @@
+-r analytics.txt
 playwright
 playwright-stealth
 pydantic
