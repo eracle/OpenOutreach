@@ -29,8 +29,6 @@ FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
 MIN_DELAY = 5
 MAX_DELAY = 8
 
-OPPORTUNISTIC_SCRAPING = False
-
 # ----------------------------------------------------------------------
 # SINGLE secrets file
 # ----------------------------------------------------------------------
@@ -48,6 +46,25 @@ with open(SECRETS_PATH, "r", encoding="utf-8") as f:
     _raw_config = yaml.safe_load(f) or {}
 
 _accounts_config = _raw_config.get("accounts", {})
+
+# ----------------------------------------------------------------------
+# Campaign config (rate limits, timing)
+# ----------------------------------------------------------------------
+_campaign_raw = _raw_config.get("campaign", {}) or {}
+
+_connect_cfg = _campaign_raw.get("connect", {}) or {}
+_check_cfg = _campaign_raw.get("check_pending", {}) or {}
+_followup_cfg = _campaign_raw.get("follow_up", {}) or {}
+
+CAMPAIGN_CONFIG = {
+    "connect_daily_limit": _connect_cfg.get("daily_limit", 20),
+    "connect_weekly_limit": _connect_cfg.get("weekly_limit", 100),
+    "check_pending_min_age_days": _check_cfg.get("min_age_days", 3),
+    "check_pending_recheck_interval_days": _check_cfg.get("recheck_interval_days", 2),
+    "follow_up_daily_limit": _followup_cfg.get("daily_limit", 30),
+    "follow_up_min_age_days": _followup_cfg.get("min_age_days", 1),
+    "idle_sleep_minutes": _campaign_raw.get("idle_sleep_minutes", 30),
+}
 
 # ----------------------------------------------------------------------
 # Global OpenAI / LLM config

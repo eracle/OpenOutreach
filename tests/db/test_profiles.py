@@ -1,6 +1,8 @@
 # tests/db/test_profiles.py
 import pytest
 
+from datetime import date, timedelta
+
 from linkedin.db.crm_profiles import (
     url_to_public_id,
     public_id_to_url,
@@ -11,6 +13,9 @@ from linkedin.db.crm_profiles import (
     add_profile_urls,
     get_next_url_to_scrape,
     count_pending_scrape,
+    get_enriched_profiles,
+    get_pending_profiles,
+    get_connected_profiles,
 )
 from linkedin.navigation.enums import ProfileState
 
@@ -191,3 +196,80 @@ class TestGetUpdatedAtMap:
     def test_no_matches_returns_empty_dict(self, fake_session):
         result = get_updated_at_map(fake_session, ["nobody"])
         assert result == {}
+
+
+# ── get_enriched_profiles ──
+
+@pytest.mark.django_db
+class TestGetEnrichedProfiles:
+    def test_returns_enriched(self, fake_session):
+        save_scraped_profile(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            {"first_name": "Alice", "headline": "Eng", "positions": []},
+            None,
+        )
+        profiles = get_enriched_profiles(fake_session)
+        assert len(profiles) == 1
+        assert profiles[0]["public_identifier"] == "alice"
+
+    def test_excludes_other_stages(self, fake_session):
+        set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
+        set_profile_state(fake_session, "bob", ProfileState.PENDING.value)
+        profiles = get_enriched_profiles(fake_session)
+        assert len(profiles) == 0
+
+
+# ── get_pending_profiles ──
+
+@pytest.mark.django_db
+class TestGetPendingProfiles:
+    def test_returns_old_pending(self, fake_session):
+        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
+        from crm.models import Deal
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        deal.next_step_date = date.today() - timedelta(days=5)
+        deal.save()
+
+        profiles = get_pending_profiles(fake_session, min_age_days=3)
+        assert len(profiles) == 1
+        assert profiles[0]["public_identifier"] == "alice"
+
+    def test_excludes_recent_pending(self, fake_session):
+        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
+        # next_step_date is already date.today() from set_profile_state
+        profiles = get_pending_profiles(fake_session, min_age_days=3)
+        assert len(profiles) == 0
+
+
+# ── get_connected_profiles ──
+
+@pytest.mark.django_db
+class TestGetConnectedProfiles:
+    def test_returns_old_connected(self, fake_session):
+        save_scraped_profile(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            {"first_name": "Alice", "headline": "Eng", "positions": []},
+            None,
+        )
+        set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
+        from crm.models import Deal
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        deal.next_step_date = date.today() - timedelta(days=5)
+        deal.save()
+
+        profiles = get_connected_profiles(fake_session, min_age_days=1)
+        assert len(profiles) == 1
+
+    def test_excludes_recent_connected(self, fake_session):
+        save_scraped_profile(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            {"first_name": "Alice", "headline": "Eng", "positions": []},
+            None,
+        )
+        set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
+        # next_step_date is already date.today() from set_profile_state
+        profiles = get_connected_profiles(fake_session, min_age_days=3)
+        assert len(profiles) == 0

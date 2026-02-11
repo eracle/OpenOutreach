@@ -5,15 +5,10 @@ import logging
 import random
 import time
 
-from linkedin.actions.profile import PlaywrightLinkedinAPI
-from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY, OPPORTUNISTIC_SCRAPING
+from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY
 from linkedin.navigation.login import init_playwright_session
-from linkedin.navigation.throttle import determine_batch_size
 
 logger = logging.getLogger(__name__)
-
-MIN_API_DELAY = 0.250
-MAX_API_DELAY = 0.500
 
 
 def human_delay(min_val, max_val):
@@ -52,35 +47,9 @@ class AccountSession:
             logger.info("Launching/recovering browser for %s", self.handle)
             init_playwright_session(session=self, handle=self.handle)
 
-    def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY, to_scrape=OPPORTUNISTIC_SCRAPING):
-        if to_scrape:
-            self._scrape_during_wait(min_delay, max_delay)
-        else:
-            human_delay(min_delay, max_delay)
-            self.page.wait_for_load_state("load")
-
-    def _scrape_during_wait(self, min_delay, max_delay):
-        """Use wait time to opportunistically scrape discovered profiles via API."""
-        from linkedin.db.crm_profiles import get_next_url_to_scrape, save_scraped_profile
-
-        amount_to_scrape = determine_batch_size(self)
-        urls = get_next_url_to_scrape(self, limit=amount_to_scrape)
-
-        if not urls:
-            human_delay(min_delay, max_delay)
-            self.page.wait_for_load_state("load")
-            return
-
-        min_api_delay = max(min_delay / len(urls), MIN_API_DELAY)
-        max_api_delay = max(max_delay / len(urls), MAX_API_DELAY)
-        api = PlaywrightLinkedinAPI(session=self)
-
-        for url in urls:
-            human_delay(min_api_delay, max_api_delay)
-            profile, data = api.get_profile(profile_url=url)
-            save_scraped_profile(self, url, profile, data)
-            if profile:
-                logger.debug(f"Auto-scraped → {profile.get('full_name')} – {url}")
+    def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY):
+        human_delay(min_delay, max_delay)
+        self.page.wait_for_load_state("load")
 
     def close(self):
         if self.context:

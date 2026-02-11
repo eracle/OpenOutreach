@@ -32,13 +32,12 @@ def playwright_login(session: "AccountSession"):
         action=lambda: page.goto(LINKEDIN_LOGIN_URL),
         expected_url_pattern="/login",
         error_message="Failed to load login page",
-        to_scrape=False
     )
 
     page.locator(SELECTORS["email"]).type(config["username"], delay=80)
-    session.wait(to_scrape=False)
+    session.wait()
     page.locator(SELECTORS["password"]).type(config["password"], delay=80)
-    session.wait(to_scrape=False)
+    session.wait()
 
     goto_page(
         session,
@@ -46,7 +45,6 @@ def playwright_login(session: "AccountSession"):
         expected_url_pattern="/feed",
         timeout=40_000,
         error_message="Login failed – no redirect to feed",
-        to_scrape=False
     )
 
 
@@ -83,7 +81,6 @@ def init_playwright_session(session: "AccountSession", handle: str):
             expected_url_pattern="/feed",
             timeout=30_000,
             error_message="Saved session invalid",
-            to_scrape=False
         )
 
     session.page.wait_for_load_state("load")
@@ -92,8 +89,6 @@ def init_playwright_session(session: "AccountSession", handle: str):
 
 if __name__ == "__main__":
     import sys
-
-    from linkedin.campaigns.connect_follow_up import INPUT_CSV_PATH
 
     logging.getLogger().handlers.clear()
     logging.basicConfig(

@@ -33,8 +33,11 @@ setup: install ## install deps + migrate + bootstrap CRM
 	python manage_crm.py migrate --no-input
 	python -m linkedin.management.setup_crm
 
-run: ## run the scraper (optionally: make run HANDLE=myhandle)
-	python -m main $(if $(HANDLE),$(HANDLE),)
+run: ## run the daemon (optionally: make run HANDLE=myhandle)
+	python -m main run $(if $(HANDLE),$(HANDLE),)
+
+load: ## load URLs from CSV (make load CSV=path/to/file.csv HANDLE=myhandle)
+	python -m main load $(CSV) $(if $(HANDLE),--handle $(HANDLE),)
 
 admin: ## start the Django Admin web server
 	@echo ""

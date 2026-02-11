@@ -4,7 +4,7 @@ from urllib.parse import unquote, urlparse, urljoin
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
-from linkedin.conf import FIXTURE_PAGES_DIR, OPPORTUNISTIC_SCRAPING
+from linkedin.conf import FIXTURE_PAGES_DIR
 from linkedin.navigation.exceptions import SkipProfile
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,6 @@ def goto_page(session: "AccountSession",
               expected_url_pattern: str,
               timeout: int = 10_000,
               error_message: str = "",
-              to_scrape=True,
               ):
     from linkedin.db.crm_profiles import add_profile_urls
     page = session.page
@@ -28,30 +27,39 @@ def goto_page(session: "AccountSession",
     except PlaywrightTimeoutError:
         pass  # we still continue and check URL below
 
-    session.wait(to_scrape=to_scrape)
+    session.wait()
 
     current = unquote(page.url)
     if expected_url_pattern not in current:
         raise RuntimeError(f"{error_message} → expected '{expected_url_pattern}' | got '{current}'")
 
     logger.debug("Navigated to %s", page.url)
-    if OPPORTUNISTIC_SCRAPING:
-        try:
-            urls = _extract_in_urls(session)
-            add_profile_urls(session, list(urls))
-        except Exception as e:
-            logger.error(f"Failed to extract/save profile URLs after navigation: {e}", exc_info=True)
+    try:
+        urls = _extract_in_urls(session)
+        add_profile_urls(session, list(urls))
+    except Exception as e:
+        logger.error(f"Failed to extract/save profile URLs after navigation: {e}", exc_info=True)
 
 
 def _extract_in_urls(session):
+    from linkedin.db.crm_profiles import url_to_public_id
+
     page = session.page
+    # Build set of identifiers to skip: the "me" alias + the logged-in user's handle
+    skip_ids = {"me", session.handle.lower()}
+
     urls = set()
     for link in page.locator('a[href*="/in/"]').all():
         href = link.get_attribute("href")
         if href and "/in/" in href:
-            # resolves relative + protocol-relative URLs
             full_url = urljoin(page.url, href.strip())
             clean = urlparse(full_url)._replace(query="", fragment="").geturl()
+            try:
+                pid = url_to_public_id(clean)
+            except ValueError:
+                continue
+            if pid.lower() in skip_ids:
+                continue
             urls.add(clean)
     logger.debug(f"Extracted {len(urls)} unique /in/ profiles")
     return urls

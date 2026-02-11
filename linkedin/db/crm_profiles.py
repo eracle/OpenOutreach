@@ -7,7 +7,7 @@ Same public API as the old SQLAlchemy-based profiles.py, but using Django ORM.
 import json
 import logging
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 from typing import Dict, Any, Optional, List
 from urllib.parse import urlparse, unquote
@@ -261,6 +261,7 @@ def save_scraped_profile(
     enriched_stage = _get_stage(ProfileState.ENRICHED)
     deal.stage = enriched_stage
     deal.change_stage_data(date.today())
+    deal.next_step_date = date.today()
     if company:
         deal.company = company
     if lead.contact:
@@ -287,6 +288,7 @@ def set_profile_state(session: "AccountSession", public_identifier: str, new_sta
     new_stage = _get_stage(ps)
     deal.stage = new_stage
     deal.change_stage_data(date.today())
+    deal.next_step_date = date.today()
 
     dept = _get_department()
 
@@ -386,6 +388,72 @@ def get_updated_at_map(session: "AccountSession", public_identifiers: List[str])
 
     logger.debug("Retrieved updated_at for %d profiles from DB", len(result_map))
     return result_map
+
+
+def _deal_to_profile_dict(deal) -> dict:
+    """Convert a Deal (with select_related lead) to a profile dict for lanes."""
+    lead = deal.lead
+    profile = _lead_profile(lead) or {}
+    public_id = url_to_public_id(lead.website) if lead.website else ""
+    return {
+        "public_identifier": public_id,
+        "url": lead.website or "",
+        "profile": profile,
+    }
+
+
+def get_enriched_profiles(session) -> list:
+    """All Deals at ENRICHED stage for this user."""
+    from crm.models import Deal
+
+    stage = _get_stage(ProfileState.ENRICHED)
+    deals = Deal.objects.filter(
+        stage=stage,
+        owner=session.django_user,
+    ).select_related("lead")
+
+    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
+
+
+def count_enriched_profiles(session) -> int:
+    """Count Deals at ENRICHED stage."""
+    from crm.models import Deal
+
+    stage = _get_stage(ProfileState.ENRICHED)
+    return Deal.objects.filter(
+        stage=stage,
+        owner=session.django_user,
+    ).count()
+
+
+def get_pending_profiles(session, min_age_days: int) -> list:
+    """PENDING deals where next_step_date is older than min_age_days."""
+    from crm.models import Deal
+
+    cutoff = date.today() - timedelta(days=min_age_days)
+    stage = _get_stage(ProfileState.PENDING)
+    deals = Deal.objects.filter(
+        stage=stage,
+        owner=session.django_user,
+        next_step_date__lte=cutoff,
+    ).select_related("lead")
+
+    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
+
+
+def get_connected_profiles(session, min_age_days: int) -> list:
+    """CONNECTED deals where next_step_date is older than min_age_days."""
+    from crm.models import Deal
+
+    cutoff = date.today() - timedelta(days=min_age_days)
+    stage = _get_stage(ProfileState.CONNECTED)
+    deals = Deal.objects.filter(
+        stage=stage,
+        owner=session.django_user,
+        next_step_date__lte=cutoff,
+    ).select_related("lead")
+
+    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
 
 
 # ── Pure URL helpers (no DB dependency) ──
