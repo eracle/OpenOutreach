@@ -4,4 +4,5 @@
 pytest
 pytest-django
 pytest-mock
+pytest-cov
 factory-boy

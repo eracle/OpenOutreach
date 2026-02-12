@@ -41,6 +41,6 @@ in the project root.
 
 | Variable         | Description                                                                          | Default       |
 |:-----------------|:-------------------------------------------------------------------------------------|:--------------|
-| `OPENAI_API_KEY` | Your API key for OpenAI or OpenAI-compatible provider (e.g., OpenRouter).            | (none)        |
-| `OPENAI_API_BASE`| Base URL for OpenAI-compatible APIs (e.g., `https://openrouter.ai/api/v1`).          | (none)        |
+| `LLM_API_KEY`  | Your API key for any OpenAI-compatible provider (e.g., OpenAI, xAI, Anthropic).      | (none)        |
+| `LLM_API_BASE` | Base URL for the API (e.g., `https://api.x.ai/v1/`, `https://api.openai.com/v1`).   | (none)        |
 | `AI_MODEL`       | The model to use for message generation.                                             | `gpt-4o-mini` |

@@ -33,3 +33,4 @@ assets/data/
 /analytics/target/partial_parse.msgpack
 /analytics/target/run_results.json
 /analytics/target/semantic_manifest.json
+/.coverage

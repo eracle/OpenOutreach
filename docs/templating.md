@@ -49,4 +49,4 @@ Here are some key points from their profile summary:
 Mention something about their recent work and ask if they are open to a quick chat.
 ```
 
-To use this template type, you must have your `OPENAI_API_KEY` environment variable set.
+To use this template type, you must have your `LLM_API_KEY` environment variable set.

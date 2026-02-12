@@ -1,8 +1,9 @@
 # tests/conftest.py
 import pytest
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import Group
 
 from linkedin.management.setup_crm import setup_crm
+from tests.factories import UserFactory
 
 
 @pytest.fixture(autouse=True)
@@ -24,20 +25,16 @@ class FakeAccountSession:
         self.django_user = django_user
         self.handle = django_user.username
 
+    def ensure_browser(self):
+        pass
+
 
 @pytest.fixture
 def fake_session(db):
     """An AccountSession-like object backed by the Django test DB."""
     from common.models import Department
 
-    # Ensure CRM data exists (co-workers group, department, stages, etc.)
-    Group.objects.get_or_create(name="co-workers")
-    setup_crm()
-
-    user, _ = User.objects.get_or_create(
-        username="testuser",
-        defaults={"is_staff": True, "is_active": True},
-    )
+    user = UserFactory(username="testuser")
     dept = Department.objects.get(name="LinkedIn Outreach")
     if dept not in user.groups.all():
         user.groups.add(dept)

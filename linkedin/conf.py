@@ -74,15 +74,15 @@ CAMPAIGN_CONFIG = {
 # then .env / os.getenv fallback. Defaults applied if missing.
 env_config = _raw_config.get("env", {}) or {}
 
-OPENAI_API_KEY = env_config.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
-OPENAI_API_BASE = env_config.get("OPENAI_API_BASE") or os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
+LLM_API_KEY = env_config.get("LLM_API_KEY") or os.getenv("LLM_API_KEY")
+LLM_API_BASE = env_config.get("LLM_API_BASE") or os.getenv("LLM_API_BASE")
 AI_MODEL = env_config.get("AI_MODEL") or os.getenv("AI_MODEL", "gpt-5.3-codex")  # latest frontier agentic model (Feb 2026 release)
 
-if not OPENAI_API_KEY:
+if not LLM_API_KEY:
     raise ValueError(
-        "OPENAI_API_KEY is required.\n"
+        "LLM_API_KEY is required.\n"
         "Add it under the 'env:' section in accounts.secrets.yaml, e.g.:\n"
-        "env:\n  OPENAI_API_KEY: sk-proj-...\n"
+        "env:\n  LLM_API_KEY: sk-...\n"
         "or set it via .env file or environment variable."
     )
 

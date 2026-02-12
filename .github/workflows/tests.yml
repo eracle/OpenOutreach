@@ -1,0 +1,18 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test config from template
+        run: cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
+
+      - name: Run tests
+        run: docker compose -f local.yml run --rm --remove-orphans app pytest -vv
