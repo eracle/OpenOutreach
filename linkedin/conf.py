@@ -63,6 +63,7 @@ CAMPAIGN_CONFIG = {
     "check_pending_recheck_interval_days": _check_cfg.get("recheck_interval_days", 2),
     "follow_up_daily_limit": _followup_cfg.get("daily_limit", 30),
     "follow_up_min_age_days": _followup_cfg.get("min_age_days", 1),
+    "follow_up_existing_connections": _followup_cfg.get("existing_connections", False),
     "idle_sleep_minutes": _campaign_raw.get("idle_sleep_minutes", 30),
 }
 

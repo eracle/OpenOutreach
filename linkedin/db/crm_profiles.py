@@ -29,6 +29,7 @@ STATE_TO_STAGE = {
     ProfileState.CONNECTED: "Connected",
     ProfileState.COMPLETED: "Completed",
     ProfileState.FAILED: "Failed",
+    ProfileState.IGNORED: "Ignored",
 }
 
 # Reverse lookup: stage name → ProfileState value
@@ -275,9 +276,15 @@ def save_scraped_profile(
     logger.debug("SUCCESS: Saved enriched profile → %s", public_id)
 
 
-def set_profile_state(session: "AccountSession", public_identifier: str, new_state: str):
+def set_profile_state(
+    session: "AccountSession",
+    public_identifier: str,
+    new_state: str,
+    reason: str = "",
+):
     """
     Move the Deal linked to this Lead to the corresponding Stage.
+    Optional *reason* is stored in deal.description (visible in Django Admin).
     """
     from crm.models import ClosingReason
 
@@ -290,23 +297,34 @@ def set_profile_state(session: "AccountSession", public_identifier: str, new_sta
     deal.change_stage_data(date.today())
     deal.next_step_date = date.today()
 
+    if reason:
+        deal.description = reason
+
     dept = _get_department()
 
     if ps == ProfileState.FAILED:
-        reason = ClosingReason.objects.filter(
+        closing = ClosingReason.objects.filter(
             name="Failed", department=dept
         ).first()
-        if reason:
-            deal.closing_reason = reason
+        if closing:
+            deal.closing_reason = closing
         deal.active = False
 
     if ps == ProfileState.COMPLETED:
-        reason = ClosingReason.objects.filter(
+        closing = ClosingReason.objects.filter(
             name="Completed", department=dept
         ).first()
-        if reason:
-            deal.closing_reason = reason
+        if closing:
+            deal.closing_reason = closing
         deal.win_closing_date = timezone.now()
+
+    if ps == ProfileState.IGNORED:
+        closing = ClosingReason.objects.filter(
+            name="Ignored", department=dept
+        ).first()
+        if closing:
+            deal.closing_reason = closing
+        deal.active = False
 
     deal.save()
 
@@ -317,9 +335,11 @@ def set_profile_state(session: "AccountSession", public_identifier: str, new_sta
         ProfileState.CONNECTED: ("CONNECTED", "green", []),
         ProfileState.COMPLETED: ("COMPLETED", "green", ["bold"]),
         ProfileState.FAILED: ("FAILED", "red", ["bold"]),
+        ProfileState.IGNORED: ("IGNORED", "blue", ["bold"]),
     }
     label, color, attrs = _STATE_LOG_STYLE.get(ps, ("ERROR", "red", ["bold"]))
-    logger.info("%s %s", public_identifier, colored(label, color, attrs=attrs))
+    suffix = f" ({reason})" if reason else ""
+    logger.info("%s %s%s", public_identifier, colored(label, color, attrs=attrs), suffix)
 
 
 def get_profile(session: "AccountSession", public_identifier: str) -> Optional[dict]:

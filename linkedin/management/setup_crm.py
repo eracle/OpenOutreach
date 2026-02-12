@@ -27,11 +27,13 @@ STAGES = [
     (4, "Connected", False, False),
     (5, "Completed", False, True),
     (6, "Failed", False, False),
+    (7, "Ignored", False, False),
 ]
 
 CLOSING_REASONS = [
     (1, "Completed", True),   # success
     (2, "Failed", False),     # failure
+    (3, "Ignored", False),    # skipped by automation
 ]
 
 LEAD_SOURCE_NAME = "LinkedIn Scraper"

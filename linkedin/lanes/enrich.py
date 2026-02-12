@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 
 from linkedin.api.client import PlaywrightLinkedinAPI
+from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import (
     count_pending_scrape,
     get_next_url_to_scrape,
@@ -15,6 +16,18 @@ from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.throttle import ThrottleState
 
 logger = logging.getLogger(__name__)
+
+
+def is_preexisting_connection(profile: dict) -> bool:
+    """Check if a profile is a pre-existing connection (not initiated by automation).
+
+    Returns False when follow_up_existing_connections is enabled (all connections
+    are treated as automation targets). Otherwise returns True when
+    connection_degree == 1.
+    """
+    if CAMPAIGN_CONFIG["follow_up_existing_connections"]:
+        return False
+    return profile.get("connection_degree") == 1
 
 
 class EnrichLane:
@@ -42,6 +55,14 @@ class EnrichLane:
                 if not profile:
                     public_id = url_to_public_id(url)
                     set_profile_state(self.session, public_id, ProfileState.FAILED.value)
+                    continue
+
+                if is_preexisting_connection(profile):
+                    public_id = url_to_public_id(url)
+                    set_profile_state(
+                        self.session, public_id, ProfileState.IGNORED.value,
+                        reason="Pre-existing connection (not initiated by automation)",
+                    )
             except Exception:
                 logger.exception("Failed to enrich %s", url)
                 try:

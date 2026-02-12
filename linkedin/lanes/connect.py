@@ -5,6 +5,7 @@ import logging
 
 from termcolor import colored
 
+from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import (
     count_enriched_profiles,
     get_enriched_profiles,
@@ -29,6 +30,7 @@ class ConnectLane:
 
     def execute(self):
         from linkedin.actions.connect import send_connection_request
+        from linkedin.actions.connection_status import get_connection_status
 
         profiles = get_enriched_profiles(self.session)
         if not profiles:
@@ -40,16 +42,36 @@ class ConnectLane:
         public_id = candidate["public_identifier"]
         profile = candidate.get("profile") or candidate
 
+        explanation = self.scorer.explain_profile(candidate)
+        logger.info("ML explanation for %s:\n%s", public_id, explanation)
+
         try:
+            # Check actual connection status on the page before attempting to connect.
+            # This catches pre-existing connections that slipped through enrich
+            # (connection_degree was None at scrape time).
+            connection_status = get_connection_status(self.session, profile)
+
+            if connection_status == ProfileState.CONNECTED:
+                if CAMPAIGN_CONFIG["follow_up_existing_connections"]:
+                    set_profile_state(self.session, public_id, ProfileState.CONNECTED.value)
+                else:
+                    set_profile_state(
+                        self.session, public_id, ProfileState.IGNORED.value,
+                        reason="Pre-existing connection detected during connect (degree was unknown at scrape time)",
+                    )
+                return
+
+            if connection_status == ProfileState.PENDING:
+                set_profile_state(self.session, public_id, ProfileState.PENDING.value)
+                return
+
             new_state = send_connection_request(
-                handle=self.session.handle,
+                session=self.session,
                 profile=profile,
             )
             set_profile_state(self.session, public_id, new_state.value)
             self.rate_limiter.record()
 
-            explanation = self.scorer.explain_profile(candidate)
-            logger.info("ML explanation for %s:\n%s", public_id, explanation)
 
         except ReachedConnectionLimit as e:
             logger.info(colored(f"Rate limited: {e}", "red", attrs=["bold"]))

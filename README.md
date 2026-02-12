@@ -26,6 +26,7 @@ OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** designed
 It automates the entire outreach process in a **stealthy, human-like way**:
 
 - Discovers and enriches target profiles
+- Ranks profiles using ML (logistic regression + Thompson Sampling) for smart prioritization
 - Sends personalized connection requests
 - Follows up with custom messages after acceptance
 - Tracks everything in a built-in CRM with web UI (full data ownership, resumable workflows)
@@ -90,15 +91,22 @@ You need to provide your LinkedIn credentials and target profiles.
 2. **Add target profiles**
    Paste LinkedIn profile URLs into `assets/inputs/urls.csv`.
 
-### 5. Run the Application
+### 5. Load Target Profiles
+
+```bash
+make load CSV=assets/inputs/urls.csv                  # import URLs into CRM
+make load CSV=assets/inputs/urls.csv HANDLE=myhandle  # import for a specific account
+```
+
+### 6. Run the Daemon
 
 ```bash
 make run                    # run with first active account
 make run HANDLE=myhandle    # run with a specific account
 ```
-The tool is fully resumable — stop/restart anytime without losing progress.
+The daemon round-robins through four action lanes (enrich, connect, check pending, follow up) with configurable rate limits. Fully resumable — stop/restart anytime without losing progress.
 
-### 6. View Your Data (CRM Admin)
+### 7. View Your Data (CRM Admin)
 
 OpenOutreach includes a full CRM web interface powered by DjangoCRM:
 ```bash
@@ -127,7 +135,9 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 | 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
 | 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
 | 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
-| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
+| 🧠 **ML-Driven Prioritization**   | Logistic regression + Thompson Sampling ranks profiles by predicted connection acceptance -- learns and retrains as data grows. |
+| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
+| ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically. |
 | 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI -- browse Leads, Contacts, Companies, and Deals in your browser. |
 | 🐳 **Containerized Setup**         | One-command Docker + Make deployment.                                                                                |
 | 🖥️ **Visual Debugging**           | Real-time browser view via built-in VNC server (`localhost:5900`).                                                   |
@@ -180,41 +190,50 @@ Book a **free 15-minute call** — I’d love to hear your needs and improve the
 
 ## 📖 Usage & Customization
 
-The default campaign (`linkedin/campaigns/connect_follow_up.py`) handles:
+The daemon (`linkedin/daemon.py`) round-robins through four action lanes:
 
-- Profile enrichment
-- Connection requests
-- Personalized follow-ups
+| Lane | What it does | Rate limited? |
+|------|-------------|---------------|
+| **Enrich** | Scrapes DISCOVERED profiles via LinkedIn's Voyager API | Throttled by batch size |
+| **Connect** | ML-ranks ENRICHED profiles, sends connection requests | Daily + weekly limits |
+| **Check Pending** | Checks if PENDING requests were accepted, retrains ML model | Age-gated |
+| **Follow Up** | Sends personalized messages to CONNECTED profiles | Daily limit |
 
-**Profile states:** `DISCOVERED` → `ENRICHED` → `CONNECTED` → `COMPLETED` (or `FAILED`)
+**Profile states:** `DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED` (or `FAILED` / `IGNORED`)
 
-Edit the campaign file directly for custom logic, templates, or AI integration.
+Pre-existing connections (already connected before automation) are automatically set to `IGNORED` during enrichment. If `connection_degree` was unknown at scrape time, they're caught during the connect step.
+
+Configure rate limits, timing, and behavior in the `campaign:` section of `accounts.secrets.yaml`.
 
 ---
 
 ## 📂 Project Structure
 
 ```
+├── analytics/                       # dbt project (DuckDB analytics, ML training sets)
 ├── assets/
-│   ├── accounts.secrets.yaml      # LinkedIn credentials
-│   └── inputs/
-│       └── urls.csv               # Target profiles
+│   ├── accounts.secrets.yaml        # Credentials + campaign config (gitignored)
+│   ├── data/                        # crm.db (SQLite), analytics.duckdb
+│   └── inputs/                      # Target profile CSVs
 ├── docs/
-│   ├── docker.md                  # NEW: Docker setup guide
+│   ├── docker.md                    # Docker setup guide
 │   └── ...
 ├── linkedin/
-│   ├── actions/                   # Browser actions
-│   ├── api/                       # Voyager API client
-│   ├── campaigns/                 # Workflows
-│   ├── db/crm_profiles.py         # CRM-backed profile CRUD (Lead, Contact, Company, Deal)
-│   ├── django_settings.py         # Django/CRM settings (SQLite at assets/data/crm.db)
-│   ├── management/setup_crm.py    # Idempotent CRM bootstrap (Dept, Stages, Users)
-│   ├── navigation/                # Login helpers
-│   └── sessions/                  # Session management
-├── main.py                        # Entry point (bootstraps Django)
-├── manage_crm.py                  # Django manage.py (migrate, runserver, createsuperuser)
-├── local.yml                      # Docker Compose
-└── Makefile                       # Shortcuts (setup, run, admin, test, etc.)
+│   ├── actions/                     # Browser actions (connect, message, scrape)
+│   ├── api/                         # Voyager API client + parser
+│   ├── daemon.py                    # Main daemon loop (round-robin across lanes)
+│   ├── db/crm_profiles.py           # CRM-backed profile CRUD (Lead, Contact, Company, Deal)
+│   ├── django_settings.py           # Django/CRM settings (SQLite at assets/data/crm.db)
+│   ├── lanes/                       # Action lanes (enrich, connect, check_pending, follow_up)
+│   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Users)
+│   ├── ml/scorer.py                 # ML profile ranking (LogisticRegression + Thompson Sampling)
+│   ├── navigation/                  # Login, throttling, browser utilities
+│   ├── rate_limiter.py              # Daily/weekly rate limiting
+│   └── sessions/                    # Session management
+├── main.py                          # CLI entry point (load / run subcommands)
+├── manage_crm.py                    # Django manage.py (migrate, runserver, createsuperuser)
+├── local.yml                        # Docker Compose
+└── Makefile                         # Shortcuts (setup, run, load, admin, analytics, test)
 ```
 
 ---

@@ -60,8 +60,14 @@ def cmd_run(args):
     run_daemon(session)
 
 
-if __name__ == "__main__":
+def _ensure_db():
+    from django.core.management import call_command
+    call_command("migrate", "--no-input", verbosity=0)
     setup_crm()
+
+
+if __name__ == "__main__":
+    _ensure_db()
 
     parser = argparse.ArgumentParser(prog="openoutreach", description="OpenOutreach CLI")
     subparsers = parser.add_subparsers(dest="command")

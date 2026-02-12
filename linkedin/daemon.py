@@ -62,7 +62,6 @@ def run_daemon(session):
                 color = LANE_COLORS[name]
                 logger.info(colored(f"▶ {name}", color, attrs=["bold"]))
                 lane.execute()
-                human_delay(3, 7)
                 any_executed = True
 
         if not any_executed:

@@ -13,8 +13,9 @@ OpenOutreach is a self-hosted LinkedIn automation tool for B2B lead generation. 
 python -m venv venv && source venv/bin/activate
 make setup                           # install deps + migrate + bootstrap CRM
 playwright install --with-deps chromium
-python main.py                       # run with first active account
-python main.py <handle>              # run with specific account
+python main.py load urls.csv         # import profile URLs from CSV into CRM
+python main.py run                   # run the daemon (first active account)
+python main.py run <handle>          # run the daemon with a specific account
 python manage_crm.py runserver       # Django Admin at http://localhost:8000/admin/
 make analytics                       # build dbt models (DuckDB analytics)
 make analytics-test                  # run dbt schema tests
@@ -40,15 +41,23 @@ make up-view  # run + open VNC viewer
 ## Architecture
 
 ### Entry Flow
-`main.py` (Django bootstrap + CRM auto-setup) → `csv_launcher.launch_connect_follow_up_campaign()` → `campaigns.connect_follow_up.process_profiles()`
+`main.py` (Django bootstrap + auto-migrate + CRM setup) → argparse subcommands:
+- `load <csv>` — imports profile URLs into CRM via `csv_launcher.load_profiles_df()` + `crm_profiles.add_profile_urls()`
+- `run [handle]` — launches `daemon.run_daemon()` which round-robins through four action lanes
 
 ### Profile State Machine
 Each profile progresses through states defined in `navigation/enums.py:ProfileState`:
-`DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED` (or `FAILED`)
+`DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED` (or `FAILED` / `IGNORED`)
 
 States map to DjangoCRM Deal Stages (defined in `db/crm_profiles.py:STATE_TO_STAGE`).
 
-The campaign engine (`campaigns/connect_follow_up.py`) uses `match/case` on the current state to determine the next action: scrape → connect → check status → send follow-up message.
+The daemon (`daemon.py`) round-robins through four lanes that advance profiles through the state machine:
+1. **Enrich** — scrapes DISCOVERED profiles via Voyager API → ENRICHED (or IGNORED if pre-existing connection)
+2. **Connect** — ML-ranks ENRICHED profiles, sends connection request → PENDING
+3. **Check Pending** — checks PENDING profiles for acceptance → CONNECTED (triggers ML retrain via dbt)
+4. **Follow Up** — sends follow-up message to CONNECTED profiles → COMPLETED
+
+The `IGNORED` state is a terminal state for pre-existing connections (already connected before the automation ran). Controlled by `follow_up_existing_connections` config flag.
 
 ### CRM Data Model
 - **Lead** — Created per LinkedIn profile URL. Stores `first_name`, `last_name`, `title`, `website` (LinkedIn URL), `description` (full parsed profile JSON).
@@ -58,19 +67,27 @@ The campaign engine (`campaigns/connect_follow_up.py`) uses `match/case` on the 
 - **TheFile** — Raw Voyager API JSON attached to Lead via GenericForeignKey.
 
 ### Key Modules
+- **`daemon.py`** — Main daemon loop. Creates ML scorer, rate limiters, and four lanes. Round-robins through lanes; sleeps when all idle.
+- **`lanes/`** — Action lanes executed by the daemon:
+  - `enrich.py` — Batch-scrapes DISCOVERED profiles via Voyager API. Detects pre-existing connections (IGNORED). Exports `is_preexisting_connection()` shared helper.
+  - `connect.py` — ML-ranks ENRICHED profiles, sends connection requests. Catches pre-existing connections missed by enrich (when `connection_degree` was None at scrape time).
+  - `check_pending.py` — Checks PENDING profiles for acceptance. Triggers dbt rebuild + ML retrain when connections flip.
+  - `follow_up.py` — Sends follow-up messages to CONNECTED profiles.
+- **`ml/scorer.py:ProfileScorer`** — Logistic regression + Thompson Sampling for profile ranking. Trains from `analytics.duckdb` mart. Falls back to FIFO when no data.
+- **`rate_limiter.py:RateLimiter`** — Daily/weekly rate limits with auto-reset. Supports external exhaustion (LinkedIn-side limits).
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
-- **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. CRM lookups are `@lru_cache`d.
-- **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. All paths derived from `ASSETS_DIR`.
+- **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_pending_profiles()`, `get_connected_profiles()` for lane queries. CRM lookups are `@lru_cache`d.
+- **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. Exports `CAMPAIGN_CONFIG` dict (rate limits, timing, feature flags). All paths derived from `ASSETS_DIR`.
 - **`api/voyager.py`** — Parses LinkedIn's Voyager API JSON responses into clean dicts via internal dataclasses (`LinkedInProfile`, `Position`, `Education`). Uses URN reference resolution from the `included` array.
 - **`django_settings.py`** — Django settings importing DjangoCRM's default settings. SQLite DB at `assets/data/crm.db`.
-- **`management/setup_crm.py`** — Idempotent bootstrap: creates Department, Users, Deal Stages, ClosingReasons, LeadSource.
-- **`templates/renderer.py`** — Jinja2 or AI-prompt-based message rendering. Template type (`jinja` or `ai_prompt`) configured per account. AI calls go through LangChain/OpenAI.
-- **`navigation/`** — Login flow, throttling, and browser utilities.
+- **`management/setup_crm.py`** — Idempotent bootstrap: creates Department, Users, Deal Stages (including Ignored), ClosingReasons, LeadSource.
+- **`templates/renderer.py`** — Jinja2 or AI-prompt-based message rendering. Template type (`jinja` or `ai_prompt`) configured per account. AI calls go through LangChain.
+- **`navigation/`** — Login flow, throttling, browser utilities. `utils.py` always extracts `/in/` profile URLs from pages visited (auto-discovery).
 - **`actions/`** — Individual browser actions (scrape, connect, message, search).
 
 ### Configuration
-- **`assets/accounts.secrets.yaml`** — Account credentials, input CSV path, template path, and template type per account. Copy from `assets/accounts.secrets.template.yaml`.
-- **`.env`** — `OPENAI_API_KEY`, `OPENAI_API_BASE`, `AI_MODEL` (defaults to `gpt-4o-mini`).
+- **`assets/accounts.secrets.yaml`** — Single config file containing: `env:` (API keys, model), `campaign:` (rate limits, timing, feature flags), `accounts:` (credentials, CSV path, template). Copy from `assets/accounts.secrets.template.yaml`.
+- **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.min_age_days`, `follow_up.daily_limit`, `follow_up.min_age_days`, `follow_up.existing_connections` (false = ignore pre-existing connections), `idle_sleep_minutes`.
 - **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`.
 
 ### Analytics Layer (dbt + DuckDB)
@@ -86,5 +103,6 @@ The `analytics/` directory contains a dbt project that reads from the CRM SQLite
 The application should crash on unexpected errors. `try/except` blocks should only handle expected, recoverable errors. Custom exceptions in `navigation/exceptions.py`: `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 
 ### Dependencies
-Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin` (installed via `--no-deps` to skip mysqlclient), `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`
+Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin` (installed via `--no-deps` to skip mysqlclient), `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
+ML: `scikit-learn`, `duckdb`
 Analytics: `dbt-core` 1.8.x, `dbt-duckdb` 1.8.x (do NOT use 1.9+ — memory regression)

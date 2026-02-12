@@ -5,7 +5,6 @@ from typing import Dict, Any
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.navigation.utils import get_top_card
-from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -23,33 +22,16 @@ SELECTORS = {
 
 
 def send_connection_request(
-        handle: str,
+        session: "AccountSession",
         profile: Dict[str, Any],
 ) -> ProfileState:
     """
     Sends a LinkedIn connection request WITHOUT a note (fastest & safest).
-    All note-sending logic preserved below for future use.
+
+    Assumes the profile page is already loaded (caller navigates via
+    ``get_connection_status`` or ``search_profile`` beforehand).
     """
-    from linkedin.actions.connection_status import get_connection_status
-
-    session = get_session(
-        handle=handle,
-    )
-
     public_identifier = profile.get('public_identifier')
-
-    logger.debug("Checking current connection status...")
-    connection_status = get_connection_status(session, profile)
-    logger.info("Current status → %s", connection_status.value)
-
-    skip_reasons = {
-        ProfileState.CONNECTED: "Already connected",
-        ProfileState.PENDING: "Invitation already pending",
-    }
-
-    if connection_status in skip_reasons:
-        logger.info("Skipping %s – %s", public_identifier, skip_reasons[connection_status])
-        return connection_status
 
     # Send invitation WITHOUT note (current active flow)
     if not _connect_direct(session) and not _connect_via_more(session):
@@ -151,6 +133,8 @@ def _perform_send_invitation_with_note(session, message: str):
 
 if __name__ == "__main__":
     import sys
+    from linkedin.actions.connection_status import get_connection_status
+    from linkedin.sessions.registry import get_session
 
     if len(sys.argv) != 2:
         print("Usage: python -m linkedin.actions.connect <handle>")
@@ -170,10 +154,14 @@ if __name__ == "__main__":
         "public_identifier": public_identifier,
     }
 
+    session = get_session(handle=handle)
     print(f"Testing connection request as @{handle} )")
-    status = send_connection_request(
-        handle=handle,
-        profile=test_profile,
-    )
 
-    print(f"Finished → Status: {status.value}")
+    connection_status = get_connection_status(session, test_profile)
+    print(f"Pre-check status → {connection_status.value}")
+
+    if connection_status in (ProfileState.CONNECTED, ProfileState.PENDING):
+        print(f"Skipping – already {connection_status.value}")
+    else:
+        status = send_connection_request(session=session, profile=test_profile)
+        print(f"Finished → Status: {status.value}")
