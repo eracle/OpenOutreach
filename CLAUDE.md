@@ -97,7 +97,7 @@ The `analytics/` directory contains a dbt project that reads from the CRM SQLite
 - **`analytics/models/staging/`** — Staging views over CRM tables (`stg_leads`, `stg_deals`, `stg_stages`). Lead JSON fields are parsed here.
 - **`analytics/models/marts/ml_connection_accepted.sql`** — Binary classification training set: did a connection request get accepted? Target=1 (reached CONNECTED/COMPLETED), Target=0 (stuck at PENDING). Excludes DISCOVERED/ENRICHED/FAILED profiles.
 - **Output:** `assets/data/analytics.duckdb` — query with `duckdb.connect("assets/data/analytics.duckdb")`.
-- **Deps:** `dbt-core 1.8.x` + `dbt-duckdb 1.8.x` (pinned to 1.8 — versions 1.9+ have a memory regression that causes ~25GB RSS on startup).
+- **Deps:** `dbt-core 1.11.x` + `dbt-duckdb 1.10.x` + `protobuf >=6,<6.32` (protobuf 6.32+ has a memory regression ~5GB RSS on startup).
 
 ### Error Handling Convention
 The application should crash on unexpected errors. `try/except` blocks should only handle expected, recoverable errors. Custom exceptions in `navigation/exceptions.py`: `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
@@ -105,4 +105,4 @@ The application should crash on unexpected errors. `try/except` blocks should on
 ### Dependencies
 Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin` (installed via `--no-deps` to skip mysqlclient), `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
 ML: `scikit-learn`, `duckdb`
-Analytics: `dbt-core` 1.8.x, `dbt-duckdb` 1.8.x (do NOT use 1.9+ — memory regression)
+Analytics: `dbt-core` 1.11.x, `dbt-duckdb` 1.10.x, `protobuf` <6.32 (6.32+ has memory regression)

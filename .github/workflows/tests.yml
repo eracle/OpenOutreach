@@ -16,3 +16,31 @@ jobs:
 
       - name: Run tests
         run: docker compose -f local.yml run --rm --remove-orphans app pytest -vv
+
+  analytics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create test config from template
+        run: cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
+
+      - name: Install dependencies
+        run: |
+          pip install --no-deps -r requirements/crm.txt
+          pip install -r requirements/base.txt
+
+      - name: Bootstrap CRM database
+        run: |
+          python manage_crm.py migrate --no-input
+          python -m linkedin.management.setup_crm
+
+      - name: dbt run
+        run: cd analytics && dbt run
+
+      - name: dbt test
+        run: cd analytics && dbt test
