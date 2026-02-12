@@ -10,15 +10,16 @@ models:
     columns:
       - name: deal_id
         description: "Unique deal identifier"
-        tests:
+        data_tests:
           - unique
           - not_null
       - name: lead_id
         description: "Lead identifier"
-        tests:
+        data_tests:
           - not_null
       - name: accepted
         description: "Target variable: 1=accepted, 0=not accepted"
-        tests:
+        data_tests:
           - accepted_values:
-              values: [0, 1]
+              arguments:
+                values: [0, 1]
