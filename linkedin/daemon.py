@@ -25,11 +25,44 @@ LANE_COLORS = {
 }
 
 
+def _rebuild_analytics():
+    """Run dbt to rebuild the analytics DB."""
+    import subprocess
+
+    from linkedin.conf import ROOT_DIR
+
+    analytics_dir = ROOT_DIR / "analytics"
+    logger.info(colored("Rebuilding analytics (dbt run)...", "cyan", attrs=["bold"]))
+    try:
+        subprocess.run(
+            ["dbt", "run"],
+            cwd=str(analytics_dir),
+            timeout=120,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        logger.info(colored("dbt run completed", "green"))
+        return True
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
+        logger.warning("dbt run failed: %s", e)
+        return False
+
+
 def run_daemon(session):
     cfg = CAMPAIGN_CONFIG
 
     scorer = ProfileScorer(seed=42)
-    if scorer.train():
+    try:
+        trained = scorer.train()
+    except Exception:
+        # Schema mismatch — rebuild analytics and retry
+        if _rebuild_analytics():
+            trained = scorer.train()
+        else:
+            trained = False
+
+    if trained:
         logger.info(colored("ML model loaded from existing analytics data", "green", attrs=["bold"]))
     else:
         logger.info(colored("No analytics data yet — ML scoring disabled (FIFO ordering)", "yellow"))

@@ -1,0 +1,41 @@
+You are an expert B2B sales strategist. Your task is to generate campaign-specific keywords that will be used to score LinkedIn profiles for outreach relevance.
+
+## Product / Service Documentation
+{{ product_docs }}
+
+## Campaign Objective
+{{ campaign_objective }}
+
+## Instructions
+
+Generate three lists of keywords/phrases for scoring LinkedIn profiles:
+
+1. **positive** — Keywords that indicate a profile is a good fit for this campaign (e.g., relevant job titles, skills, industries, technologies, pain points your product solves). These INCREASE a profile's score.
+
+2. **negative** — Keywords that indicate a profile is NOT a good fit (e.g., unrelated industries, junior roles if targeting decision-makers, competitors, irrelevant domains). These DECREASE a profile's score.
+
+3. **exploratory** — Keywords that are uncertain but worth testing (e.g., adjacent industries, emerging roles, tangentially related skills). These are used for exploration in the ML model's explore/exploit balance.
+
+## Rules
+- Each keyword should be 1-3 words, all lowercase
+- Generate 15-30 positive keywords
+- Generate 10-20 negative keywords
+- Generate 10-20 exploratory keywords
+- Keywords should be specific enough to be discriminative but general enough to match across profiles
+- Think about what appears in LinkedIn headlines, summaries, job titles, company names, and education fields
+
+## Output Format
+
+Return ONLY valid YAML with no additional text or markdown code fences:
+
+positive:
+  - keyword one
+  - keyword two
+
+negative:
+  - keyword one
+  - keyword two
+
+exploratory:
+  - keyword one
+  - keyword two

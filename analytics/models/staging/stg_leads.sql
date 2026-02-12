@@ -22,6 +22,12 @@ SELECT
          THEN json_extract(description, '$.educations')
          ELSE NULL END AS educations_json,
     CASE WHEN description IS NOT NULL AND description != ''
+         THEN json_extract_string(description, '$.industry.name')
+         ELSE NULL END AS industry_name,
+    CASE WHEN description IS NOT NULL AND description != ''
+         THEN json_extract_string(description, '$.geo.defaultLocalizedNameWithoutCountryName')
+         ELSE NULL END AS geo_name,
+    CASE WHEN description IS NOT NULL AND description != ''
          THEN json_extract(description, '$.connection_degree')
          ELSE NULL END AS connection_degree,
     CASE WHEN description IS NOT NULL AND description != ''
