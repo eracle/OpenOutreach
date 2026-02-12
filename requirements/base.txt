@@ -13,4 +13,4 @@ Django>=5.2,<7.0
 tendo
 pyyaml
 scikit-learn
-duckdb
+duckdb==1.4.4
