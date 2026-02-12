@@ -18,6 +18,7 @@ ASSETS_DIR = ROOT_DIR / "assets"
 
 COOKIES_DIR = ASSETS_DIR / "cookies"
 DATA_DIR = ASSETS_DIR / "data"
+KEYWORDS_FILE = ASSETS_DIR / "campaign_keywords.yaml"
 
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)

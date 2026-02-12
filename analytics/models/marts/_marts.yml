@@ -7,6 +7,7 @@ models:
       get accepted? One row per profile that reached PENDING stage.
       Target=1 means accepted (reached CONNECTED or COMPLETED),
       Target=0 means not accepted (stuck at PENDING).
+      Contains 28 mechanical features and concatenated profile_text for keyword extraction.
     columns:
       - name: deal_id
         description: "Unique deal identifier"
@@ -23,3 +24,65 @@ models:
           - accepted_values:
               arguments:
                 values: [0, 1]
+      - name: headline
+        description: "LinkedIn headline text"
+      - name: city_name
+        description: "City name from lead record"
+      - name: company_name
+        description: "Company name from lead record"
+      - name: location
+        description: "Location string from profile JSON"
+      - name: industry_name
+        description: "Industry name from profile JSON"
+      - name: geo_name
+        description: "Geographic region name from profile JSON"
+      - name: connection_degree
+        description: "LinkedIn connection degree (1, 2, 3)"
+      - name: num_positions
+        description: "Number of positions listed on profile"
+      - name: num_educations
+        description: "Number of education entries on profile"
+      - name: has_summary
+        description: "1 if profile has a non-empty summary"
+      - name: headline_length
+        description: "Character length of headline"
+      - name: summary_length
+        description: "Character length of summary"
+      - name: has_industry
+        description: "1 if profile has an industry set"
+      - name: has_geo
+        description: "1 if profile has a geographic region set"
+      - name: has_location
+        description: "1 if profile has a location string"
+      - name: has_company
+        description: "1 if profile has a company name"
+      - name: num_distinct_companies
+        description: "Number of distinct companies across all positions"
+      - name: positions_with_description_ratio
+        description: "Fraction of positions that have a description"
+      - name: num_position_locations
+        description: "Number of distinct locations across positions"
+      - name: total_description_length
+        description: "Total character length of all position descriptions"
+      - name: has_position_descriptions
+        description: "1 if any position has a description"
+      - name: is_currently_employed
+        description: "1 if the profile has a current (no end date) position"
+      - name: avg_title_length
+        description: "Average character length of position titles"
+      - name: years_experience
+        description: "Total years from earliest position start to latest end"
+      - name: current_position_tenure_months
+        description: "Months in current position (0 if not currently employed)"
+      - name: avg_position_tenure_months
+        description: "Average tenure in months across all positions"
+      - name: longest_tenure_months
+        description: "Longest single position tenure in months"
+      - name: has_education_degree
+        description: "1 if any education entry has a degree"
+      - name: has_field_of_study
+        description: "1 if any education entry has a field of study"
+      - name: has_multiple_degrees
+        description: "1 if more than one education entry has a degree"
+      - name: profile_text
+        description: "Lowercased concatenation of all text fields for keyword matching"
