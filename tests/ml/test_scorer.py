@@ -272,12 +272,19 @@ class TestColdStart:
         assert result == profiles
 
     def test_cold_start_explain(self, tmp_path):
-        kw_file = _make_keywords_file(tmp_path, positive=["engineer"])
+        kw_file = _make_keywords_file(tmp_path, positive=["engineer"], negative=["student"])
         scorer = ProfileScorer(seed=42, keywords_path=kw_file)
         profile = _make_profile(headline="Senior Engineer")
         explanation = scorer.explain_profile(profile)
         assert "Cold-start" in explanation
-        assert "heuristic" in explanation.lower()
+        assert "positive hits: engineer" in explanation
+
+    def test_cold_start_explain_no_matches(self, tmp_path):
+        kw_file = _make_keywords_file(tmp_path, positive=["blockchain"])
+        scorer = ProfileScorer(seed=42, keywords_path=kw_file)
+        profile = _make_profile(headline="Senior Engineer")
+        explanation = scorer.explain_profile(profile)
+        assert "no keyword matches" in explanation
 
 
 class TestTrainedWithKeywords:

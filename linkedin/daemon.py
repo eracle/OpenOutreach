@@ -64,6 +64,8 @@ def run_daemon(session):
 
     if trained:
         logger.info(colored("ML model loaded from existing analytics data", "green", attrs=["bold"]))
+    elif scorer.has_keywords:
+        logger.info(colored("No analytics data yet — using keyword heuristic for ranking", "yellow"))
     else:
         logger.info(colored("No analytics data yet — ML scoring disabled (FIFO ordering)", "yellow"))
 

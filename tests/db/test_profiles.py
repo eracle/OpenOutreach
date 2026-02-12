@@ -154,15 +154,15 @@ class TestGetNextUrlToScrape:
     def test_returns_discovered_profiles(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
         set_profile_state(fake_session, "bob", ProfileState.ENRICHED.value)
-        urls = get_next_url_to_scrape(fake_session, limit=10)
+        urls = get_next_url_to_scrape(fake_session)
         assert len(urls) == 1
         assert "alice" in urls[0]
 
-    def test_respects_limit(self, fake_session):
+    def test_returns_all_discovered(self, fake_session):
         for name in ["a", "b", "c"]:
             set_profile_state(fake_session, name, ProfileState.DISCOVERED.value)
-        urls = get_next_url_to_scrape(fake_session, limit=2)
-        assert len(urls) == 2
+        urls = get_next_url_to_scrape(fake_session)
+        assert len(urls) == 3
 
     def test_empty_when_none_discovered(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)

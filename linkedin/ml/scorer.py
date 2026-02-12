@@ -56,7 +56,7 @@ class ProfileScorer:
         self._keywords = load_keywords(keywords_path or KEYWORDS_FILE)
         self._kw_names = keyword_feature_names(self._keywords)
         self._all_feature_names = list(MECHANICAL_FEATURES) + self._kw_names
-        self._has_keywords = any(
+        self.has_keywords = any(
             len(self._keywords[cat]) > 0
             for cat in ("positive", "negative", "exploratory")
         )
@@ -98,7 +98,7 @@ class ProfileScorer:
         X_mech = df[MECHANICAL_FEATURES].apply(pd.to_numeric, errors="coerce").fillna(0).values
 
         # Compute keyword features from profile_text
-        if self._has_keywords:
+        if self.has_keywords:
             kw_rows = []
             for text in df["profile_text"].fillna(""):
                 kw_rows.append(compute_keyword_features(text, self._keywords))
@@ -231,7 +231,7 @@ class ProfileScorer:
     def _extract_features(self, profile: dict) -> list:
         """Extract all features (mechanical + keyword) from profile."""
         features = self._extract_mechanical_features(profile)
-        if self._has_keywords:
+        if self.has_keywords:
             text = build_profile_text(profile)
             features.extend(compute_keyword_features(text, self._keywords))
         return features
@@ -244,7 +244,7 @@ class ProfileScorer:
 
         # Untrained: cold-start heuristic or FIFO
         if not self._trained:
-            if self._has_keywords:
+            if self.has_keywords:
                 scored = []
                 for p in profiles:
                     text = build_profile_text(p)
@@ -270,10 +270,19 @@ class ProfileScorer:
 
     def explain_profile(self, profile: dict) -> str:
         if not self._trained:
-            if self._has_keywords:
+            if self.has_keywords:
                 text = build_profile_text(profile)
                 score = cold_start_score(text, self._keywords)
-                return f"Cold-start heuristic score: {score:.1f} (positive keyword matches minus negative)"
+                pos_hits = [kw for kw in self._keywords["positive"] if kw in text]
+                neg_hits = [kw for kw in self._keywords["negative"] if kw in text]
+                lines = [f"Cold-start heuristic score: {score:.1f}"]
+                if pos_hits:
+                    lines.append(f"  positive hits: {', '.join(pos_hits)}")
+                if neg_hits:
+                    lines.append(f"  negative hits: {', '.join(neg_hits)}")
+                if not pos_hits and not neg_hits:
+                    lines.append("  no keyword matches")
+                return "\n".join(lines)
             return "Model not trained — no explanation available"
 
         features = self._extract_features(profile)

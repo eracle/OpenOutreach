@@ -362,7 +362,7 @@ def get_profile(session: "AccountSession", public_identifier: str) -> Optional[d
     }
 
 
-def get_next_url_to_scrape(session: "AccountSession", limit: int = 1) -> List[str]:
+def get_next_url_to_scrape(session: "AccountSession") -> List[str]:
     """Query Deals in 'Discovered' stage, return Lead URLs."""
     from crm.models import Deal
 
@@ -370,7 +370,7 @@ def get_next_url_to_scrape(session: "AccountSession", limit: int = 1) -> List[st
     deals = Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
-    ).select_related("lead")[:limit]
+    ).select_related("lead")
 
     return [deal.lead.website for deal in deals if deal.lead and deal.lead.website]
 
