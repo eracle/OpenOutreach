@@ -1,61 +1,59 @@
 positive:
-  - business development
-  - sales development
-  - lead generation
-  - b2b sales
-  - outbound sales
-  - growth hacking
-  - demand generation
-  - sales automation
-  - account executive
+  - sales
+  - outbound
+  - prospecting
+  - pipeline
+  - revenue
+  - growth
+  - leads
+  - outreach
+  - demand
   - sdr
   - bdr
-  - head of sales
-  - vp sales
-  - sales operations
-  - revenue operations
-  - growth marketing
-  - outreach
-  - prospecting
-  - pipeline generation
   - crm
   - salesforce
   - hubspot
-  - linkedin automation
-  - cold outreach
-  - sales enablement
+  - automation
+  - enablement
+  - b2b
+  - saas
+  - linkedin
+  - conversion
+  - quota
+  - closing
+  - negotiation
+  - enterprise
+  - partnership
 
 negative:
   - student
   - intern
   - undergraduate
-  - looking for opportunities
-  - open to work
   - retired
-  - graphic designer
-  - ui designer
   - nurse
   - teacher
   - professor
   - physician
   - lawyer
   - attorney
-  - civil engineer
-  - mechanical engineer
+  - dentist
+  - pharmacist
+  - veterinary
+  - cashier
+  - waiter
 
 exploratory:
-  - marketing manager
-  - digital marketing
-  - content marketing
-  - startup founder
+  - marketing
+  - founder
   - ceo
   - coo
-  - partnerships
-  - channel sales
-  - customer success
   - recruiting
-  - talent acquisition
-  - saas
-  - product marketing
-  - go to market
-  - abm
+  - talent
+  - consulting
+  - strategist
+  - analyst
+  - operations
+  - product
+  - digital
+  - brand
+  - startup

@@ -8,20 +8,21 @@ You are an expert B2B sales strategist. Your task is to generate campaign-specif
 
 ## Instructions
 
-Generate three lists of keywords/phrases for scoring LinkedIn profiles:
+Generate three lists of single-word keywords for scoring LinkedIn profiles:
 
-1. **positive** — Keywords that indicate a profile is a good fit for this campaign (e.g., relevant job titles, skills, industries, technologies, pain points your product solves). These INCREASE a profile's score.
+1. **positive** — Words that indicate a profile is a good fit for this campaign (e.g., relevant roles, skills, industries, technologies). These INCREASE a profile's score.
 
-2. **negative** — Keywords that indicate a profile is NOT a good fit (e.g., unrelated industries, junior roles if targeting decision-makers, competitors, irrelevant domains). These DECREASE a profile's score.
+2. **negative** — Words that indicate a profile is NOT a good fit (e.g., unrelated industries, junior indicators, irrelevant domains). These DECREASE a profile's score.
 
-3. **exploratory** — Keywords that are uncertain but worth testing (e.g., adjacent industries, emerging roles, tangentially related skills). These are used for exploration in the ML model's explore/exploit balance.
+3. **exploratory** — Words that are uncertain but worth testing (e.g., adjacent industries, emerging roles). These are used for exploration in the ML model's explore/exploit balance.
 
 ## Rules
-- Each keyword should be 1-3 words, all lowercase
-- Generate 15-30 positive keywords
-- Generate 10-20 negative keywords
+- Each keyword must be exactly ONE word, all lowercase
+- No multi-word phrases — split compound concepts into separate single words (e.g., use "sales" and "outbound" instead of "outbound sales")
+- Generate 20-40 positive keywords
+- Generate 15-25 negative keywords
 - Generate 10-20 exploratory keywords
-- Keywords should be specific enough to be discriminative but general enough to match across profiles
+- Keywords are matched as substrings, so prefer stems that match multiple forms (e.g., "engineer" matches "engineering", "engineered")
 - Think about what appears in LinkedIn headlines, summaries, job titles, company names, and education fields
 
 ## Output Format
@@ -29,13 +30,13 @@ Generate three lists of keywords/phrases for scoring LinkedIn profiles:
 Return ONLY valid YAML with no additional text or markdown code fences:
 
 positive:
-  - keyword one
-  - keyword two
+  - keyword
+  - keyword
 
 negative:
-  - keyword one
-  - keyword two
+  - keyword
+  - keyword
 
 exploratory:
-  - keyword one
-  - keyword two
+  - keyword
+  - keyword
