@@ -12,5 +12,5 @@ termcolor
 Django>=5.2,<7.0
 tendo
 pyyaml
-scikit-learn
+scikit-learn==1.8.0
 duckdb
