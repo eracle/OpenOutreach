@@ -256,14 +256,25 @@ class ProfileScorer:
         if not profiles:
             return list(profiles)
 
-        # Untrained: cold-start heuristic or FIFO
+        # Untrained: cold-start Thompson Sampling or FIFO
         if not self._trained:
             if self.has_keywords:
-                scored = []
+                raw_scores = []
                 for p in profiles:
                     text = build_profile_text(p)
-                    score = cold_start_score(text, self._keywords)
-                    scored.append((score, p))
+                    raw_scores.append(cold_start_score(text, self._keywords))
+
+                lo, hi = min(raw_scores), max(raw_scores)
+                scored = []
+                for raw, p in zip(raw_scores, profiles):
+                    # Normalize to (0, 1); all-equal → 0.5 → pure exploration
+                    prob = (raw - lo) / (hi - lo) if hi > lo else 0.5
+                    # Lower confidence (k=3) than trained model (k=10)
+                    # to encourage exploration during cold start
+                    alpha = prob * 3
+                    beta_param = (1 - prob) * 3
+                    sampled = self._rng.beta(max(alpha, 0.01), max(beta_param, 0.01))
+                    scored.append((sampled, p))
                 scored.sort(key=lambda x: x[0], reverse=True)
                 return [p for _, p in scored]
             return list(profiles)
@@ -289,7 +300,10 @@ class ProfileScorer:
                 score = cold_start_score(text, self._keywords)
                 pos_hits = [kw for kw in self._keywords["positive"] if kw in text]
                 neg_hits = [kw for kw in self._keywords["negative"] if kw in text]
-                lines = [f"Cold-start heuristic score: {score:.1f}"]
+                lines = [
+                    f"Cold-start heuristic score: {score:.1f}",
+                    "  (normalized to batch min/max at ranking time for Thompson Sampling)",
+                ]
                 if pos_hits:
                     lines.append(f"  positive hits: {', '.join(pos_hits)}")
                 if neg_hits:
