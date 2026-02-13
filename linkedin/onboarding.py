@@ -1,5 +1,5 @@
 # linkedin/onboarding.py
-"""Keyword generation from CLI file arguments."""
+"""Keyword generation: CLI file arguments or interactive onboarding."""
 from __future__ import annotations
 
 import logging
@@ -9,7 +9,13 @@ from pathlib import Path
 import jinja2
 import yaml
 
-from linkedin.conf import ASSETS_DIR, KEYWORDS_FILE
+from linkedin.conf import (
+    ASSETS_DIR,
+    CAMPAIGN_DIR,
+    CAMPAIGN_OBJECTIVE_FILE,
+    KEYWORDS_FILE,
+    PRODUCT_DOCS_FILE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,28 +48,108 @@ def generate_keywords(product_docs: str, objective: str) -> dict:
     return data
 
 
+def _save_keywords(data: dict) -> None:
+    """Write keywords dict to KEYWORDS_FILE."""
+    CAMPAIGN_DIR.mkdir(parents=True, exist_ok=True)
+    with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
+    logger.info("Keywords written to %s", KEYWORDS_FILE)
+    logger.info(
+        "  %d positive, %d negative, %d exploratory",
+        len(data["positive"]),
+        len(data["negative"]),
+        len(data["exploratory"]),
+    )
+
+
+def _read_multiline(prompt_msg: str) -> str:
+    """Read multi-line input via input() until Ctrl-D (EOF)."""
+    print(prompt_msg, flush=True)
+    lines: list[str] = []
+    while True:
+        try:
+            line = input()
+        except EOFError:
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def _interactive_onboarding() -> None:
+    """Prompt user for product description and campaign objective, then generate keywords."""
+    print()
+    print("=" * 60)
+    print("  OpenOutreach — Campaign Keyword Setup")
+    print("=" * 60)
+    print()
+    print("To rank LinkedIn profiles, we need two things:")
+    print("  1. A description of your product/service")
+    print("  2. Your campaign objective (e.g. 'sell X to Y')")
+    print()
+
+    # Product description (multi-line)
+    while True:
+        product_docs = _read_multiline(
+            "Paste your product/service description below.\n"
+            "Press Ctrl-D when done:\n"
+        )
+        if product_docs:
+            break
+        print("Product description cannot be empty. Please try again.\n")
+
+    print()
+
+    # Campaign objective (multi-line)
+    while True:
+        objective = _read_multiline(
+            "Enter your campaign objective (e.g. 'sell analytics platform to CTOs').\n"
+            "Press Ctrl-D when done:\n"
+        )
+        if objective:
+            break
+        print("Campaign objective cannot be empty. Please try again.\n")
+
+    # Persist inputs
+    CAMPAIGN_DIR.mkdir(parents=True, exist_ok=True)
+    PRODUCT_DOCS_FILE.write_text(product_docs, encoding="utf-8")
+    CAMPAIGN_OBJECTIVE_FILE.write_text(objective, encoding="utf-8")
+    logger.info("Saved product docs to %s", PRODUCT_DOCS_FILE)
+    logger.info("Saved campaign objective to %s", CAMPAIGN_OBJECTIVE_FILE)
+
+    # Generate keywords via LLM
+    data = generate_keywords(product_docs, objective)
+    _save_keywords(data)
+
+    print()
+    print("Keywords generated successfully!")
+    print(f"  {len(data['positive'])} positive, {len(data['negative'])} negative, {len(data['exploratory'])} exploratory")
+    print()
+
+
 def ensure_keywords(
     product_docs_path: str | None = None,
     campaign_objective_path: str | None = None,
 ) -> None:
-    """Generate keywords when both file paths are provided via CLI flags.
+    """Ensure campaign keywords exist before the daemon starts.
 
-    Called from cmd_run before the daemon starts. Does nothing unless
-    both --product-docs and --campaign-objective are given.
+    If both file paths are given, generates new keywords via LLM and persists inputs.
+    If keywords already exist, does nothing (already onboarded).
+    Otherwise, runs interactive onboarding to collect inputs and generate keywords.
     """
-    if not product_docs_path or not campaign_objective_path:
+    if product_docs_path and campaign_objective_path:
+        product_docs = Path(product_docs_path).read_text(encoding="utf-8").strip()
+        objective = Path(campaign_objective_path).read_text(encoding="utf-8").strip()
+
+        # Persist inputs alongside keywords
+        CAMPAIGN_DIR.mkdir(parents=True, exist_ok=True)
+        PRODUCT_DOCS_FILE.write_text(product_docs, encoding="utf-8")
+        CAMPAIGN_OBJECTIVE_FILE.write_text(objective, encoding="utf-8")
+
+        data = generate_keywords(product_docs, objective)
+        _save_keywords(data)
         return
 
-    product_docs = Path(product_docs_path).read_text(encoding="utf-8").strip()
-    objective = Path(campaign_objective_path).read_text(encoding="utf-8").strip()
+    if KEYWORDS_FILE.exists():
+        return
 
-    data = generate_keywords(product_docs, objective)
-
-    with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
-        yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
-
-    logger.info("Keywords written to %s", KEYWORDS_FILE)
-    logger.info(
-        "  %d positive, %d negative, %d exploratory",
-        len(data["positive"]), len(data["negative"]), len(data["exploratory"]),
-    )
+    _interactive_onboarding()

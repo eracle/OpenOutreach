@@ -35,3 +35,5 @@ assets/data/
 /analytics/target/run_results.json
 /analytics/target/semantic_manifest.json
 /.coverage
+/assets/campaign/campaign_objective.txt
+/assets/campaign/product_docs.txt
