@@ -44,7 +44,7 @@ make up-view  # run + open VNC viewer
 ### Entry Flow
 `main.py` (Django bootstrap + auto-migrate + CRM setup) → argparse subcommands:
 - `load <csv>` — imports profile URLs into CRM via `csv_launcher.load_profiles_df()` + `crm_profiles.add_profile_urls()`
-- `run [handle]` — launches `daemon.run_daemon()` which round-robins through four action lanes
+- `run [handle]` — launches `daemon.run_daemon()` which time-spreads actions across configurable working hours
 - `generate-keywords <product_docs> "<objective>"` — calls LLM to generate `assets/campaign_keywords.yaml` with positive/negative/exploratory keyword lists for ML scoring
 
 ### Profile State Machine
@@ -53,11 +53,12 @@ Each profile progresses through states defined in `navigation/enums.py:ProfileSt
 
 States map to DjangoCRM Deal Stages (defined in `db/crm_profiles.py:STATE_TO_STAGE`).
 
-The daemon (`daemon.py`) round-robins through four lanes that advance profiles through the state machine:
-1. **Enrich** — scrapes DISCOVERED profiles via Voyager API → ENRICHED (or IGNORED if pre-existing connection)
-2. **Connect** — ML-ranks ENRICHED profiles, sends connection request → PENDING
-3. **Check Pending** — checks PENDING profiles for acceptance → CONNECTED (triggers ML retrain via dbt)
-4. **Follow Up** — sends follow-up message to CONNECTED profiles → COMPLETED
+The daemon (`daemon.py`) spreads actions across configurable working hours (default 09:00–18:00, OS local timezone). Three **major lanes** are scheduled at fixed intervals derived from `active_hours / daily_limit` (±20% random jitter). **Enrichment** dynamically fills the gaps between major actions (`gap / profiles_to_enrich`, floored at `enrich_min_interval`). Outside working hours the daemon sleeps until the next window starts.
+
+1. **Connect** (scheduled) — ML-ranks ENRICHED profiles, sends connection request → PENDING. Interval = active_minutes / connect_daily_limit.
+2. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Interval = active_minutes / follow_up_daily_limit.
+3. **Check Pending** (scheduled) — checks PENDING profiles for acceptance → CONNECTED (triggers ML retrain via dbt). Interval = check_pending_recheck_after_hours.
+4. **Enrich** (gap-filling) — scrapes 1 DISCOVERED profile per tick via Voyager API → ENRICHED (or IGNORED if pre-existing connection). Paced to fill time between major actions.
 
 The `IGNORED` state is a terminal state for pre-existing connections (already connected before the automation ran). Controlled by `follow_up_existing_connections` config flag.
 
@@ -69,9 +70,9 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 - **TheFile** — Raw Voyager API JSON attached to Lead via GenericForeignKey.
 
 ### Key Modules
-- **`daemon.py`** — Main daemon loop. Creates ML scorer, rate limiters, and four lanes. Round-robins through lanes; sleeps when all idle. Auto-rebuilds analytics (`dbt run`) if scorer encounters a schema mismatch.
+- **`daemon.py`** — Main daemon loop. Creates ML scorer, rate limiters, `LaneSchedule` objects for three major lanes, and an enrich lane for gap-filling. Spreads actions across working hours; enrichments dynamically fill gaps between scheduled major actions. Auto-rebuilds analytics (`dbt run`) if scorer encounters a schema mismatch.
 - **`lanes/`** — Action lanes executed by the daemon:
-  - `enrich.py` — Batch-scrapes DISCOVERED profiles via Voyager API. Detects pre-existing connections (IGNORED). Exports `is_preexisting_connection()` shared helper.
+  - `enrich.py` — Scrapes 1 DISCOVERED profile per tick via Voyager API. Detects pre-existing connections (IGNORED). Exports `is_preexisting_connection()` shared helper.
   - `connect.py` — ML-ranks ENRICHED profiles, sends connection requests. Catches pre-existing connections missed by enrich (when `connection_degree` was None at scrape time).
   - `check_pending.py` — Checks PENDING profiles for acceptance. Triggers dbt rebuild + ML retrain when connections flip.
   - `follow_up.py` — Sends follow-up messages to CONNECTED profiles.
@@ -90,7 +91,7 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 
 ### Configuration
 - **`assets/accounts.secrets.yaml`** — Single config file containing: `env:` (API keys, model), `campaign:` (rate limits, timing, feature flags), `accounts:` (credentials, CSV path, template). Copy from `assets/accounts.secrets.template.yaml`.
-- **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.min_age_days`, `follow_up.daily_limit`, `follow_up.min_age_days`, `follow_up.existing_connections` (false = ignore pre-existing connections), `idle_sleep_minutes`.
+- **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.recheck_after_hours`, `follow_up.daily_limit`, `follow_up.recheck_after_hours`, `follow_up.existing_connections` (false = ignore pre-existing connections), `enrich_min_interval` (floor seconds between enrichment API calls, default 1), `working_hours.start` / `working_hours.end` (HH:MM, default 09:00–18:00, OS local timezone).
 - **`assets/campaign_keywords.yaml`** — Optional. Generated by `generate-keywords` subcommand. Contains `positive`, `negative`, and `exploratory` keyword lists used by the ML scorer for boolean presence features and cold-start ranking.
 - **`assets/templates/prompts/generate_keywords.j2`** — Jinja2 prompt template for LLM-based keyword generation. Receives `product_docs` and `campaign_objective` variables.
 - **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`.
