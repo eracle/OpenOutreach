@@ -1,7 +1,9 @@
 # tests/lanes/test_lanes.py
 import pytest
-from datetime import date, timedelta
+from datetime import timedelta
 from unittest.mock import patch, MagicMock
+
+from django.utils import timezone
 
 from linkedin.db.crm_profiles import (
     get_profile,
@@ -33,12 +35,13 @@ def _make_enriched(session, public_id="alice"):
 
 
 def _make_old_deal(session, days):
-    """Set next_step_date to `days` ago on the user's first deal."""
+    """Set update_date to `days` ago on the user's first deal (bypasses auto_now)."""
     from crm.models import Deal
 
     deal = Deal.objects.filter(owner=session.django_user).first()
-    deal.next_step_date = date.today() - timedelta(days=days)
-    deal.save()
+    Deal.objects.filter(pk=deal.pk).update(
+        update_date=timezone.now() - timedelta(days=days)
+    )
 
 
 # ── Existing can_execute tests ────────────────────────────────────────
@@ -90,23 +93,24 @@ class TestCheckPendingLaneCanExecute:
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         from crm.models import Deal
         deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        deal.next_step_date = date.today() - timedelta(days=5)
-        deal.save()
+        Deal.objects.filter(pk=deal.pk).update(
+            update_date=timezone.now() - timedelta(days=5)
+        )
 
         scorer = ProfileScorer(seed=42)
-        lane = CheckPendingLane(fake_session, min_age_days=3, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
         assert lane.can_execute() is True
 
     def test_cannot_execute_too_recent(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         # next_step_date is already date.today() from set_profile_state
         scorer = ProfileScorer(seed=42)
-        lane = CheckPendingLane(fake_session, min_age_days=3, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
         assert lane.can_execute() is False
 
     def test_cannot_execute_empty(self, fake_session):
         scorer = ProfileScorer(seed=42)
-        lane = CheckPendingLane(fake_session, min_age_days=3, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
         assert lane.can_execute() is False
 
 
@@ -118,7 +122,7 @@ class TestFollowUpLaneCanExecute:
         _make_old_deal(fake_session, days=3)
 
         rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl, min_age_days=1)
+        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
         assert lane.can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
@@ -127,12 +131,12 @@ class TestFollowUpLaneCanExecute:
         _make_old_deal(fake_session, days=3)
 
         rl = RateLimiter(daily_limit=0)
-        lane = FollowUpLane(fake_session, rl, min_age_days=1)
+        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
         assert lane.can_execute() is False
 
     def test_cannot_execute_empty(self, fake_session):
         rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl, min_age_days=1)
+        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
         assert lane.can_execute() is False
 
 
@@ -295,7 +299,7 @@ class TestCheckPendingLaneExecute:
         _make_old_deal(fake_session, days=5)
 
         scorer = ProfileScorer(seed=42)
-        return CheckPendingLane(fake_session, min_age_days=3, scorer=scorer)
+        return CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
 
     @patch.object(CheckPendingLane, "_retrain")
     @patch("linkedin.actions.connection_status.get_connection_status")
@@ -330,7 +334,7 @@ class TestCheckPendingLaneExecute:
     ):
         # No pending profiles → execute returns immediately
         scorer = ProfileScorer(seed=42)
-        lane = CheckPendingLane(fake_session, min_age_days=3, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
         lane.execute()
 
         mock_status.assert_not_called()
@@ -348,7 +352,7 @@ class TestFollowUpLaneExecute:
         _make_old_deal(fake_session, days=3)
 
         rl = RateLimiter(daily_limit=10)
-        return FollowUpLane(fake_session, rl, min_age_days=1)
+        return FollowUpLane(fake_session, rl, recheck_after_hours=24)
 
     @patch("linkedin.actions.message.send_follow_up_message")
     def test_execute_sends_message_and_completes(
@@ -379,7 +383,7 @@ class TestFollowUpLaneExecute:
     ):
         # No connected profiles → execute returns immediately
         rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl, min_age_days=1)
+        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
         lane.execute()
 
         mock_send.assert_not_called()

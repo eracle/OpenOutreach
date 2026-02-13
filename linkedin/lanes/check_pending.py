@@ -15,18 +15,18 @@ logger = logging.getLogger(__name__)
 
 
 class CheckPendingLane:
-    def __init__(self, session, min_age_days: int, scorer: ProfileScorer):
+    def __init__(self, session, recheck_after_hours: float, scorer: ProfileScorer):
         self.session = session
-        self.min_age_days = min_age_days
+        self.recheck_after_hours = recheck_after_hours
         self.scorer = scorer
 
     def can_execute(self) -> bool:
-        return len(get_pending_profiles(self.session, self.min_age_days)) > 0
+        return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0
 
     def execute(self):
         from linkedin.actions.connection_status import get_connection_status
 
-        profiles = get_pending_profiles(self.session, self.min_age_days)
+        profiles = get_pending_profiles(self.session, self.recheck_after_hours)
         if not profiles:
             return
 

@@ -60,10 +60,9 @@ _followup_cfg = _campaign_raw.get("follow_up", {}) or {}
 CAMPAIGN_CONFIG = {
     "connect_daily_limit": _connect_cfg.get("daily_limit", 20),
     "connect_weekly_limit": _connect_cfg.get("weekly_limit", 100),
-    "check_pending_min_age_days": _check_cfg.get("min_age_days", 3),
-    "check_pending_recheck_interval_days": _check_cfg.get("recheck_interval_days", 2),
+    "check_pending_recheck_after_hours": _check_cfg.get("recheck_after_hours", 1),
     "follow_up_daily_limit": _followup_cfg.get("daily_limit", 30),
-    "follow_up_min_age_days": _followup_cfg.get("min_age_days", 1),
+    "follow_up_recheck_after_hours": _followup_cfg.get("recheck_after_hours", 1),
     "follow_up_existing_connections": _followup_cfg.get("existing_connections", False),
     "idle_sleep_minutes": _campaign_raw.get("idle_sleep_minutes", 30),
 }

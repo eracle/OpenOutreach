@@ -3,6 +3,8 @@ import pytest
 
 from datetime import date, timedelta
 
+from django.utils import timezone
+
 from linkedin.db.crm_profiles import (
     url_to_public_id,
     public_id_to_url,
@@ -228,17 +230,18 @@ class TestGetPendingProfiles:
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         from crm.models import Deal
         deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        deal.next_step_date = date.today() - timedelta(days=5)
-        deal.save()
+        Deal.objects.filter(pk=deal.pk).update(
+            update_date=timezone.now() - timedelta(hours=120)
+        )
 
-        profiles = get_pending_profiles(fake_session, min_age_days=3)
+        profiles = get_pending_profiles(fake_session, recheck_after_hours=72)
         assert len(profiles) == 1
         assert profiles[0]["public_identifier"] == "alice"
 
     def test_excludes_recent_pending(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
-        # next_step_date is already date.today() from set_profile_state
-        profiles = get_pending_profiles(fake_session, min_age_days=3)
+        # update_date is already now() from set_profile_state's deal.save()
+        profiles = get_pending_profiles(fake_session, recheck_after_hours=72)
         assert len(profiles) == 0
 
 
@@ -256,10 +259,11 @@ class TestGetConnectedProfiles:
         set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
         from crm.models import Deal
         deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        deal.next_step_date = date.today() - timedelta(days=5)
-        deal.save()
+        Deal.objects.filter(pk=deal.pk).update(
+            update_date=timezone.now() - timedelta(hours=48)
+        )
 
-        profiles = get_connected_profiles(fake_session, min_age_days=1)
+        profiles = get_connected_profiles(fake_session, recheck_after_hours=24)
         assert len(profiles) == 1
 
     def test_excludes_recent_connected(self, fake_session):
@@ -270,6 +274,6 @@ class TestGetConnectedProfiles:
             None,
         )
         set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-        # next_step_date is already date.today() from set_profile_state
-        profiles = get_connected_profiles(fake_session, min_age_days=3)
+        # update_date is already now() from set_profile_state's deal.save()
+        profiles = get_connected_profiles(fake_session, recheck_after_hours=72)
         assert len(profiles) == 0
