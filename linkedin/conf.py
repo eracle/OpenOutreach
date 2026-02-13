@@ -20,6 +20,8 @@ COOKIES_DIR = ASSETS_DIR / "cookies"
 DATA_DIR = ASSETS_DIR / "data"
 CAMPAIGN_DIR = ASSETS_DIR / "campaign"
 KEYWORDS_FILE = CAMPAIGN_DIR / "campaign_keywords.yaml"
+PRODUCT_DOCS_FILE = CAMPAIGN_DIR / "product_docs.txt"
+CAMPAIGN_OBJECTIVE_FILE = CAMPAIGN_DIR / "campaign_objective.txt"
 
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
