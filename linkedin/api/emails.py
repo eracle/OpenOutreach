@@ -5,8 +5,6 @@ import logging
 from typing import Any
 
 import requests
-from termcolor import colored
-
 from linkedin.conf import COOKIES_DIR
 from linkedin.sessions.account import AccountSession
 
@@ -92,18 +90,13 @@ def ensure_newsletter_subscription(session: AccountSession):
 
     # Case 1: Not set or invalid
     if subscribe is None:
-        message = colored(
-            f"⚠️  'subscribe_newsletter' for '{handle}' is not set properly.\n"
-            "   Get OpenOutreach updates, pro tips & early feature access!\n"
-
+        logger.warning(
+            "'subscribe_newsletter' for '%s' is not set properly (value: %r).\n"
             "   Set in assets/accounts.secrets.yaml:\n"
             "     subscribe_newsletter: true   # to join\n"
-            "     subscribe_newsletter: false  # to skip\n"
-            f"   Current value: {subscribe_raw!r}\n",
-            "yellow"
+            "     subscribe_newsletter: false  # to skip",
+            handle, subscribe_raw,
         )
-        print(message)
-        logger.warning("Invalid subscribe_newsletter value for %s: %r", handle, subscribe_raw)
         return
 
     # Case 2: Explicitly false

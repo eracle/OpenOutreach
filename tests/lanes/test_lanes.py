@@ -32,6 +32,7 @@ def _make_enriched(session, public_id="alice"):
     """Create a Lead+Deal at ENRICHED with profile data."""
     url = f"https://www.linkedin.com/in/{public_id}/"
     save_scraped_profile(session, url, SAMPLE_PROFILE, None)
+    set_profile_state(session, public_id, ProfileState.ENRICHED.value)
 
 
 def _make_old_deal(session, days):

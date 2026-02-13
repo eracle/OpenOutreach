@@ -77,11 +77,11 @@ def _update_intervals(schedules, wh_end, cfg):
             s.base_interval = interval_map[s.name]
 
     logger.info(
-        colored("Pacing updated", "white")
-        + " — %d min remaining, connect every %.0fm, follow_up every %.0fm",
-        remaining_minutes,
+        colored("Pacing:", "cyan")
+        + " connect every %.0fm, follow_up every %.0fm (%d min remaining)",
         interval_map["connect"] / 60,
         interval_map["follow_up"] / 60,
+        remaining_minutes,
     )
 
 
@@ -169,8 +169,8 @@ def run_daemon(session):
             wait = _seconds_until_work_starts(wh_start)
             logger.info(
                 colored("Outside working hours", "yellow")
-                + " — sleeping until %02d:%02d (%.0f min)",
-                wh_start[0], wh_start[1], wait / 60,
+                + " — sleeping until %02d:%02d",
+                wh_start[0], wh_start[1],
             )
             time.sleep(wait)
             _update_intervals(schedules, wh_end, cfg)
@@ -189,9 +189,8 @@ def run_daemon(session):
             enrich_wait = max(gap / to_enrich, min_enrich_interval)
             enrich_wait *= random.uniform(0.8, 1.2)
             enrich_wait = min(enrich_wait, gap)  # don't overshoot
-            logger.info(
-                colored("enrich", "yellow")
-                + " in %.0fs (gap %.0fs, %d to enrich)",
+            logger.debug(
+                "enrich in %.0fs (gap %.0fs, %d to enrich)",
                 enrich_wait, gap, to_enrich,
             )
             time.sleep(enrich_wait)
@@ -202,8 +201,8 @@ def run_daemon(session):
 
         # ── Wait for major action ──
         if gap > 0:
-            logger.info(
-                colored("next: %s", "white") + " in %.0fs",
+            logger.debug(
+                "next: %s in %.0fs",
                 next_schedule.name, gap,
             )
             time.sleep(gap)

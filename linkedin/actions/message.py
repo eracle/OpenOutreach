@@ -50,7 +50,7 @@ def send_follow_up_message(
         message = render_template(session, template_file, template_type, profile)
 
     if _send_msg_pop_up(session, profile, message) or _send_message(session, profile, message):
-        logger.info(f"Message sent: {message}")
+        logger.debug("Message body: %s", message)
         return MessageStatus.SENT
 
     return MessageStatus.SKIPPED

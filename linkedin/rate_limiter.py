@@ -47,4 +47,4 @@ class RateLimiter:
 
     def mark_daily_exhausted(self):
         self._daily_exhausted = True
-        logger.info("Rate limiter: daily limit externally exhausted")
+        logger.warning("Rate limiter: daily limit externally exhausted")

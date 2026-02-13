@@ -58,7 +58,7 @@ def setup_crm():
     if created:
         logger.info("Created department: %s", DEPARTMENT_NAME)
     else:
-        logger.info("Department already exists: %s", DEPARTMENT_NAME)
+        logger.debug("Department already exists: %s", DEPARTMENT_NAME)
 
     # 2. Create Django Users for each LinkedIn account handle
     for handle in list_active_accounts():
@@ -111,7 +111,7 @@ def setup_crm():
     if created:
         logger.info("Created lead source: %s", LEAD_SOURCE_NAME)
 
-    logger.info("CRM setup complete.")
+    logger.debug("CRM setup complete.")
 
 
 if __name__ == "__main__":

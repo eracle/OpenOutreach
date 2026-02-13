@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import logging
 
-from termcolor import colored
-
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import (
     count_enriched_profiles,
@@ -43,7 +41,7 @@ class ConnectLane:
         profile = candidate.get("profile") or candidate
 
         explanation = self.scorer.explain_profile(candidate)
-        logger.info("ML explanation for %s:\n%s", public_id, explanation)
+        logger.debug("ML explanation for %s:\n%s", public_id, explanation)
 
         try:
             # Check actual connection status on the page before attempting to connect.
@@ -74,8 +72,8 @@ class ConnectLane:
 
 
         except ReachedConnectionLimit as e:
-            logger.info(colored(f"Rate limited: {e}", "red", attrs=["bold"]))
+            logger.warning("Rate limited: %s", e)
             self.rate_limiter.mark_daily_exhausted()
         except SkipProfile as e:
-            logger.info(colored(f"Skipping {public_id}: {e}", "red", attrs=["bold"]))
+            logger.warning("Skipping %s: %s", public_id, e)
             set_profile_state(self.session, public_id, ProfileState.FAILED.value)

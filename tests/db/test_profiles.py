@@ -100,7 +100,8 @@ class TestSaveScrapedProfile:
         row = get_profile(fake_session, "alicesmith")
         assert row is not None
         assert row["profile"]["full_name"] == "Alice Smith"
-        assert row["state"] == ProfileState.ENRICHED.value
+        # save_scraped_profile stores data; caller sets state via set_profile_state
+        assert row["state"] == ProfileState.DISCOVERED.value
 
     def test_updates_existing_profile(self, fake_session):
         set_profile_state(fake_session, "alicesmith", ProfileState.DISCOVERED.value)
@@ -112,7 +113,8 @@ class TestSaveScrapedProfile:
         )
         row = get_profile(fake_session, "alicesmith")
         assert row["profile"]["full_name"] == "Alice Smith v2"
-        assert row["state"] == ProfileState.ENRICHED.value
+        # save_scraped_profile stores data; caller sets state via set_profile_state
+        assert row["state"] == ProfileState.DISCOVERED.value
 
     def test_invalid_url_raises(self, fake_session):
         with pytest.raises(ValueError, match="Not a valid /in/ profile URL"):
@@ -211,6 +213,7 @@ class TestGetEnrichedProfiles:
             {"first_name": "Alice", "headline": "Eng", "positions": []},
             None,
         )
+        set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)
         profiles = get_enriched_profiles(fake_session)
         assert len(profiles) == 1
         assert profiles[0]["public_identifier"] == "alice"

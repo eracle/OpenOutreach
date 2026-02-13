@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 
+from django.db import transaction
+
 from linkedin.api.client import PlaywrightLinkedinAPI
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import (
@@ -48,18 +50,22 @@ class EnrichLane:
         url = urls[0]
         try:
             profile, data = api.get_profile(profile_url=url)
-            save_scraped_profile(self.session, url, profile, data)
+            public_id = url_to_public_id(url)
+
             if not profile:
-                public_id = url_to_public_id(url)
                 set_profile_state(self.session, public_id, ProfileState.FAILED.value)
                 return
 
-            if is_preexisting_connection(profile):
-                public_id = url_to_public_id(url)
-                set_profile_state(
-                    self.session, public_id, ProfileState.IGNORED.value,
-                    reason="Pre-existing connection (not initiated by automation)",
-                )
+            with transaction.atomic():
+                save_scraped_profile(self.session, url, profile, data)
+
+                if is_preexisting_connection(profile):
+                    set_profile_state(
+                        self.session, public_id, ProfileState.IGNORED.value,
+                        reason="Pre-existing connection (not initiated by automation)",
+                    )
+                else:
+                    set_profile_state(self.session, public_id, ProfileState.ENRICHED.value)
         except Exception:
             logger.exception("Failed to enrich %s", url)
             try:

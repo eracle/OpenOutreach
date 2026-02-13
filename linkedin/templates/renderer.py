@@ -17,7 +17,7 @@ def call_llm(prompt: str) -> str:
     if LLM_API_KEY is None:
         raise ValueError("LLM_API_KEY is not set in the environment or config.")
 
-    logger.info(f"Calling '{AI_MODEL}'.")
+    logger.debug("Calling '%s'", AI_MODEL)
 
     # Initialize the LangChain ChatOpenAI model with explicit API key
     llm = ChatOpenAI(model=AI_MODEL, temperature=0.7, api_key=LLM_API_KEY, base_url=LLM_API_BASE)
