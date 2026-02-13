@@ -116,27 +116,25 @@ class TestCheckPendingLaneCanExecute:
 
 @pytest.mark.django_db
 class TestFollowUpLaneCanExecute:
-    def test_can_execute_with_old_connected(self, fake_session):
+    def test_can_execute_with_connected(self, fake_session):
         _make_enriched(fake_session)
         set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-        _make_old_deal(fake_session, days=3)
 
         rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
+        lane = FollowUpLane(fake_session, rl)
         assert lane.can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
         _make_enriched(fake_session)
         set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-        _make_old_deal(fake_session, days=3)
 
         rl = RateLimiter(daily_limit=0)
-        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
+        lane = FollowUpLane(fake_session, rl)
         assert lane.can_execute() is False
 
     def test_cannot_execute_empty(self, fake_session):
         rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
+        lane = FollowUpLane(fake_session, rl)
         assert lane.can_execute() is False
 
 
@@ -349,10 +347,9 @@ class TestFollowUpLaneExecute:
     def _setup(self, fake_session):
         _make_enriched(fake_session)
         set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-        _make_old_deal(fake_session, days=3)
 
         rl = RateLimiter(daily_limit=10)
-        return FollowUpLane(fake_session, rl, recheck_after_hours=24)
+        return FollowUpLane(fake_session, rl)
 
     @patch("linkedin.actions.message.send_follow_up_message")
     def test_execute_sends_message_and_completes(
@@ -383,7 +380,7 @@ class TestFollowUpLaneExecute:
     ):
         # No connected profiles → execute returns immediately
         rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl, recheck_after_hours=24)
+        lane = FollowUpLane(fake_session, rl)
         lane.execute()
 
         mock_send.assert_not_called()

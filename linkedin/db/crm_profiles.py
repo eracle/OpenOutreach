@@ -326,10 +326,9 @@ def set_profile_state(
             deal.closing_reason = closing
         deal.active = False
 
-    # WARNING: get_pending_profiles / get_connected_profiles filter on
-    # deal.update_date (auto_now=True), which refreshes on every save().
-    # Removing this save or skipping it on no-change rechecks will break
-    # recheck_after_hours timing.
+    # WARNING: get_pending_profiles filters on deal.update_date (auto_now=True),
+    # which refreshes on every save(). Removing this save or skipping it on
+    # no-change rechecks will break recheck_after_hours timing.
     deal.save()
 
     _STATE_LOG_STYLE = {
@@ -478,30 +477,18 @@ def get_pending_profiles(session, recheck_after_hours: float) -> list:
     return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
 
 
-def get_connected_profiles(session, recheck_after_hours: float) -> list:
-    """CONNECTED deals where update_date is older than recheck_after_hours."""
+def get_connected_profiles(session) -> list:
+    """CONNECTED deals ready for follow-up."""
     from crm.models import Deal
 
-    now = timezone.now()
-    cutoff = now - timedelta(hours=recheck_after_hours)
-    logger.debug(
-        "get_connected_profiles: now=%s cutoff=%s (recheck_after_hours=%.1f)",
-        now, cutoff, recheck_after_hours,
-    )
     stage = _get_stage(ProfileState.CONNECTED)
     deals = list(
         Deal.objects.filter(
             stage=stage,
             owner=session.django_user,
-            update_date__lte=cutoff,
         ).select_related("lead")
     )
-    total = Deal.objects.filter(stage=stage, owner=session.django_user).count()
-    logger.debug(
-        "get_connected_profiles: %d/%d CONNECTED deals past cutoff", len(deals), total,
-    )
-    for d in deals:
-        logger.debug("  ↳ %s update_date=%s", d.name, d.update_date)
+    logger.debug("get_connected_profiles: %d CONNECTED deals", len(deals))
 
     return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
 

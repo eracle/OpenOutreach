@@ -249,7 +249,7 @@ class TestGetPendingProfiles:
 
 @pytest.mark.django_db
 class TestGetConnectedProfiles:
-    def test_returns_old_connected(self, fake_session):
+    def test_returns_connected(self, fake_session):
         save_scraped_profile(
             fake_session,
             "https://www.linkedin.com/in/alice/",
@@ -257,23 +257,6 @@ class TestGetConnectedProfiles:
             None,
         )
         set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-        from crm.models import Deal
-        deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        Deal.objects.filter(pk=deal.pk).update(
-            update_date=timezone.now() - timedelta(hours=48)
-        )
 
-        profiles = get_connected_profiles(fake_session, recheck_after_hours=24)
+        profiles = get_connected_profiles(fake_session)
         assert len(profiles) == 1
-
-    def test_excludes_recent_connected(self, fake_session):
-        save_scraped_profile(
-            fake_session,
-            "https://www.linkedin.com/in/alice/",
-            {"first_name": "Alice", "headline": "Eng", "positions": []},
-            None,
-        )
-        set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-        # update_date is already now() from set_profile_state's deal.save()
-        profiles = get_connected_profiles(fake_session, recheck_after_hours=72)
-        assert len(profiles) == 0

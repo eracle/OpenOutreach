@@ -81,7 +81,7 @@ def run_daemon(session):
         EnrichLane(session),
         ConnectLane(session, connect_limiter, scorer),
         CheckPendingLane(session, cfg["check_pending_recheck_after_hours"], scorer),
-        FollowUpLane(session, follow_up_limiter, cfg["follow_up_recheck_after_hours"]),
+        FollowUpLane(session, follow_up_limiter),
     ]
 
     idle_sleep = cfg["idle_sleep_minutes"] * 60

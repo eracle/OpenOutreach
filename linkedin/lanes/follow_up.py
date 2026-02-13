@@ -16,21 +16,20 @@ _MESSAGE_STATUS_TO_STATE = {
 
 
 class FollowUpLane:
-    def __init__(self, session, rate_limiter: RateLimiter, recheck_after_hours: float):
+    def __init__(self, session, rate_limiter: RateLimiter):
         self.session = session
         self.rate_limiter = rate_limiter
-        self.recheck_after_hours = recheck_after_hours
 
     def can_execute(self) -> bool:
         return (
             self.rate_limiter.can_execute()
-            and len(get_connected_profiles(self.session, self.recheck_after_hours)) > 0
+            and len(get_connected_profiles(self.session)) > 0
         )
 
     def execute(self):
         from linkedin.actions.message import send_follow_up_message
 
-        profiles = get_connected_profiles(self.session, self.recheck_after_hours)
+        profiles = get_connected_profiles(self.session)
         if not profiles:
             return
 
