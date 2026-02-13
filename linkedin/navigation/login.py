@@ -59,13 +59,13 @@ def build_playwright(storage_state=None):
 
 
 def init_playwright_session(session: "AccountSession", handle: str):
-    logger.info(colored("Configuring browser", "cyan", attrs=["bold"]) + f" for @{handle}")
+    logger.debug("Configuring browser for @%s", handle)
     config = get_account_config(handle)
     state_file = Path(config["cookie_file"])
 
     storage_state = str(state_file) if state_file.exists() else None
     if storage_state:
-        logger.info("Loading saved session → %s", state_file)
+        logger.info("Loading saved session for @%s", handle)
 
     session.page, session.context, session.browser, session.playwright = build_playwright(storage_state=storage_state)
 
@@ -84,7 +84,7 @@ def init_playwright_session(session: "AccountSession", handle: str):
         )
 
     session.page.wait_for_load_state("load")
-    logger.info(colored("Browser awake and fully authenticated!", "green", attrs=["bold"]))
+    logger.info(colored("Browser ready", "green", attrs=["bold"]))
 
 
 if __name__ == "__main__":

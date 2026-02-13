@@ -74,7 +74,7 @@ def setup_crm():
         # Add user to department group
         if dept not in user.groups.all():
             user.groups.add(dept)
-            logger.info("Added %s to department %s", handle, DEPARTMENT_NAME)
+            logger.debug("Added %s to department %s", handle, DEPARTMENT_NAME)
 
     # 3. Create Deal Stages
     for index, name, is_default, is_success in STAGES:

@@ -87,7 +87,7 @@ class ProfileScorer:
             con.close()
 
         if len(df) < 10:
-            logger.warning("Only %d rows in training data — need at least 10", len(df))
+            logger.debug("Only %d rows in training data — need at least 10", len(df))
             return False
 
         y = df["accepted"].values

@@ -27,7 +27,7 @@ class AccountSessionRegistry:
         if normalized not in cls._instances:
             session = AccountSession(handle=normalized)  # ← pass only handle
             cls._instances[normalized] = session
-            logger.info("Created new account session for handle → %s", normalized)
+            logger.debug("Created new account session for handle → %s", normalized)
         else:
             logger.debug("Reusing existing account session for handle → %s", normalized)
 

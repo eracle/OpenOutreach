@@ -195,7 +195,7 @@ def run_daemon(session):
             )
             time.sleep(enrich_wait)
             if enrich_lane.can_execute():
-                logger.info(colored("▶ enrich", "yellow", attrs=["bold"]))
+                logger.debug("▶ enrich")
                 enrich_lane.execute()
             continue  # re-evaluate gap + to_enrich
 

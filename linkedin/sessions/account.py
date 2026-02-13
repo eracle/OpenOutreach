@@ -44,7 +44,7 @@ class AccountSession:
     def ensure_browser(self):
         """Launch or recover browser + login if needed. Call before using .page"""
         if not self.page or self.page.is_closed():
-            logger.info("Launching/recovering browser for %s", self.handle)
+            logger.debug("Launching/recovering browser for %s", self.handle)
             init_playwright_session(session=self, handle=self.handle)
 
     def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY):
