@@ -10,6 +10,7 @@ from termcolor import colored
 from linkedin.conf import ROOT_DIR
 from linkedin.db.crm_profiles import get_pending_profiles, set_profile_state
 from linkedin.navigation.enums import ProfileState
+from linkedin.navigation.exceptions import SkipProfile
 from linkedin.ml.scorer import ProfileScorer
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,13 @@ class CheckPendingLane:
             public_id = candidate["public_identifier"]
             profile = candidate.get("profile") or candidate
 
-            new_state = get_connection_status(self.session, profile)
+            try:
+                new_state = get_connection_status(self.session, profile)
+            except SkipProfile as e:
+                logger.warning("Skipping %s: %s", public_id, e)
+                set_profile_state(self.session, public_id, ProfileState.FAILED.value)
+                continue
+
             set_profile_state(self.session, public_id, new_state.value)
 
             if new_state == ProfileState.CONNECTED:
