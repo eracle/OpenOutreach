@@ -229,7 +229,8 @@ class TestGetEnrichedProfiles:
 
 @pytest.mark.django_db
 class TestGetPendingProfiles:
-    def test_returns_old_pending(self, fake_session):
+    def test_returns_old_pending_default_backoff(self, fake_session):
+        """Profile with no backoff metadata uses base recheck_after_hours."""
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         from crm.models import Deal
         deal = Deal.objects.filter(owner=fake_session.django_user).first()
@@ -240,12 +241,54 @@ class TestGetPendingProfiles:
         profiles = get_pending_profiles(fake_session, recheck_after_hours=72)
         assert len(profiles) == 1
         assert profiles[0]["public_identifier"] == "alice"
+        assert profiles[0]["meta"] == {}
 
     def test_excludes_recent_pending(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         # update_date is already now() from set_profile_state's deal.save()
         profiles = get_pending_profiles(fake_session, recheck_after_hours=72)
         assert len(profiles) == 0
+
+    def test_uses_per_profile_backoff(self, fake_session):
+        """Profile with custom backoff_hours uses that instead of base."""
+        import json
+        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
+        from crm.models import Deal
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        # Set a 200-hour backoff and make update_date 150 hours ago
+        Deal.objects.filter(pk=deal.pk).update(
+            update_date=timezone.now() - timedelta(hours=150),
+            next_step=json.dumps({"backoff_hours": 200}),
+        )
+        # 150h < 200h backoff → not ready
+        profiles = get_pending_profiles(fake_session, recheck_after_hours=1)
+        assert len(profiles) == 0
+
+    def test_independent_backoff_per_profile(self, fake_session):
+        """Two profiles with different backoffs are filtered independently."""
+        import json
+        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
+        set_profile_state(fake_session, "bob", ProfileState.PENDING.value)
+        from crm.models import Deal, Lead
+        from linkedin.db.crm_profiles import public_id_to_url
+
+        alice_url = public_id_to_url("alice")
+        bob_url = public_id_to_url("bob")
+
+        # Alice: 2h backoff, updated 3h ago → ready
+        Deal.objects.filter(lead__website=alice_url).update(
+            update_date=timezone.now() - timedelta(hours=3),
+            next_step=json.dumps({"backoff_hours": 2}),
+        )
+        # Bob: 10h backoff, updated 3h ago → not ready
+        Deal.objects.filter(lead__website=bob_url).update(
+            update_date=timezone.now() - timedelta(hours=3),
+            next_step=json.dumps({"backoff_hours": 10}),
+        )
+
+        profiles = get_pending_profiles(fake_session, recheck_after_hours=1)
+        assert len(profiles) == 1
+        assert profiles[0]["public_identifier"] == "alice"
 
 
 # ── get_connected_profiles ──

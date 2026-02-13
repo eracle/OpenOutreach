@@ -1,6 +1,7 @@
 # linkedin/lanes/check_pending.py
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 
@@ -24,7 +25,9 @@ class CheckPendingLane:
         return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0
 
     def execute(self):
+        from crm.models import Deal
         from linkedin.actions.connection_status import get_connection_status
+        from linkedin.db.crm_profiles import public_id_to_url
 
         profiles = get_pending_profiles(self.session, self.recheck_after_hours)
         if not profiles:
@@ -40,6 +43,22 @@ class CheckPendingLane:
 
             if new_state == ProfileState.CONNECTED:
                 any_flipped = True
+            elif new_state == ProfileState.PENDING:
+                # Double the backoff for next recheck
+                current_backoff = candidate.get("meta", {}).get(
+                    "backoff_hours", self.recheck_after_hours
+                )
+                new_backoff = current_backoff * 2
+                clean_url = public_id_to_url(public_id)
+                # Use .update() to avoid refreshing update_date (auto_now)
+                Deal.objects.filter(
+                    lead__website=clean_url,
+                    owner=self.session.django_user,
+                ).update(next_step=json.dumps({"backoff_hours": new_backoff}))
+                logger.debug(
+                    "%s still pending — backoff %.1fh → %.1fh",
+                    public_id, current_backoff, new_backoff,
+                )
 
         if any_flipped:
             self._retrain()
