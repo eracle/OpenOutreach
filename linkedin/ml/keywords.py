@@ -63,12 +63,12 @@ def build_profile_text(profile: dict) -> str:
 
 
 def keyword_feature_names(keywords: dict) -> list[str]:
-    """Return ordered list of keyword feature column names."""
+    """Return ordered list of human-readable keyword feature names."""
+    labels = {"positive": "positive keyword", "negative": "negative keyword", "exploratory": "exploratory keyword"}
     names = []
-    for prefix, category in [("kw_pos", "positive"), ("kw_neg", "negative"), ("kw_exp", "exploratory")]:
+    for category in ("positive", "negative", "exploratory"):
         for kw in keywords.get(category, []):
-            safe = re.sub(r"[^a-z0-9]+", "_", kw.strip()).strip("_")
-            names.append(f"{prefix}_{safe}")
+            names.append(f"{labels[category]}: {kw.strip()}")
     return names
 
 

@@ -108,7 +108,7 @@ class TestKeywordFeatureNames:
             "exploratory": ["analytics"],
         }
         names = keyword_feature_names(keywords)
-        assert names == ["kw_pos_ml", "kw_pos_data_science", "kw_neg_student", "kw_exp_analytics"]
+        assert names == ["positive keyword: ml", "positive keyword: data science", "negative keyword: student", "exploratory keyword: analytics"]
 
     def test_empty_keywords(self):
         keywords = {"positive": [], "negative": [], "exploratory": []}
