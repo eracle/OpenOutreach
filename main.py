@@ -42,11 +42,57 @@ def cmd_generate_keywords(args):
     logger.info("  %d positive, %d negative, %d exploratory", len(data["positive"]), len(data["negative"]), len(data["exploratory"]))
 
 
+ME_URL = "https://www.linkedin.com/in/me/"
+
+
+def ensure_self_profile(session):
+    """Discover the logged-in user's own profile via Voyager API and mark it IGNORED.
+
+    Creates two IGNORED leads: the real profile URL and a ``/in/me/`` sentinel.
+    On subsequent runs the sentinel is detected and the function returns early.
+    """
+    from crm.models import Lead
+
+    from linkedin.api.client import PlaywrightLinkedinAPI
+    from linkedin.db.crm_profiles import (
+        add_profile_urls,
+        public_id_to_url,
+        save_scraped_profile,
+        set_profile_state,
+    )
+    from linkedin.navigation.enums import ProfileState
+
+    # Sentinel check — already ran once
+    if Lead.objects.filter(website=ME_URL).exists():
+        logger.debug("Self-profile already discovered (sentinel exists)")
+        return
+
+    api = PlaywrightLinkedinAPI(session=session)
+    profile, data = api.get_profile(public_identifier="me")
+
+    if not profile:
+        logger.warning("Could not fetch own profile via Voyager API")
+        return
+
+    real_id = profile["public_identifier"]
+    real_url = public_id_to_url(real_id)
+
+    # Save and mark the real profile as IGNORED
+    add_profile_urls(session, [real_url])
+    save_scraped_profile(session, real_url, profile, data)
+    set_profile_state(session, real_id, ProfileState.IGNORED.value, reason="Own profile")
+
+    # Save the /in/me/ sentinel as IGNORED
+    add_profile_urls(session, [ME_URL])
+    set_profile_state(session, "me", ProfileState.IGNORED.value, reason="Own profile sentinel")
+
+    logger.info("Self-profile discovered: %s", real_url)
+
+
 def cmd_run(args):
     from linkedin.api.emails import ensure_newsletter_subscription
     from linkedin.conf import get_first_active_account
     from linkedin.daemon import run_daemon
-    from linkedin.db.crm_profiles import add_profile_urls
     from linkedin.onboarding import ensure_keywords
     from linkedin.sessions.registry import get_session
 
@@ -63,8 +109,8 @@ def cmd_run(args):
             sys.exit(1)
 
     session = get_session(handle=handle)
-    add_profile_urls(session, ["https://www.linkedin.com/in/eracle/"])
     session.ensure_browser()
+    ensure_self_profile(session)
     ensure_newsletter_subscription(session)
     run_daemon(session)
 

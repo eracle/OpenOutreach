@@ -47,8 +47,6 @@ def _extract_in_urls(session):
     from linkedin.db.crm_profiles import url_to_public_id
 
     page = session.page
-    # Build set of identifiers to skip: the "me" alias + the logged-in user's handle
-    skip_ids = {"me", session.handle.lower()}
 
     urls = set()
     for link in page.locator('a[href*="/in/"]').all():
@@ -57,10 +55,8 @@ def _extract_in_urls(session):
             full_url = urljoin(page.url, href.strip())
             clean = urlparse(full_url)._replace(query="", fragment="").geturl()
             try:
-                pid = url_to_public_id(clean)
+                url_to_public_id(clean)
             except ValueError:
-                continue
-            if pid.lower() in skip_ids:
                 continue
             urls.add(clean)
     logger.debug(f"Extracted {len(urls)} unique /in/ profiles")
