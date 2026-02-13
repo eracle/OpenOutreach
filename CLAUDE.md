@@ -14,8 +14,9 @@ python -m venv venv && source venv/bin/activate
 make setup                           # install deps + migrate + bootstrap CRM
 playwright install --with-deps chromium
 python main.py load urls.csv         # import profile URLs from CSV into CRM
-python main.py run                   # run the daemon (first active account)
+python main.py run                   # run the daemon (interactive onboarding on first run)
 python main.py run <handle>          # run the daemon with a specific account
+python main.py run --product-docs docs.txt --campaign-objective obj.txt  # skip interactive onboarding
 python main.py generate-keywords docs.md "sell X to Y"  # generate campaign keywords via LLM
 python manage_crm.py runserver       # Django Admin at http://localhost:8000/admin/
 make analytics                       # build dbt models (DuckDB analytics)
@@ -44,8 +45,20 @@ make up-view  # run + open VNC viewer
 ### Entry Flow
 `main.py` (Django bootstrap + auto-migrate + CRM setup) → argparse subcommands:
 - `load <csv>` — imports profile URLs into CRM via `csv_launcher.load_profiles_df()` + `crm_profiles.add_profile_urls()`
-- `run [handle]` — launches `daemon.run_daemon()` which time-spreads actions across configurable working hours
+- `run [handle]` — runs onboarding (if needed), then launches `daemon.run_daemon()` which time-spreads actions across configurable working hours
 - `generate-keywords <product_docs> "<objective>"` — calls LLM to generate `assets/campaign_keywords.yaml` with positive/negative/exploratory keyword lists for ML scoring
+
+### Onboarding (`onboarding.py`)
+Before the daemon starts, `ensure_keywords()` ensures campaign keywords exist. Three paths:
+
+1. **CLI file args** (`python main.py run --product-docs docs.txt --campaign-objective obj.txt`) — reads both files, calls LLM to generate keywords, persists all three files to `assets/campaign/`.
+2. **Already onboarded** — if `assets/campaign/campaign_keywords.yaml` exists, does nothing.
+3. **Interactive onboarding** — if no keywords file exists and no CLI args, prompts the user in the terminal:
+   - Product/service description (multi-line, Ctrl-D to finish)
+   - Campaign objective (multi-line, Ctrl-D to finish)
+   - Validates non-empty, persists inputs to `assets/campaign/product_docs.txt` and `assets/campaign/campaign_objective.txt`, then calls LLM to generate keywords.
+
+Persisted files under `assets/campaign/`: `product_docs.txt`, `campaign_objective.txt`, `campaign_keywords.yaml`.
 
 ### Profile State Machine
 Each profile progresses through states defined in `navigation/enums.py:ProfileState`:
@@ -81,7 +94,8 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 - **`rate_limiter.py:RateLimiter`** — Daily/weekly rate limits with auto-reset. Supports external exhaustion (LinkedIn-side limits).
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
 - **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_pending_profiles()`, `get_connected_profiles()` for lane queries. CRM lookups are `@lru_cache`d.
-- **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. Exports `CAMPAIGN_CONFIG` dict (rate limits, timing, feature flags), `KEYWORDS_FILE` path. All paths derived from `ASSETS_DIR`.
+- **`onboarding.py`** — Interactive onboarding and keyword generation. `ensure_keywords()` handles three paths (CLI files, already onboarded, interactive). `generate_keywords()` calls LLM via Jinja2 prompt template and validates the YAML response. `_read_multiline()` reads multi-line terminal input (Ctrl-D to finish).
+- **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. Exports `CAMPAIGN_CONFIG` dict (rate limits, timing, feature flags), `KEYWORDS_FILE` / `PRODUCT_DOCS_FILE` / `CAMPAIGN_OBJECTIVE_FILE` paths. All paths derived from `ASSETS_DIR`.
 - **`api/voyager.py`** — Parses LinkedIn's Voyager API JSON responses into clean dicts via internal dataclasses (`LinkedInProfile`, `Position`, `Education`). Uses URN reference resolution from the `included` array.
 - **`django_settings.py`** — Django settings importing DjangoCRM's default settings. SQLite DB at `assets/data/crm.db`.
 - **`management/setup_crm.py`** — Idempotent bootstrap: creates Department, Users, Deal Stages (including Ignored), ClosingReasons, LeadSource.
@@ -92,7 +106,9 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 ### Configuration
 - **`assets/accounts.secrets.yaml`** — Single config file containing: `env:` (API keys, model), `campaign:` (rate limits, timing, feature flags), `accounts:` (credentials, CSV path, template). Copy from `assets/accounts.secrets.template.yaml`.
 - **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.recheck_after_hours`, `follow_up.daily_limit`, `follow_up.recheck_after_hours`, `follow_up.existing_connections` (false = ignore pre-existing connections), `enrich_min_interval` (floor seconds between enrichment API calls, default 1), `working_hours.start` / `working_hours.end` (HH:MM, default 09:00–18:00, OS local timezone).
-- **`assets/campaign_keywords.yaml`** — Optional. Generated by `generate-keywords` subcommand. Contains `positive`, `negative`, and `exploratory` keyword lists used by the ML scorer for boolean presence features and cold-start ranking.
+- **`assets/campaign/campaign_keywords.yaml`** — Generated by `generate-keywords` subcommand or interactive onboarding. Contains `positive`, `negative`, and `exploratory` keyword lists used by the ML scorer for boolean presence features and cold-start ranking.
+- **`assets/campaign/product_docs.txt`** — Persisted product/service description from onboarding. Used to regenerate keywords if needed.
+- **`assets/campaign/campaign_objective.txt`** — Persisted campaign objective from onboarding.
 - **`assets/templates/prompts/generate_keywords.j2`** — Jinja2 prompt template for LLM-based keyword generation. Receives `product_docs` and `campaign_objective` variables.
 - **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`.
 
