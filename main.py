@@ -13,8 +13,15 @@ from linkedin.management.setup_crm import setup_crm
 logging.getLogger().handlers.clear()
 logging.basicConfig(
     level=logging.INFO,
-    format="%(message)s",
+    format="%(asctime)s  %(message)s",
+    datefmt="%H:%M:%S",
 )
+
+# Suppress noisy third-party loggers
+for _name in ("urllib3", "httpx", "langchain", "dbt", "playwright", "httpcore"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
+
+logger = logging.getLogger(__name__)
 
 
 def cmd_load(args):
@@ -27,7 +34,7 @@ def cmd_load(args):
     if handle is None:
         handle = get_first_active_account()
         if handle is None:
-            print("No handle provided and no active accounts found.")
+            logger.error("No handle provided and no active accounts found.")
             sys.exit(1)
 
     session = get_session(handle=handle)
@@ -61,7 +68,7 @@ def cmd_generate_keywords(args):
     template = env.get_template("generate_keywords.j2")
     prompt = template.render(product_docs=product_docs, campaign_objective=campaign_objective)
 
-    print("Calling LLM to generate campaign keywords...")
+    logger.info("Calling LLM to generate campaign keywords...")
     response = call_llm(prompt)
 
     # Strip markdown code fences if present
@@ -70,20 +77,20 @@ def cmd_generate_keywords(args):
 
     data = yaml.safe_load(cleaned)
     if not isinstance(data, dict):
-        print(f"Error: LLM response did not parse as YAML dict:\n{response}")
+        logger.error("LLM response did not parse as YAML dict:\n%s", response)
         sys.exit(1)
 
     for key in ("positive", "negative", "exploratory"):
         if key not in data or not isinstance(data[key], list):
-            print(f"Error: Missing or invalid '{key}' list in LLM response")
+            logger.error("Missing or invalid '%s' list in LLM response", key)
             sys.exit(1)
         data[key] = [kw.lower().strip() for kw in data[key]]
 
     with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
 
-    print(f"Keywords written to {KEYWORDS_FILE}")
-    print(f"  {len(data['positive'])} positive, {len(data['negative'])} negative, {len(data['exploratory'])} exploratory")
+    logger.info("Keywords written to %s", KEYWORDS_FILE)
+    logger.info("  %d positive, %d negative, %d exploratory", len(data["positive"]), len(data["negative"]), len(data["exploratory"]))
 
 
 def cmd_run(args):
@@ -96,7 +103,7 @@ def cmd_run(args):
     if handle is None:
         handle = get_first_active_account()
         if handle is None:
-            print("No handle provided and no active accounts found.")
+            logger.error("No handle provided and no active accounts found.")
             sys.exit(1)
 
     session = get_session(handle=handle)

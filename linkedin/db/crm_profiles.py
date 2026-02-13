@@ -247,7 +247,8 @@ def save_scraped_profile(
 ):
     """
     Update Lead fields from parsed profile, create/update Contact + Company,
-    move Deal to 'Enriched' stage, attach raw data as TheFile.
+    attach raw data as TheFile.  Does NOT change Deal stage — caller must
+    call set_profile_state() afterwards.
     """
     public_id = url_to_public_id(url)
     clean_url = public_id_to_url(public_id)
@@ -258,11 +259,6 @@ def save_scraped_profile(
     company = _ensure_company(lead, profile)
     _ensure_contact(lead, company)
 
-    # Move Deal to Enriched stage
-    enriched_stage = _get_stage(ProfileState.ENRICHED)
-    deal.stage = enriched_stage
-    deal.change_stage_data(date.today())
-    deal.next_step_date = date.today()
     if company:
         deal.company = company
     if lead.contact:
@@ -272,8 +268,7 @@ def save_scraped_profile(
     if data:
         _attach_raw_data(lead, public_id, data)
 
-    # debug_profile_preview(profile) if logger.isEnabledFor(logging.DEBUG) else None
-    logger.debug("SUCCESS: Saved enriched profile → %s", public_id)
+    logger.debug("Saved profile data for %s", public_id)
 
 
 def set_profile_state(
@@ -292,7 +287,10 @@ def set_profile_state(
     _lead, deal = _get_or_create_lead_and_deal(session, public_identifier, clean_url)
 
     ps = ProfileState(new_state)
+    old_stage_name = deal.stage.name if deal.stage else None
     new_stage = _get_stage(ps)
+    state_changed = (old_stage_name != new_stage.name)
+
     deal.stage = new_stage
     deal.change_stage_data(date.today())
     deal.next_step_date = date.today()
@@ -334,15 +332,18 @@ def set_profile_state(
     _STATE_LOG_STYLE = {
         ProfileState.DISCOVERED: ("DISCOVERED", "green", []),
         ProfileState.ENRICHED: ("ENRICHED", "yellow", ["bold"]),
-        ProfileState.PENDING: ("PENDING", "yellow", ["bold"]),
-        ProfileState.CONNECTED: ("CONNECTED", "green", []),
+        ProfileState.PENDING: ("PENDING", "cyan", []),
+        ProfileState.CONNECTED: ("CONNECTED", "green", ["bold"]),
         ProfileState.COMPLETED: ("COMPLETED", "green", ["bold"]),
         ProfileState.FAILED: ("FAILED", "red", ["bold"]),
         ProfileState.IGNORED: ("IGNORED", "blue", ["bold"]),
     }
     label, color, attrs = _STATE_LOG_STYLE.get(ps, ("ERROR", "red", ["bold"]))
     suffix = f" ({reason})" if reason else ""
-    logger.info("%s %s%s", public_identifier, colored(label, color, attrs=attrs), suffix)
+    if state_changed:
+        logger.info("%s %s%s", public_identifier, colored(label, color, attrs=attrs), suffix)
+    else:
+        logger.debug("%s %s (unchanged)%s", public_identifier, label, suffix)
 
 
 def get_profile(session: "AccountSession", public_identifier: str) -> Optional[dict]:

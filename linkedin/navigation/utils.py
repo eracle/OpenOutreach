@@ -86,7 +86,7 @@ TOP_CARD_SELECTORS = [
 def get_top_card(session):
     top_card = first_matching(session.page, TOP_CARD_SELECTORS)
     if top_card is None:
-        logger.info("Skipping profile")
+        logger.warning("Top card not found on %s", session.page.url)
         raise SkipProfile("Top Card section not found")
     return top_card
 

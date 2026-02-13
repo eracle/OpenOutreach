@@ -18,7 +18,7 @@ SELECTORS = {
 def _go_to_profile(session: "AccountSession", url: str, public_identifier: str):
     if f"/in/{public_identifier}" in session.page.url:
         return
-    logger.info("Direct navigation → %s", public_identifier)
+    logger.debug("Direct navigation → %s", public_identifier)
     goto_page(
         session,
         action=lambda: session.page.goto(url),
@@ -86,7 +86,7 @@ def _paginate_to_next_page(session: "AccountSession", page_num: int):
     params["page"] = [str(page_num)]
     new_url = current._replace(query=urlencode(params, doseq=True)).geturl()
 
-    logger.info("Scanning search page %s", page_num)
+    logger.debug("Scanning search page %s", page_num)
     goto_page(
         session,
         action=lambda: page.goto(new_url),

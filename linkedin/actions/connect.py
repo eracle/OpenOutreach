@@ -35,13 +35,13 @@ def send_connection_request(
 
     # Send invitation WITHOUT note (current active flow)
     if not _connect_direct(session) and not _connect_via_more(session):
-        logger.info(f"Connection request ENRICHED → {public_identifier}")
+        logger.debug("Connect button not found for %s — staying ENRICHED", public_identifier)
         return ProfileState.ENRICHED
 
     _click_without_note(session)
     _check_weekly_invitation_limit(session)
 
-    logger.info(f"Connection request PENDING → {public_identifier}")
+    logger.debug("Connection request submitted for %s", public_identifier)
     return ProfileState.PENDING
 
 
