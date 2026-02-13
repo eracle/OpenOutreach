@@ -101,12 +101,9 @@ def get_account_config(handle: str) -> Dict[str, Any]:
 
     acct = _accounts_config[handle]
 
-    input_csv_rel = acct.get("input_csv")
     followup_rel  = acct.get("followup_template")
     template_type = acct.get("followup_template_type")
 
-    if input_csv_rel is None:
-        raise ValueError(f"Missing 'input_csv' for account '{handle}'")
     if followup_rel is None:
         raise ValueError(f"Missing 'followup_template' for account '{handle}'")
     if template_type is None:
@@ -122,7 +119,6 @@ def get_account_config(handle: str) -> Dict[str, Any]:
 
         "cookie_file": COOKIES_DIR / f"{handle}.json",
 
-        "input_csv": ASSETS_DIR / input_csv_rel,
         "followup_template": ASSETS_DIR / followup_rel,
         "followup_template_type": template_type,
     }

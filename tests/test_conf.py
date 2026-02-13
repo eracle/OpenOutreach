@@ -15,7 +15,6 @@ def _full_account(**overrides):
         "active": True,
         "username": "user",
         "password": "pass",
-        "input_csv": "inputs/urls.csv",
         "followup_template": "templates/followup.j2",
         "followup_template_type": "jinja",
     }
@@ -70,12 +69,6 @@ class TestGetAccountConfig:
         with patch("linkedin.conf._accounts_config", {}):
             with pytest.raises(KeyError):
                 get_account_config("unknown")
-
-    def test_missing_input_csv_raises(self):
-        config = {"alice": _full_account(input_csv=None)}
-        with patch("linkedin.conf._accounts_config", config):
-            with pytest.raises(ValueError, match="input_csv"):
-                get_account_config("alice")
 
     def test_missing_followup_template_raises(self):
         config = {"alice": _full_account(followup_template=None)}

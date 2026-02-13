@@ -7,7 +7,7 @@ workflow engine.
 
 The system automates LinkedIn outreach through a daemon that schedules actions across configurable working hours:
 
-1. **Input**: LinkedIn profile URLs are loaded from CSV files into a local CRM (DjangoCRM).
+1. **Input**: A seed profile is loaded on startup, and new profiles are auto-discovered as the daemon navigates LinkedIn pages.
 2. **Enrichment**: The daemon scrapes detailed profile data via LinkedIn's internal Voyager API and stores it in the CRM.
 3. **ML Ranking**: Profiles are scored using a gradient boosted trees model (+ Thompson Sampling) trained on historical connection acceptance data.
 4. **Outreach**: Connection requests are sent to the highest-ranked profiles, and follow-up messages are sent after acceptance.

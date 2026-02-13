@@ -34,9 +34,6 @@ Before running, you need to set up your credentials and target profiles:
     ```
     Then, edit `assets/accounts.secrets.yaml` with your LinkedIn username and password. You can add multiple accounts, but only one should be marked as `active: true`.
 
-2.  **Add Target Profiles**
-    Paste the full LinkedIn profile URLs of the people you want to target into `assets/inputs/urls.csv`, one URL per line.
-
 Once configured, running `make up` will launch the default campaign. The process is fully resumable, so you can stop (`make stop`) and restart it at any time without losing progress.
 
 ## 🖥️ Visual Debugging with VNC
