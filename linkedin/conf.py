@@ -57,13 +57,17 @@ _connect_cfg = _campaign_raw.get("connect", {}) or {}
 _check_cfg = _campaign_raw.get("check_pending", {}) or {}
 _followup_cfg = _campaign_raw.get("follow_up", {}) or {}
 
+_schedule_cfg = _campaign_raw.get("working_hours", {}) or {}
+
 CAMPAIGN_CONFIG = {
     "connect_daily_limit": _connect_cfg.get("daily_limit", 20),
     "connect_weekly_limit": _connect_cfg.get("weekly_limit", 100),
     "check_pending_recheck_after_hours": _check_cfg.get("recheck_after_hours", 1),
     "follow_up_daily_limit": _followup_cfg.get("daily_limit", 30),
     "follow_up_existing_connections": _followup_cfg.get("existing_connections", False),
-    "idle_sleep_minutes": _campaign_raw.get("idle_sleep_minutes", 30),
+    "working_hours_start": _schedule_cfg.get("start", "09:00"),
+    "working_hours_end": _schedule_cfg.get("end", "18:00"),
+    "enrich_min_interval": _campaign_raw.get("enrich_min_interval", 1),
 }
 
 # ----------------------------------------------------------------------

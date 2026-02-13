@@ -5,7 +5,6 @@ import logging
 
 from linkedin.api.client import PlaywrightLinkedinAPI
 from linkedin.conf import CAMPAIGN_CONFIG
-from linkedin.sessions.account import human_delay
 from linkedin.db.crm_profiles import (
     count_pending_scrape,
     get_next_url_to_scrape,
@@ -46,27 +45,25 @@ class EnrichLane:
         self.session.ensure_browser()
         api = PlaywrightLinkedinAPI(session=self.session)
 
-        for url in urls:
+        url = urls[0]
+        try:
+            profile, data = api.get_profile(profile_url=url)
+            save_scraped_profile(self.session, url, profile, data)
+            if not profile:
+                public_id = url_to_public_id(url)
+                set_profile_state(self.session, public_id, ProfileState.FAILED.value)
+                return
+
+            if is_preexisting_connection(profile):
+                public_id = url_to_public_id(url)
+                set_profile_state(
+                    self.session, public_id, ProfileState.IGNORED.value,
+                    reason="Pre-existing connection (not initiated by automation)",
+                )
+        except Exception:
+            logger.exception("Failed to enrich %s", url)
             try:
-                profile, data = api.get_profile(profile_url=url)
-                save_scraped_profile(self.session, url, profile, data)
-                if not profile:
-                    public_id = url_to_public_id(url)
-                    set_profile_state(self.session, public_id, ProfileState.FAILED.value)
-                    continue
-
-                if is_preexisting_connection(profile):
-                    public_id = url_to_public_id(url)
-                    set_profile_state(
-                        self.session, public_id, ProfileState.IGNORED.value,
-                        reason="Pre-existing connection (not initiated by automation)",
-                    )
-
-                human_delay(0.5, 1.5)
+                public_id = url_to_public_id(url)
+                set_profile_state(self.session, public_id, ProfileState.FAILED.value)
             except Exception:
-                logger.exception("Failed to enrich %s", url)
-                try:
-                    public_id = url_to_public_id(url)
-                    set_profile_state(self.session, public_id, ProfileState.FAILED.value)
-                except Exception:
-                    pass
+                pass
