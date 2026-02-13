@@ -104,9 +104,24 @@ class TestCheckPendingLaneCanExecute:
 
     def test_cannot_execute_too_recent(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
-        # next_step_date is already date.today() from set_profile_state
+        # update_date is already now() from set_profile_state's deal.save()
         scorer = ProfileScorer(seed=42)
         lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        assert lane.can_execute() is False
+
+    def test_cannot_execute_with_high_backoff(self, fake_session):
+        """Profile with large per-profile backoff is not ready even if base would allow it."""
+        import json
+        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
+        from crm.models import Deal
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        Deal.objects.filter(pk=deal.pk).update(
+            update_date=timezone.now() - timedelta(hours=5),
+            next_step=json.dumps({"backoff_hours": 100}),
+        )
+
+        scorer = ProfileScorer(seed=42)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=1, scorer=scorer)
         assert lane.can_execute() is False
 
     def test_cannot_execute_empty(self, fake_session):
@@ -325,6 +340,49 @@ class TestCheckPendingLaneExecute:
         result = get_profile(fake_session, "alice")
         assert result["state"] == ProfileState.PENDING.value
         mock_retrain.assert_not_called()
+
+    @patch.object(CheckPendingLane, "_retrain")
+    @patch("linkedin.actions.connection_status.get_connection_status")
+    def test_execute_doubles_backoff_when_still_pending(
+        self, mock_status, mock_retrain, fake_session
+    ):
+        import json
+        mock_status.return_value = ProfileState.PENDING
+        lane = self._setup(fake_session)
+        lane.execute()
+
+        from crm.models import Deal
+        from linkedin.db.crm_profiles import public_id_to_url
+        deal = Deal.objects.get(lead__website=public_id_to_url("alice"))
+        meta = json.loads(deal.next_step)
+        # Default base is 72h, doubled to 144h
+        assert meta["backoff_hours"] == 144
+
+    @patch.object(CheckPendingLane, "_retrain")
+    @patch("linkedin.actions.connection_status.get_connection_status")
+    def test_execute_doubles_existing_backoff(
+        self, mock_status, mock_retrain, fake_session
+    ):
+        import json
+        mock_status.return_value = ProfileState.PENDING
+
+        # Set an initial backoff of 10h
+        _make_enriched(fake_session, "bob")
+        set_profile_state(fake_session, "bob", ProfileState.PENDING.value)
+        from crm.models import Deal
+        from linkedin.db.crm_profiles import public_id_to_url
+        Deal.objects.filter(lead__website=public_id_to_url("bob")).update(
+            update_date=timezone.now() - timedelta(days=5),
+            next_step=json.dumps({"backoff_hours": 10}),
+        )
+
+        scorer = ProfileScorer(seed=42)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        lane.execute()
+
+        deal = Deal.objects.get(lead__website=public_id_to_url("bob"))
+        meta = json.loads(deal.next_step)
+        assert meta["backoff_hours"] == 20
 
     @patch.object(CheckPendingLane, "_retrain")
     @patch("linkedin.actions.connection_status.get_connection_status")

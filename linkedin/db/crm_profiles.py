@@ -93,6 +93,21 @@ def _get_or_create_lead_and_deal(session, public_id: str, clean_url: str):
     return lead, deal
 
 
+def _parse_next_step(deal) -> dict:
+    """Parse deal.next_step as JSON, return empty dict on failure or empty string."""
+    if not deal.next_step:
+        return {}
+    try:
+        return json.loads(deal.next_step)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def _set_next_step(deal, data: dict):
+    """Serialize dict to JSON string and assign to deal.next_step."""
+    deal.next_step = json.dumps(data)
+
+
 def _lead_state(deal) -> str:
     """Derive ProfileState value from a Deal's stage name."""
     if not deal or not deal.stage:
@@ -291,9 +306,16 @@ def set_profile_state(
     new_stage = _get_stage(ps)
     state_changed = (old_stage_name != new_stage.name)
 
+    old_is_pending = (old_stage_name == STATE_TO_STAGE[ProfileState.PENDING])
+    new_is_pending = (ps == ProfileState.PENDING)
+
     deal.stage = new_stage
     deal.change_stage_data(date.today())
     deal.next_step_date = date.today()
+
+    # Clear backoff metadata on any transition to or from PENDING
+    if old_is_pending or new_is_pending:
+        deal.next_step = ""
 
     if reason:
         deal.description = reason
@@ -324,9 +346,6 @@ def set_profile_state(
             deal.closing_reason = closing
         deal.active = False
 
-    # WARNING: get_pending_profiles filters on deal.update_date (auto_now=True),
-    # which refreshes on every save(). Removing this save or skipping it on
-    # no-change rechecks will break recheck_after_hours timing.
     deal.save()
 
     _STATE_LOG_STYLE = {
@@ -423,6 +442,7 @@ def _deal_to_profile_dict(deal) -> dict:
         "public_identifier": public_id,
         "url": lead.website or "",
         "profile": profile,
+        "meta": _parse_next_step(deal),
     }
 
 
@@ -451,31 +471,42 @@ def count_enriched_profiles(session) -> int:
 
 
 def get_pending_profiles(session, recheck_after_hours: float) -> list:
-    """PENDING deals where update_date is older than recheck_after_hours."""
+    """PENDING deals filtered by per-profile exponential backoff.
+
+    Each deal stores its own backoff in ``deal.next_step`` as
+    ``{"backoff_hours": <float>}``.  If absent, *recheck_after_hours*
+    is used as the default (first check).
+    """
     from crm.models import Deal
 
     now = timezone.now()
-    cutoff = now - timedelta(hours=recheck_after_hours)
-    logger.debug(
-        "get_pending_profiles: now=%s cutoff=%s (recheck_after_hours=%.1f)",
-        now, cutoff, recheck_after_hours,
-    )
     stage = _get_stage(ProfileState.PENDING)
-    deals = list(
+    all_deals = list(
         Deal.objects.filter(
             stage=stage,
             owner=session.django_user,
-            update_date__lte=cutoff,
         ).select_related("lead")
     )
-    total = Deal.objects.filter(stage=stage, owner=session.django_user).count()
-    logger.debug(
-        "get_pending_profiles: %d/%d PENDING deals past cutoff", len(deals), total,
-    )
-    for d in deals:
-        logger.debug("  ↳ %s update_date=%s", d.name, d.update_date)
 
-    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
+    ready = []
+    for d in all_deals:
+        meta = _parse_next_step(d)
+        backoff = meta.get("backoff_hours", recheck_after_hours)
+        cutoff = d.update_date + timedelta(hours=backoff)
+        if now >= cutoff:
+            ready.append(d)
+        else:
+            logger.debug(
+                "  ↳ %s not ready (backoff=%.1fh, next check at %s)",
+                d.name, backoff, cutoff,
+            )
+
+    logger.debug(
+        "get_pending_profiles: %d/%d PENDING deals ready (base=%.1fh)",
+        len(ready), len(all_deals), recheck_after_hours,
+    )
+
+    return [_deal_to_profile_dict(d) for d in ready if d.lead and d.lead.website]
 
 
 def get_connected_profiles(session) -> list:

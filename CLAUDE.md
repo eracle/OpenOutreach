@@ -68,9 +68,9 @@ States map to DjangoCRM Deal Stages (defined in `db/crm_profiles.py:STATE_TO_STA
 
 The daemon (`daemon.py`) spreads actions across configurable working hours (default 09:00–18:00, OS local timezone). Three **major lanes** are scheduled at fixed intervals derived from `active_hours / daily_limit` (±20% random jitter). **Enrichment** dynamically fills the gaps between major actions (`gap / profiles_to_enrich`, floored at `enrich_min_interval`). Outside working hours the daemon sleeps until the next window starts.
 
-1. **Connect** (scheduled) — ML-ranks ENRICHED profiles, sends connection request → PENDING. Interval = active_minutes / connect_daily_limit.
-2. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Interval = active_minutes / follow_up_daily_limit.
-3. **Check Pending** (scheduled) — checks PENDING profiles for acceptance → CONNECTED (triggers ML retrain via dbt). Interval = check_pending_recheck_after_hours.
+1. **Check Pending** (scheduled, highest priority) — checks PENDING profiles for acceptance → CONNECTED (triggers ML retrain via dbt). Uses exponential backoff per profile: initial interval = `check_pending_recheck_after_hours`, doubles each time a profile is still pending.
+2. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Contacts profiles immediately once discovered as connected. Interval = active_minutes / follow_up_daily_limit.
+3. **Connect** (scheduled) — ML-ranks ENRICHED profiles, sends connection request → PENDING. Interval = active_minutes / connect_daily_limit.
 4. **Enrich** (gap-filling) — scrapes 1 DISCOVERED profile per tick via Voyager API → ENRICHED (or IGNORED if pre-existing connection). Paced to fill time between major actions.
 
 The `IGNORED` state is a terminal state for pre-existing connections (already connected before the automation ran). Controlled by `follow_up_existing_connections` config flag.
@@ -79,7 +79,7 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 - **Lead** — Created per LinkedIn profile URL. Stores `first_name`, `last_name`, `title`, `website` (LinkedIn URL), `description` (full parsed profile JSON).
 - **Contact** — Created after enrichment, linked to Company.
 - **Company** — Created from first position's company name.
-- **Deal** — Tracks pipeline stage. One Deal per Lead. Stage maps to ProfileState.
+- **Deal** — Tracks pipeline stage. One Deal per Lead. Stage maps to ProfileState. `next_step` field stores JSON metadata (e.g. `{"backoff_hours": N}` for exponential backoff in check_pending).
 - **TheFile** — Raw Voyager API JSON attached to Lead via GenericForeignKey.
 
 ### Key Modules
@@ -87,13 +87,13 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 - **`lanes/`** — Action lanes executed by the daemon:
   - `enrich.py` — Scrapes 1 DISCOVERED profile per tick via Voyager API. Detects pre-existing connections (IGNORED). Exports `is_preexisting_connection()` shared helper.
   - `connect.py` — ML-ranks ENRICHED profiles, sends connection requests. Catches pre-existing connections missed by enrich (when `connection_degree` was None at scrape time).
-  - `check_pending.py` — Checks PENDING profiles for acceptance. Triggers dbt rebuild + ML retrain when connections flip.
+  - `check_pending.py` — Checks PENDING profiles for acceptance. Uses exponential backoff: doubles `backoff_hours` in `deal.next_step` each time a profile is still pending. Triggers dbt rebuild + ML retrain when connections flip.
   - `follow_up.py` — Sends follow-up messages to CONNECTED profiles.
 - **`ml/keywords.py`** — Keyword loading (`load_keywords`), profile text extraction (`build_profile_text`), boolean keyword presence features (`compute_keyword_features`), and cold-start heuristic scoring (`cold_start_score`). Keywords are loaded from `assets/campaign_keywords.yaml`.
 - **`ml/scorer.py:ProfileScorer`** — ElasticNet (SGDClassifier) + Thompson Sampling for profile ranking. Uses 24 mechanical features + dynamic boolean keyword presence features from campaign keywords. Trains from `analytics.duckdb` mart. Falls back to cold-start keyword heuristic (count of distinct positive keywords present minus negative, if keywords exist) or FIFO (if no keywords). On schema mismatch, the daemon auto-rebuilds analytics via `dbt run`.
 - **`rate_limiter.py:RateLimiter`** — Daily/weekly rate limits with auto-reset. Supports external exhaustion (LinkedIn-side limits).
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
-- **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_pending_profiles()`, `get_connected_profiles()` for lane queries. CRM lookups are `@lru_cache`d.
+- **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_pending_profiles()` (per-profile exponential backoff via `deal.next_step`), `get_connected_profiles()` for lane queries. `_deal_to_profile_dict()` includes a `meta` key with parsed `next_step` JSON. `set_profile_state()` clears `next_step` on any transition to/from PENDING. CRM lookups are `@lru_cache`d.
 - **`onboarding.py`** — Interactive onboarding and keyword generation. `ensure_keywords()` handles three paths (CLI files, already onboarded, interactive). `generate_keywords()` calls LLM via Jinja2 prompt template and validates the YAML response. `_read_multiline()` reads multi-line terminal input (Ctrl-D to finish).
 - **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. Exports `CAMPAIGN_CONFIG` dict (rate limits, timing, feature flags), `KEYWORDS_FILE` / `PRODUCT_DOCS_FILE` / `CAMPAIGN_OBJECTIVE_FILE` paths. All paths derived from `ASSETS_DIR`.
 - **`api/voyager.py`** — Parses LinkedIn's Voyager API JSON responses into clean dicts via internal dataclasses (`LinkedInProfile`, `Position`, `Education`). Uses URN reference resolution from the `included` array.
@@ -105,7 +105,7 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 
 ### Configuration
 - **`assets/accounts.secrets.yaml`** — Single config file containing: `env:` (API keys, model), `campaign:` (rate limits, timing, feature flags), `accounts:` (credentials, CSV path, template). Copy from `assets/accounts.secrets.template.yaml`.
-- **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.recheck_after_hours`, `follow_up.daily_limit`, `follow_up.recheck_after_hours`, `follow_up.existing_connections` (false = ignore pre-existing connections), `enrich_min_interval` (floor seconds between enrichment API calls, default 1), `working_hours.start` / `working_hours.end` (HH:MM, default 09:00–18:00, OS local timezone).
+- **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.recheck_after_hours` (base interval, doubles per profile via exponential backoff), `follow_up.daily_limit`, `follow_up.existing_connections` (false = ignore pre-existing connections), `enrich_min_interval` (floor seconds between enrichment API calls, default 1), `working_hours.start` / `working_hours.end` (HH:MM, default 09:00–18:00, OS local timezone).
 - **`assets/campaign/campaign_keywords.yaml`** — Generated by `generate-keywords` subcommand or interactive onboarding. Contains `positive`, `negative`, and `exploratory` keyword lists used by the ML scorer for boolean presence features and cold-start ranking.
 - **`assets/campaign/product_docs.txt`** — Persisted product/service description from onboarding. Used to regenerate keywords if needed.
 - **`assets/campaign/campaign_objective.txt`** — Persisted campaign objective from onboarding.
