@@ -116,7 +116,7 @@ class TestKeywordFeatureNames:
 
 
 class TestComputeKeywordFeatures:
-    def test_counts_occurrences(self):
+    def test_boolean_presence(self):
         keywords = {
             "positive": ["machine learning"],
             "negative": ["student"],
@@ -124,7 +124,7 @@ class TestComputeKeywordFeatures:
         }
         text = "machine learning expert in machine learning and ai"
         features = compute_keyword_features(text, keywords)
-        assert features[0] == 2.0  # "machine learning" appears twice
+        assert features[0] == 1.0  # "machine learning" present (boolean, not count)
         assert features[1] == 0.0  # "student" not present
 
     def test_no_matches(self):
@@ -145,7 +145,7 @@ class TestComputeKeywordFeatures:
         }
         text = "Expert in Data Science and DATA SCIENCE applications"
         features = compute_keyword_features(text, keywords)
-        assert features[0] == 2.0
+        assert features[0] == 1.0  # boolean: present
 
 
 class TestColdStartScore:
@@ -157,7 +157,7 @@ class TestColdStartScore:
         }
         text = "ml engineer working on ai and ml systems"
         score = cold_start_score(text, keywords)
-        assert score == 3.0  # ml appears twice, ai once
+        assert score == 2.0  # ml present (+1), ai present (+1) — capped at 1 per keyword
 
     def test_negative_subtracts(self):
         keywords = {
@@ -167,7 +167,7 @@ class TestColdStartScore:
         }
         text = "student intern looking for roles"
         score = cold_start_score(text, keywords)
-        # "student" 1x, "intern" 1x → -2
+        # "student" present (-1), "intern" present (-1) → -2
         assert score == -2.0
 
     def test_exploratory_ignored(self):

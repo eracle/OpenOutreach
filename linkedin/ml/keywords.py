@@ -73,24 +73,22 @@ def keyword_feature_names(keywords: dict) -> list[str]:
 
 
 def compute_keyword_features(text: str, keywords: dict) -> list[float]:
-    """Count occurrences of each keyword in text. Same order as keyword_feature_names()."""
+    """Boolean presence (1/0) of each keyword in text. Same order as keyword_feature_names()."""
     text_lower = text.lower()
-    counts = []
+    flags = []
     for category in ("positive", "negative", "exploratory"):
         for kw in keywords.get(category, []):
-            counts.append(float(text_lower.count(kw)))
-    return counts
+            flags.append(1.0 if kw in text_lower else 0.0)
+    return flags
 
 
 def cold_start_score(text: str, keywords: dict) -> float:
-    """Heuristic score: sum(positive counts) - sum(negative counts).
+    """Heuristic score: number of distinct positive keywords present minus negative.
 
+    Each keyword contributes at most +1 or -1.
     Exploratory keywords are ignored (they're for exploration/exploitation balance).
     """
     text_lower = text.lower()
-    score = 0.0
-    for kw in keywords.get("positive", []):
-        score += text_lower.count(kw)
-    for kw in keywords.get("negative", []):
-        score -= text_lower.count(kw)
-    return score
+    pos = sum(1 for kw in keywords.get("positive", []) if kw in text_lower)
+    neg = sum(1 for kw in keywords.get("negative", []) if kw in text_lower)
+    return float(pos - neg)
