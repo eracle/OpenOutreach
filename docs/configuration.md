@@ -1,46 +1,122 @@
 # Configuration
 
-The application's configuration is managed through a combination of a central YAML file for account settings and
-environment variables for sensitive keys.
+All configuration lives in a single YAML file: `assets/accounts.secrets.yaml`. This file is gitignored and
+contains credentials, LLM settings, campaign behavior, and account definitions.
 
-## Account Configuration (`accounts.secrets.yaml`)
-
-All account-related settings are defined in `assets/accounts.secrets.yaml`. You can have multiple accounts defined in
-this file, each with its own settings.
-
-To get started, copy the template file:
+To get started, copy the template:
 
 ```bash
 cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
 ```
 
-### Account Structure
+The file has three top-level sections: `env`, `campaign`, and `accounts`.
 
-Each account is defined by a unique `handle` (e.g., `jane_doe_main`). Here are the available fields for each account:
+## LLM Configuration (`env:`)
 
-| Field               | Type    | Description                                                                      | Default |
-|:--------------------|:--------|:---------------------------------------------------------------------------------|:--------|
-| `active`            | boolean | If `true`, this account will be included in campaign runs.                       | `true`  |
-| `proxy`             | string  | The URL of a proxy to use for this account (e.g., `http://user:pass@host:port`). | `null`  |
-| `daily_connections` | integer | The maximum number of connection requests to send per day.                       | `50`    |
-| `daily_messages`    | integer | The maximum number of messages to send per day.                                  | `20`    |
-| `username`          | string  | The LinkedIn email address for the account.                                      | (none)  |
-| `password`          | string  | The LinkedIn password for the account.                                           | (none)  |
+Used for AI-powered follow-up messages and keyword generation. Any OpenAI-compatible provider works.
+
+```yaml
+env:
+  LLM_API_KEY:  sk-...                      # required
+  LLM_API_BASE: https://api.anthropic.com/v1 # provider base URL (optional)
+  AI_MODEL:     claude-opus-4-6               # model identifier
+```
+
+| Field | Description | Default |
+|:------|:------------|:--------|
+| `LLM_API_KEY` | API key for an OpenAI-compatible provider. | (required) |
+| `LLM_API_BASE` | Base URL for the API endpoint. | (none) |
+| `AI_MODEL` | Model identifier for message generation and keyword generation. | `gpt-5.3-codex` |
+
+These can also be set via `.env` file or environment variables (the YAML file takes precedence).
+
+## Campaign Settings (`campaign:`)
+
+Controls rate limits, timing, and behavior for each daemon lane.
+
+```yaml
+campaign:
+  connect:
+    daily_limit: 20
+    weekly_limit: 100
+  check_pending:
+    recheck_after_hours: 1
+  follow_up:
+    daily_limit: 30
+    existing_connections: false
+  enrich_min_interval: 1
+  working_hours:
+    start: "09:00"
+    end: "18:00"
+```
+
+| Field | Type | Description | Default |
+|:------|:-----|:------------|:--------|
+| `connect.daily_limit` | integer | Max connection requests per day (resets at midnight). | `20` |
+| `connect.weekly_limit` | integer | Max connection requests per week (resets on Monday). | `100` |
+| `check_pending.recheck_after_hours` | float | Base interval (hours) before first check. Doubles per profile via exponential backoff. | `1` |
+| `follow_up.daily_limit` | integer | Max follow-up messages per day (resets at midnight). | `30` |
+| `follow_up.existing_connections` | boolean | `false` = mark pre-existing connections as IGNORED. `true` = send follow-ups to all connections. | `false` |
+| `enrich_min_interval` | integer | Floor (seconds) between enrichment API calls. | `1` |
+| `working_hours.start` | string | Start of working window (`HH:MM`, OS local timezone). | `"09:00"` |
+| `working_hours.end` | string | End of working window (`HH:MM`, OS local timezone). | `"18:00"` |
+
+### How scheduling works
+
+Actions are spread across the working hours window. Connect and follow-up intervals are dynamically recalculated
+as `remaining_minutes_in_window / daily_limit`. Each interval gets ±20% random jitter for human-like pacing.
+Outside working hours, the daemon sleeps until the next window starts.
+
+## Account Configuration (`accounts:`)
+
+Define one or more LinkedIn accounts. The daemon uses the first active account by default, or you can specify
+one with `python main.py run <handle>`.
+
+```yaml
+accounts:
+  jane_doe_main:
+    active: true
+    username: jane.doe@gmail.com
+    password: SuperSecret123!
+    subscribe_newsletter:
+    input_csv: inputs/urls.csv
+    followup_template: templates/messages/followup.j2
+    followup_template_type: jinja
+    booking_link: https://calendly.com/your-link
+```
+
+| Field | Type | Description | Default |
+|:------|:-----|:------------|:--------|
+| `active` | boolean | Enable/disable this account without removing it. | `true` |
+| `username` | string | LinkedIn login email. | (required) |
+| `password` | string | LinkedIn password. | (required) |
+| `subscribe_newsletter` | boolean/null | Receive OpenOutreach updates. | `null` |
+| `input_csv` | string | Path to CSV file with target profile URLs (relative to `assets/`). | (required) |
+| `followup_template` | string | Path to the follow-up message template (relative to `assets/`). | (required) |
+| `followup_template_type` | string | Template engine: `"jinja"` for Jinja2, `"ai_prompt"` for LLM-generated messages. | (required) |
+| `booking_link` | string | URL appended to follow-up messages (e.g. your calendar page). | (none) |
 
 ### Derived Paths
 
-The system automatically generates the following paths for each account based on its handle:
+The system automatically generates these paths per account:
 
-- **Cookie File**: `assets/cookies/<handle>.json`
-- **Database File**: `assets/data/<handle>.db`
+- **Cookie file**: `assets/cookies/<handle>.json` (session persistence)
 
-## Environment Variables
+## Campaign Keywords
 
-Sensitive information and global settings are configured using environment variables. These can be set in a `.env` file
-in the project root.
+Campaign keywords are stored at `assets/campaign/campaign_keywords.yaml` and generated via onboarding or the
+`generate-keywords` CLI command. They contain three lists used by the ML scorer:
 
-| Variable         | Description                                                                          | Default       |
-|:-----------------|:-------------------------------------------------------------------------------------|:--------------|
-| `LLM_API_KEY`  | Your API key for any OpenAI-compatible provider (e.g., OpenAI, xAI, Anthropic).      | (none)        |
-| `LLM_API_BASE` | Base URL for the API (e.g., `https://api.x.ai/v1/`, `https://api.openai.com/v1`).   | (none)        |
-| `AI_MODEL`       | The model to use for message generation.                                             | `gpt-4o-mini` |
+```yaml
+positive:
+  - "machine learning"
+  - "data science"
+negative:
+  - "recruiter"
+  - "intern"
+exploratory:
+  - "startup"
+  - "consulting"
+```
+
+See [Templating](./templating.md) for template configuration details.

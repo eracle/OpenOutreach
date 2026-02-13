@@ -26,7 +26,7 @@ OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** designed
 It automates the entire outreach process in a **stealthy, human-like way**:
 
 - Discovers and enriches target profiles
-- Ranks profiles using ML (logistic regression + Thompson Sampling) for smart prioritization
+- Ranks profiles using ML (gradient boosted trees + Thompson Sampling) for smart prioritization
 - Sends personalized connection requests
 - Follows up with custom messages after acceptance
 - Tracks everything in a built-in CRM with web UI (full data ownership, resumable workflows)
@@ -104,7 +104,7 @@ make load CSV=assets/inputs/urls.csv HANDLE=myhandle  # import for a specific ac
 make run                    # run with first active account
 make run HANDLE=myhandle    # run with a specific account
 ```
-The daemon round-robins through four action lanes (enrich, connect, check pending, follow up) with configurable rate limits. Fully resumable — stop/restart anytime without losing progress.
+The daemon priority-schedules four action lanes (check pending, follow up, connect, + enrich as gap-filler) across configurable working hours with rate limits. Fully resumable — stop/restart anytime without losing progress.
 
 ### 7. View Your Data (CRM Admin)
 
@@ -135,7 +135,7 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 | 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
 | 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
 | 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
-| 🧠 **ML-Driven Prioritization**   | Logistic regression + Thompson Sampling ranks profiles by predicted connection acceptance -- learns and retrains as data grows. |
+| 🧠 **ML-Driven Prioritization**   | Gradient boosted trees + Thompson Sampling ranks profiles by predicted connection acceptance -- learns and retrains as data grows. |
 | 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
 | ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically. |
 | 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI -- browse Leads, Contacts, Companies, and Deals in your browser. |
@@ -190,7 +190,7 @@ Book a **free 15-minute call** — I’d love to hear your needs and improve the
 
 ## 📖 Usage & Customization
 
-The daemon (`linkedin/daemon.py`) round-robins through four action lanes:
+The daemon (`linkedin/daemon.py`) priority-schedules four action lanes across configurable working hours:
 
 | Lane | What it does | Rate limited? |
 |------|-------------|---------------|
@@ -211,26 +211,35 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 
 ```
 ├── analytics/                       # dbt project (DuckDB analytics, ML training sets)
+│   ├── models/staging/              # Staging views (stg_leads, stg_deals, stg_stages)
+│   └── models/marts/                # ML training set (ml_connection_accepted)
 ├── assets/
-│   ├── accounts.secrets.yaml        # Credentials + campaign config (gitignored)
+│   ├── accounts.secrets.yaml        # Credentials + campaign + LLM config (gitignored)
+│   ├── campaign/                    # Keywords + onboarding files (generated)
 │   ├── data/                        # crm.db (SQLite), analytics.duckdb
 │   └── inputs/                      # Target profile CSVs
 ├── docs/
+│   ├── architecture.md              # System architecture
+│   ├── configuration.md             # Configuration reference
 │   ├── docker.md                    # Docker setup guide
-│   └── ...
+│   ├── templating.md                # Message template guide
+│   └── testing.md                   # Testing strategy
 ├── linkedin/
 │   ├── actions/                     # Browser actions (connect, message, scrape)
 │   ├── api/                         # Voyager API client + parser
-│   ├── daemon.py                    # Main daemon loop (round-robin across lanes)
+│   ├── conf.py                      # Configuration loading (secrets YAML + env vars)
+│   ├── daemon.py                    # Main daemon loop (priority-scheduled lanes)
 │   ├── db/crm_profiles.py           # CRM-backed profile CRUD (Lead, Contact, Company, Deal)
 │   ├── django_settings.py           # Django/CRM settings (SQLite at assets/data/crm.db)
 │   ├── lanes/                       # Action lanes (enrich, connect, check_pending, follow_up)
 │   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Users)
-│   ├── ml/scorer.py                 # ML profile ranking (LogisticRegression + Thompson Sampling)
-│   ├── navigation/                  # Login, throttling, browser utilities
+│   ├── ml/                          # ML scoring (scorer.py, keywords.py)
+│   ├── navigation/                  # Login, throttling, browser utilities, enums
+│   ├── onboarding.py                # Interactive onboarding + keyword generation
 │   ├── rate_limiter.py              # Daily/weekly rate limiting
-│   └── sessions/                    # Session management
-├── main.py                          # CLI entry point (load / run subcommands)
+│   ├── sessions/                    # Session management (AccountSession)
+│   └── templates/                   # Message rendering (Jinja2 / AI-prompt)
+├── main.py                          # CLI entry point (load / run / generate-keywords)
 ├── manage_crm.py                    # Django manage.py (migrate, runserver, createsuperuser)
 ├── local.yml                        # Docker Compose
 └── Makefile                         # Shortcuts (setup, run, load, admin, analytics, test)
@@ -240,10 +249,12 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 
 ## 📚 Documentation
 
-- [Docker Installation](./docs/docker.md)
+- [Architecture](./docs/architecture.md)
 - [Configuration](./docs/configuration.md)
-- [Templating](./docs.md)
-- [Testing Strategy](./docs/testing.md)
+- [Docker Installation](./docs/docker.md)
+- [Templating](./docs/templating.md)
+- [Template Variables](./docs/template-variables.md)
+- [Testing](./docs/testing.md)
 
 ---
 

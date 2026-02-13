@@ -2,18 +2,18 @@
 
 ## Project Overview
 
-This project is a LinkedIn automation tool designed to automate various tasks on the LinkedIn platform. It utilizes
-Playwright for browser automation, with a stealth mode to minimize the risk of detection. The tool is containerized
-using Docker and includes a VNC server for visual debugging of the automation process.
+OpenOutreach is a self-hosted LinkedIn automation tool for B2B lead generation. It uses Playwright with stealth
+plugins for browser automation and LinkedIn's internal Voyager API for structured profile data. The CRM backend
+is powered by DjangoCRM with Django Admin UI.
 
-The core functionalities of the tool, as described in the README, include:
+Core functionalities:
 
-* **Automation Engine**: Using Playwright for browser automation.
-* **Campaigns**: Executing sequences of actions from YAML configuration.
-* **Scheduling**: Queuing actions for future execution.
-* **Local Database**: Storing scraped data and logs in SQLite.
-* **AI-powered Messaging**: Generating personalized messages using AI models.
-* **Analytics**: Tracking key performance metrics.
+* **Browser Automation**: Playwright with stealth plugins for human-like, undetectable interactions.
+* **Daemon-Driven Workflow**: Four action lanes (enrich, connect, check_pending, follow_up) priority-scheduled across configurable working hours.
+* **ML-Driven Prioritization**: HistGradientBoostingClassifier + Thompson Sampling ranks profiles by predicted connection acceptance.
+* **Built-in CRM**: DjangoCRM with Django Admin UI — Leads, Contacts, Companies, Deals tracked in a local SQLite database.
+* **AI-Powered Messaging**: Jinja2 or LLM-generated templates for personalized follow-up messages (any OpenAI-compatible provider).
+* **Analytics**: dbt + DuckDB pipeline builds ML training sets from CRM data.
 
 ## Building and Running
 
@@ -35,42 +35,46 @@ The project is managed using Docker Compose and a `Makefile`.
   ```bash
   make attach
   ```
+* **Run locally** (without Docker):
+  ```bash
+  make setup                    # install deps + migrate + bootstrap CRM
+  playwright install --with-deps chromium
+  make run                      # start the daemon
+  make admin                    # Django Admin at http://localhost:8000/admin/
+  ```
 
 The `docker-compose.yml` file (`local.yml`) defines the `app` service that runs the LinkedIn automation.
 
-To view the browser automation, you can use a VNC viewer on your host machine to connect to `localhost:5900`.
+To view the browser automation, use a VNC viewer to connect to `localhost:5900`.
 
 ## Development Conventions
 
 ### Dependencies
 
-The main Python dependencies are managed in the `requirements/` directory, with `base.txt` containing the core packages
-like `playwright`, `playwright-stealth`, `SQLAlchemy`, and `langchain`. These are installed via `uv` in the
-`Dockerfile`.
+Python dependencies are managed in `requirements/`:
+- `base.txt` — runtime deps (Playwright, Django, pandas, LangChain, scikit-learn, duckdb)
+- `analytics.txt` — dbt-core + dbt-duckdb
+- `crm.txt` — DjangoCRM (installed with `--no-deps` to skip mysqlclient)
+- `local.txt` — test deps (pytest, pytest-django, factory-boy)
+
+Dependencies are installed via `uv` (in Docker) or `pip` (locally via `make setup`).
 
 ### Configuration
 
-The project's configuration is managed in `linkedin/conf.py`. Credentials and other secrets are loaded from environment
-variables (via `.env`) and a central `accounts.secrets.yaml` file.
+Configuration is managed in `linkedin/conf.py`. All settings are loaded from a single `assets/accounts.secrets.yaml`
+file (gitignored). This includes LLM API keys, campaign rate limits/timing, and account credentials.
 
 ### Testing
 
-The project uses `pytest` for testing, as indicated by the `pytest.ini` file. All tests are located in the `tests/`
-directory. We follow a Test-Driven Development (TDD) approach to ensure code quality and maintainability.
+The project uses `pytest` with `pytest-django` for testing. Tests are in `tests/`. An autouse fixture runs
+`setup_crm()` before each test to bootstrap the DjangoCRM database.
 
 To run tests:
 
-* **Using Docker (recommended)**: `make test`
+* **Using Docker**: `make test`
 * **Locally**: `pytest`
-    * If you encounter `PytestCacheWarning`s due to permissions, you can run tests with the cache disabled:
-      `pytest -p no:cacheprovider`
-
-### Code Style
-
-The code seems to follow the PEP 8 style guide, but there is no linter configured to enforce it.
 
 ### Error Handling
 
-The application should crash on unexpected errors. `try...except` blocks should be used sparingly and only for expected
-and recoverable errors. Do not use them to suppress exceptions broadly. We prefer explicit checks for potential errors,
-like using `os.path.exists()` before file access.
+The application should crash on unexpected errors. `try...except` blocks should be used sparingly and only for
+expected and recoverable errors.

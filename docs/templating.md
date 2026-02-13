@@ -1,52 +1,72 @@
 # Templating
 
-The application uses a powerful templating system to generate personalized messages and connection notes. This system
-supports three types of templates: `jinja`, and `ai_prompt`.
+The application uses a templating system to generate personalized follow-up messages. Two template types are
+supported: `jinja` and `ai_prompt`.
 
-The `render_template` function in `linkedin/templates/renderer.py` is responsible for processing these templates.
+The `render_template` function in `linkedin/templates/renderer.py` is responsible for processing templates.
+
+**Important:** Profile fields are available as top-level variables — write `{{ first_name }}`, not
+`{{ profile.first_name }}`. See the [Template Variables Reference](./template-variables.md) for the complete
+list of available variables.
 
 ## Template Types
 
 ### 1. `jinja`
 
-A `jinja` template allows you to use the powerful Jinja2 templating engine to insert profile data into your messages
-dynamically. This is useful for personalizing messages with the person's name, company, or other details.
+A `jinja` template uses the Jinja2 templating engine to insert profile data into messages dynamically.
 
-The template has access to the `profile` object, which contains all the data scraped from the person's LinkedIn profile.
-
-**Example (`connect_note.j2`):**
+**Example (`followup.j2`):**
 
 ```jinja2
-Hi {{ profile.first_name }},
+Hey {{ full_name }},
 
-I saw that you're working at {{ profile.positions[0].company_name }}. I'm also in the industry and would love to connect.
+I came across your profile and was impressed by your work{% if positions %} at {{ positions[0].company_name }}{% endif %}.
+I'd love to stay in touch and explore potential synergies.
 
-Best,
-[Your Name]
+Best regards
 ```
 
 ### 2. `ai_prompt`
 
-An `ai_prompt` template combines the power of Jinja2 with a Large Language Model (LLM) like GPT-4 to generate highly
-personalized and human-like messages.
-
-The process is as follows:
+An `ai_prompt` template combines Jinja2 with a Large Language Model to generate human-like messages:
 
 1. The template is first rendered as a Jinja2 template to create a prompt for the LLM.
-2. This prompt is then sent to the configured AI model (e.g., `gpt-4o-mini`).
+2. This prompt is sent to the configured AI model (set via `AI_MODEL` in `accounts.secrets.yaml`).
 3. The AI's response is used as the final message.
-
-This allows you to create dynamic and context-aware messages based on the person's profile.
 
 **Example (`followup_prompt.j2`):**
 
 ```jinja2
-You are a friendly and professional salesperson. Write a short (2-3 sentences) follow-up message to {{ profile.full_name }}, who is a {{ profile.headline }} at {{ profile.positions[0].company_name }}.
+Write a short (2-3 sentences) follow-up message to {{ full_name }},
+who is a {{ headline | default("professional") }}{% if positions %} at {{ positions[0].company_name }}{% endif %}.
 
-Here are some key points from their profile summary:
-{{ profile.summary }}
+{% if summary %}
+Their profile summary:
+{{ summary }}
+{% endif %}
 
-Mention something about their recent work and ask if they are open to a quick chat.
+Be friendly and professional. Return ONLY the message — no quotes, no explanations.
 ```
 
-To use this template type, you must have your `LLM_API_KEY` environment variable set.
+To use this template type, you must have `LLM_API_KEY` set in your `accounts.secrets.yaml`.
+
+## Configuration
+
+Templates are configured per account in `accounts.secrets.yaml`:
+
+```yaml
+accounts:
+  my_account:
+    followup_template: templates/messages/followup.j2      # path relative to assets/
+    followup_template_type: jinja                           # "jinja" or "ai_prompt"
+    booking_link: https://calendly.com/your-link            # appended to every message (optional)
+```
+
+Template files live under `assets/templates/`:
+- `assets/templates/messages/` — Jinja2 templates (type: `jinja`)
+- `assets/templates/prompts/` — AI prompt templates (type: `ai_prompt`)
+
+## Available Variables
+
+See the [Template Variables Reference](./template-variables.md) for the complete list of profile fields,
+nested structures (positions, educations, date ranges), and usage examples.

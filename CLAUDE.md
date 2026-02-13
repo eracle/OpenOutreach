@@ -90,7 +90,7 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
   - `check_pending.py` — Checks PENDING profiles for acceptance. Uses exponential backoff: doubles `backoff_hours` in `deal.next_step` each time a profile is still pending. Triggers dbt rebuild + ML retrain when connections flip.
   - `follow_up.py` — Sends follow-up messages to CONNECTED profiles.
 - **`ml/keywords.py`** — Keyword loading (`load_keywords`), profile text extraction (`build_profile_text`), boolean keyword presence features (`compute_keyword_features`), and cold-start heuristic scoring (`cold_start_score`). Keywords are loaded from `assets/campaign_keywords.yaml`.
-- **`ml/scorer.py:ProfileScorer`** — ElasticNet (SGDClassifier) + Thompson Sampling for profile ranking. Uses 24 mechanical features + dynamic boolean keyword presence features from campaign keywords. Trains from `analytics.duckdb` mart. Falls back to cold-start keyword heuristic (count of distinct positive keywords present minus negative, if keywords exist) or FIFO (if no keywords). On schema mismatch, the daemon auto-rebuilds analytics via `dbt run`.
+- **`ml/scorer.py:ProfileScorer`** — HistGradientBoostingClassifier + Thompson Sampling for profile ranking. Uses 24 mechanical features + dynamic boolean keyword presence features from campaign keywords. Trains from `analytics.duckdb` mart. Falls back to cold-start keyword heuristic (count of distinct positive keywords present minus negative, if keywords exist) or FIFO (if no keywords). On schema mismatch, the daemon auto-rebuilds analytics via `dbt run`.
 - **`rate_limiter.py:RateLimiter`** — Daily/weekly rate limits with auto-reset. Supports external exhaustion (LinkedIn-side limits).
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
 - **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_pending_profiles()` (per-profile exponential backoff via `deal.next_step`), `get_connected_profiles()` for lane queries. `_deal_to_profile_dict()` includes a `meta` key with parsed `next_step` JSON. `set_profile_state()` clears `next_step` on any transition to/from PENDING. CRM lookups are `@lru_cache`d.
@@ -119,7 +119,7 @@ The `analytics/` directory contains a dbt project that reads from the CRM SQLite
 - **`analytics/models/staging/`** — Staging views over CRM tables (`stg_leads`, `stg_deals`, `stg_stages`). Lead JSON fields (including `industry_name`, `geo_name`) are parsed here.
 - **`analytics/models/marts/ml_connection_accepted.sql`** — Binary classification training set: did a connection request get accepted? Target=1 (reached CONNECTED/COMPLETED), Target=0 (stuck at PENDING). Excludes DISCOVERED/ENRICHED/FAILED profiles. Uses LATERAL UNNEST CTEs to extract 24 mechanical features from positions/educations JSON arrays, plus a concatenated `profile_text` column for keyword feature extraction in Python.
 - **Output:** `assets/data/analytics.duckdb` — query with `duckdb.connect("assets/data/analytics.duckdb")`.
-- **Deps:** `dbt-core 1.11.x` + `dbt-duckdb 1.10.x` + `protobuf >=6,<6.32` (protobuf 6.32+ has a memory regression ~5GB RSS on startup).
+- **Deps:** `dbt-core 1.11.x` + `dbt-duckdb 1.10.x` + `protobuf` 6.33.x (pinned; earlier 6.32.x had a memory regression ~5GB RSS on startup, resolved in 6.33+).
 
 ### Error Handling Convention
 The application should crash on unexpected errors. `try/except` blocks should only handle expected, recoverable errors. Custom exceptions in `navigation/exceptions.py`: `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
@@ -127,4 +127,4 @@ The application should crash on unexpected errors. `try/except` blocks should on
 ### Dependencies
 Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin` (installed via `--no-deps` to skip mysqlclient), `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
 ML: `scikit-learn`, `duckdb`
-Analytics: `dbt-core` 1.11.x, `dbt-duckdb` 1.10.x, `protobuf` <6.32 (6.32+ has memory regression)
+Analytics: `dbt-core` 1.11.x, `dbt-duckdb` 1.10.x, `protobuf` 6.33.x (6.32.x had memory regression, resolved in 6.33+)

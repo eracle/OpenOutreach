@@ -1,142 +1,188 @@
 # System Architecture
 
-This document outlines the architecture of the LinkedIn automation tool, from data ingestion and storage to the workflow
-execution engine.
+This document outlines the architecture of OpenOutreach, from data ingestion and storage to the daemon-driven
+workflow engine.
 
 ## High-Level Overview
 
-The system is designed to automate interactions on LinkedIn based on configurable campaigns. The core workflow is as
-follows:
+The system automates LinkedIn outreach through a daemon that schedules actions across configurable working hours:
 
-1. **Input**: LinkedIn profile or company URLs are provided via CSV files.
-2. **Data Caching**: The system scrapes detailed information for each URL and stores it in a local SQLite database per
-   account(`data/<handle>.db`). This database acts as a cache to avoid redundant scraping.
-3. **Campaign Execution**: Campaigns are defined as Python modules that orchestrate a sequence of actions (e.g., send
-   connection request, send message) for each entity.
-4. **State Management**: The state of the campaign (e.g., which profiles have been processed) is tracked in the same
-   per-account SQLite database.
+1. **Input**: LinkedIn profile URLs are loaded from CSV files into a local CRM (DjangoCRM).
+2. **Enrichment**: The daemon scrapes detailed profile data via LinkedIn's internal Voyager API and stores it in the CRM.
+3. **ML Ranking**: Profiles are scored using a gradient boosted trees model (+ Thompson Sampling) trained on historical connection acceptance data.
+4. **Outreach**: Connection requests are sent to the highest-ranked profiles, and follow-up messages are sent after acceptance.
+5. **State Tracking**: Each profile progresses through a state machine (`DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED`), tracked as Deal stages in the CRM.
 
-## Core Entities
+## Core Data Model (DjangoCRM)
 
-The system revolves around a single primary data model: `Profile`. This entity is represented as a JSON
-object throughout the application, from the database to the business logic.
+The system uses DjangoCRM with a single SQLite database at `assets/data/crm.db`. The key models are:
 
-## Database
+- **Lead** — One per LinkedIn profile URL. Stores `first_name`, `last_name`, `title`, `website` (LinkedIn URL), `description` (full parsed profile JSON).
+- **Contact** — Created after enrichment, linked to a Company.
+- **Company** — Created from the first position's company name.
+- **Deal** — Tracks pipeline stage (maps to `ProfileState`). One Deal per Lead. The `next_step` field stores JSON metadata (e.g. `{"backoff_hours": N}` for exponential backoff).
+- **TheFile** — Raw Voyager API JSON attached to a Lead via `GenericForeignKey`.
 
-The application uses a separate SQLite database for each account, located at `assets/data/<handle>.db`. This database
-handles all persistence needs, including data caching and campaign state tracking.
+### Profile State Machine
 
-### Database Schema
+Defined in `linkedin/navigation/enums.py:ProfileState`:
 
-The database contains two main tables: `profiles` and `campaign_runs`.
+```
+DISCOVERED → ENRICHED → PENDING → CONNECTED → COMPLETED
+                                                (or FAILED / IGNORED)
+```
 
-**`profiles` table**
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `url` | TEXT | PRIMARY KEY. The full LinkedIn profile URL. |
-| `data` | JSON | A JSON object containing the parsed, structured profile data. |
-| `raw_json` | JSON | The complete, unmodified JSON response from the Voyager API. |
-| `cloud_synced` | BOOLEAN | A flag indicating if the profile has been synced to an external CRM. |
-| `created_at` | DATETIME | Timestamp of when the record was created. |
-| `updated_at` | DATETIME | Timestamp of when the record was last updated. |
+States map to DjangoCRM Deal Stages via `db/crm_profiles.py:STATE_TO_STAGE`. The `IGNORED` state is terminal, used for pre-existing connections (controlled by the `follow_up.existing_connections` config flag).
 
-**`campaign_runs` table**
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `name` | TEXT | PRIMARY KEY. The user-defined name of the campaign. |
-| `handle` | TEXT | PRIMARY KEY. The handle of the account running the campaign. |
-| `input_hash` | TEXT | PRIMARY KEY. A hash of the input (e.g., CSV file) to uniquely identify the run. |
-| `run_at` | DATETIME | Timestamp of when the campaign was started. |
-| `short_id` | TEXT | A short, unique, human-readable ID for the campaign run. |
-| `total_profiles` | INTEGER | The total number of profiles in the campaign. |
-| `enriched` | INTEGER | A counter for the number of profiles successfully enriched. |
-| `connect_sent` | INTEGER | A counter for the number of connection requests sent. |
-| `accepted` | INTEGER | A counter for the number of connections accepted. |
-| `followup_sent` | INTEGER | A counter for the number of follow-up messages sent. |
-| `completed` | INTEGER | A counter for the number of profiles that completed the campaign. |
-| `last_updated` | DATETIME | Timestamp of when the campaign statistics were last updated. |
+## Daemon (`linkedin/daemon.py`)
 
+The daemon is the central orchestrator. It spreads actions across configurable working hours (default 09:00-18:00,
+OS local timezone) and sleeps outside the window.
 
-## API Client
+### Scheduling
 
-The `linkedin/api` module is responsible for all direct communication with LinkedIn's internal "Voyager" API. This
-provides a more reliable and structured way to fetch data compared to scraping HTML.
+Three **major lanes** are priority-scheduled (not round-robin). The daemon always picks the lane whose next run
+time is soonest:
 
-- **`client.py`**: Defines the `PlaywrightLinkedinAPI` class, which uses the browser's active `Playwright` context to
-  make authenticated GET requests. It automatically extracts the necessary `csrf-token` and headers to mimic a
-  legitimate browser request, making it resilient to basic anti-bot measures.
+| Priority | Lane | Interval | Description |
+|----------|------|----------|-------------|
+| 1 (highest) | **Check Pending** | `recheck_after_hours` (default 1h) | Polls PENDING profiles for acceptance |
+| 2 | **Follow Up** | `remaining_minutes / follow_up_daily_limit` | Sends messages to CONNECTED profiles |
+| 3 | **Connect** | `remaining_minutes / connect_daily_limit` | ML-ranks and sends connection requests |
 
-- **`voyager.py`**: Contains the data parsing logic. The Voyager API returns a complex JSON response with entities and
-  references. This module traverses the JSON graph, resolves the references, and maps the raw data to clean, structured
-  `LinkedInProfile` dataclasses. This isolates the messy data parsing from the rest of the application.
+Each major lane is tracked by a `LaneSchedule` object with a `next_run` timestamp. After execution,
+`reschedule()` sets the next run to `time.time() + interval * jitter` (jitter = uniform 0.8-1.2).
 
-- **`logging.py`**: A simple utility for logging API responses, primarily for debugging purposes.
+**Enrichment** is a gap-filling lane: between major actions, the daemon fills idle time by scraping DISCOVERED
+profiles. The enrichment interval is `gap_to_next_major / profiles_to_enrich`, floored at `enrich_min_interval`
+(default 1 second).
 
-## Navigation
+### Analytics Auto-Rebuild
 
-The `linkedin/navigation` module handles all browser automation tasks using Playwright. Its primary goal is to reliably
-manage the browser state and simulate human-like interactions to avoid detection.
+If the ML scorer encounters a schema mismatch (`BinderException`), the daemon automatically runs `dbt run` to
+rebuild the analytics DB, then retries training.
 
-- **`login.py`**: Automates the entire login process. It navigates to the login page, enters credentials, and handles
-  multi-factor authentication if prompted. Crucially, it manages session state by saving and loading cookies, allowing
-  the bot to stay logged in across multiple runs.
+## Lanes (`linkedin/lanes/`)
 
-- **`utils.py`**: Provides a set of helper functions for robust browser control. This includes `human_delay` for
-  realistic pauses and `navigate_and_verify` for safely performing actions (like clicks or URL visits) and confirming
-  the outcome.
+Each lane is a class with `can_execute()` and `execute()` methods:
 
-- **`errors.py`**: Defines custom exceptions for common automation failures, such as `ProfileNotFoundInSearchError` or
-  `AuthenticationError`.
+### `enrich.py` — EnrichLane
+- Scrapes 1 DISCOVERED profile per tick via the Voyager API.
+- Detects pre-existing connections (`connection_degree == 1`) and marks them IGNORED.
+- Exports `is_preexisting_connection()` as a shared helper used by the connect lane.
 
-- **`enums.py`**: Contains simple enumerations (`ConnectionStatus`, `MessageStatus`) used to standardize state tracking
-  throughout the application.
+### `connect.py` — ConnectLane
+- ML-ranks all ENRICHED profiles using `ProfileScorer.score_profiles()`.
+- Sends a connection request to the top-ranked profile.
+- Catches pre-existing connections missed during enrichment (when `connection_degree` was None at scrape time) via UI-based detection.
+- Respects daily and weekly rate limits via `RateLimiter`.
 
-## Campaigns
+### `check_pending.py` — CheckPendingLane
+- Checks PENDING profiles for acceptance via browser UI inspection.
+- Uses exponential backoff per profile: initial = `recheck_after_hours`, doubles each time via `deal.next_step` JSON metadata.
+- When connections flip (PENDING → CONNECTED), triggers `dbt run` + `scorer.train()` to retrain the ML model.
 
-Campaigns are high-level workflows defined in the `linkedin/campaigns` directory. Unlike the previous YAML-based
-approach, campaigns are now implemented as Python modules (e.g., `connect_follow_up.py`).
+### `follow_up.py` — FollowUpLane
+- Sends a follow-up message to the first CONNECTED profile.
+- Uses the account's configured template (Jinja2 or AI-prompt).
+- Transitions profile to COMPLETED on success.
+- Respects daily rate limit via `RateLimiter`.
 
-Each module orchestrates a sequence of calls to the `linkedin/actions` module to execute a specific outreach strategy.
-For example, the `connect_follow_up` campaign:
+## API Client (`linkedin/api/`)
 
-1. Enriches a profile with the latest data.
-2. Sends a connection request.
-3. If already connected, immediately sends a follow-up message.
+- **`client.py`** — `PlaywrightLinkedinAPI` class. Uses the browser's active Playwright context to make
+  authenticated GET requests to LinkedIn's Voyager API. Automatically extracts `csrf-token` and session headers.
+- **`voyager.py`** — Parses Voyager API JSON responses into clean `LinkedInProfile` dataclasses (with `Position`,
+  `Education` sub-objects). Resolves URN references from the `included` array.
+- **`emails.py`** — Newsletter subscription utility (`ensure_newsletter_subscription`).
 
-This Python-native approach provides greater flexibility and makes the logic easier to debug and maintain. It creates a
-clean separation between the high-level workflow (the campaign) and the low-level, reusable browser tasks (the actions).
+## Navigation (`linkedin/navigation/`)
 
-## Actions
+Handles browser automation and state management:
 
-Actions are the core building blocks of any campaign, located in the `linkedin/actions/` directory. They are modular,
-reusable functions that perform a single, specific task within the browser. Campaigns orchestrate these actions to
-create complex automation workflows.
+- **`login.py`** — Automates login, handles MFA, manages cookie persistence for session reuse across runs.
+- **`utils.py`** — Browser helpers including `human_delay` for realistic pauses and automatic URL discovery
+  (extracts `/in/` profile URLs from every page visited, filtering out `/in/me/` and the account's own handle).
+- **`exceptions.py`** — Custom exceptions:
+  - `AuthenticationError` — 401 / login failure
+  - `TerminalStateError` — profile is in a terminal state, must be skipped
+  - `SkipProfile` — profile should be skipped for other reasons
+  - `ReachedConnectionLimit` — weekly connection limit hit
+- **`enums.py`** — `ProfileState` (7 states) and `MessageStatus` (`SENT`, `SKIPPED`).
 
-### `connect.py`
+## Actions (`linkedin/actions/`)
 
-- **`send_connection_request`**: This is the primary function for connecting with a profile. It first navigates to the
-  profile page and checks the current connection status. If not already connected or pending, it sends a connection
-  request *without* a note for maximum efficiency and acceptance rate. The logic for sending a note is preserved but
-  currently disabled.
+Low-level, reusable browser actions composed by the lanes:
 
-### `connection_status.py`
+- **`connect.py`** — `send_connection_request()`: navigates to profile, checks status, sends invite. Returns `ProfileState.PENDING` on success. Raises `ReachedConnectionLimit` if LinkedIn blocks.
+- **`connection_status.py`** — `get_connection_status()`: determines relationship via Voyager API degree + UI fallback (inspects buttons/badges).
+- **`message.py`** — `send_follow_up_message()`: renders message from template, sends via popup or direct messaging window. Includes clipboard fallback if typing fails.
+- **`profile.py`** — Profile page navigation utilities.
+- **`search.py`** — `search_profile()`: navigates to a profile page.
 
-- **`get_connection_status`**: Determines the relationship with a profile. It first attempts to use the
-  `connection_degree` from the structured Voyager API data, which is fast and reliable. If the API data is unavailable,
-  it falls back to inspecting the user interface for visual cues like a "Pending" button or a "1st" degree connection
-  badge.
+## ML Scoring (`linkedin/ml/`)
 
-### `message.py`
+### `scorer.py` — ProfileScorer
 
-- **`send_follow_up_message`**: Orchestrates sending a message to a profile. It renders the message from a template and
-  calls the sending logic.
-- **`send_message_to_profile`**: Before sending, it calls `get_messaging_availability` to ensure a message can be sent (
-  i.e., the profiles are connected). If available, it executes the low-level `_perform_send_message` function, which
-  includes a robust fallback to using the clipboard if standard typing fails.
+- **Model**: `HistGradientBoostingClassifier` (scikit-learn) with Thompson Sampling for explore/exploit balance.
+- **Features**: 24 mechanical features (profile structure, tenure, education) + dynamic boolean keyword presence features from campaign keywords.
+- **Training data**: Reads from `assets/data/analytics.duckdb` mart `ml_connection_accepted`.
+- **Fallbacks**: Cold-start keyword heuristic (positive keyword count - negative keyword count) if keywords exist but no training data. FIFO ordering if neither exists.
 
-### `profile.py`
+### `keywords.py`
 
-- **`enrich_profile`**: This action uses the `PlaywrightLinkedinAPI` client to fetch detailed, structured data from
-  LinkedIn's internal Voyager API. It parses the response and returns a clean, enriched profile dictionary, which is
-  then used for personalized messaging or other actions.
+- `load_keywords()` — loads `campaign_keywords.yaml` (positive, negative, exploratory lists, all lowercased).
+- `build_profile_text()` — concatenates all text fields from a profile dict (lowercased).
+- `compute_keyword_features()` — boolean 0/1 presence per keyword.
+- `cold_start_score()` — count of distinct positive keywords present minus negative (each contributes at most +1/-1).
 
+## Analytics Layer (`analytics/`)
+
+A dbt project that builds ML training sets from the CRM data:
+
+- **Engine**: DuckDB, attaches the CRM SQLite DB read-only.
+- **Staging models**: `stg_leads`, `stg_deals`, `stg_stages` — parse raw CRM tables.
+- **Mart**: `ml_connection_accepted` — binary classification training set (accepted=1 for CONNECTED/COMPLETED, accepted=0 for stuck at PENDING). Outputs 24 mechanical features + `profile_text` for keyword extraction.
+- **Output**: `assets/data/analytics.duckdb`.
+
+## Templates (`linkedin/templates/renderer.py`)
+
+Two template types for follow-up messages:
+
+- **`jinja`** — Jinja2 template with access to the `profile` object.
+- **`ai_prompt`** — Jinja2 renders a prompt, which is then sent to the configured LLM (via LangChain) to generate the final message.
+
+If a `booking_link` is configured for the account, it is appended to the rendered message.
+
+## Sessions (`linkedin/sessions/account.py`)
+
+`AccountSession` is the central session object passed throughout the codebase. It holds:
+
+- `handle` — account identifier (lowercased)
+- `account_cfg` — configuration dict from `conf.py`
+- `django_user` — Django User object (auto-created if missing)
+- `page`, `context`, `browser`, `playwright` — Playwright browser objects (lazily initialized via `ensure_browser()`)
+
+## Rate Limiting (`linkedin/rate_limiter.py`)
+
+`RateLimiter` enforces daily and weekly action limits with automatic reset:
+
+- `can_execute()` — checks if limits allow another action.
+- `record()` — increments counters after an action.
+- `mark_daily_exhausted()` — externally signals that LinkedIn itself has blocked further actions for the day.
+
+## CRM Bootstrap (`linkedin/management/setup_crm.py`)
+
+`setup_crm()` is an idempotent bootstrap that creates:
+
+- Department ("LinkedIn Outreach")
+- Django Users (one per active account)
+- 7 Deal Stages (Discovered, Enriched, Pending, Connected, Completed, Failed, Ignored)
+- 3 Closing Reasons (Completed, Failed, Ignored)
+- LeadSource ("LinkedIn Scraper")
+- Default Site (localhost)
+- "co-workers" Group (required by DjangoCRM)
+
+## Error Handling Convention
+
+The application crashes on unexpected errors. `try/except` blocks are only used for expected, recoverable errors.

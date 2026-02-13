@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 ANALYTICS_DB = DATA_DIR / "analytics.duckdb"
 
-# 28 mechanical features matching the mart column names exactly
+# 24 mechanical features matching the mart column names exactly
 MECHANICAL_FEATURES = [
     "connection_degree",
     "num_positions",
@@ -140,7 +140,7 @@ class ProfileScorer:
         return True
 
     def _extract_mechanical_features(self, profile: dict) -> list:
-        """Compute 28 mechanical features from in-memory profile dict."""
+        """Compute 24 mechanical features from in-memory profile dict."""
         p = profile.get("profile", {}) or {}
         positions = p.get("positions", []) or []
         educations = p.get("educations", []) or []

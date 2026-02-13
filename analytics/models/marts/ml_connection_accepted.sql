@@ -1,6 +1,6 @@
 -- One row per profile that had a connection request sent (reached PENDING).
 -- target: 1 = accepted (reached CONNECTED+), 0 = not accepted (stuck at PENDING)
--- 28 mechanical features + profile_text for keyword extraction
+-- 24 mechanical features + profile_text for keyword extraction
 
 WITH profiles AS (
     SELECT
