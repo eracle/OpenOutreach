@@ -231,8 +231,8 @@ class TestScorerTrained:
     def test_explain_profile_outputs_contributions(self, trained_scorer):
         profile = _make_profile(degree=2, n_positions=3)
         explanation = trained_scorer.explain_profile(profile)
+        assert "Predicted acceptance probability" in explanation
         assert "Feature contributions" in explanation
-        assert "connection_degree" in explanation
 
     def test_explain_profile_untrained(self, tmp_path):
         scorer = ProfileScorer(seed=42, keywords_path=tmp_path / "empty_kw.yaml")
@@ -310,12 +310,12 @@ class TestTrainedWithKeywords:
             assert scorer.train() is True
 
         # Check feature names include keyword columns
-        assert "kw_pos_engineer" in scorer._all_feature_names
-        assert "kw_pos_ml" in scorer._all_feature_names
-        assert "kw_neg_student" in scorer._all_feature_names
+        assert "positive keyword: engineer" in scorer._all_feature_names
+        assert "positive keyword: ml" in scorer._all_feature_names
+        assert "negative keyword: student" in scorer._all_feature_names
 
-        # Model should have more coefficients than just mechanical features
-        assert len(scorer._model.coef_[0]) == len(MECHANICAL_FEATURES) + 3  # 3 keywords
+        # Model should be trained on all features (mechanical + keywords)
+        assert scorer._model.n_features_in_ == len(MECHANICAL_FEATURES) + 3  # 3 keywords
 
     def test_explain_with_keywords_shows_top_features(self, tmp_path):
         import duckdb

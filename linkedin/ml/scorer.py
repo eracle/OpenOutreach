@@ -53,6 +53,7 @@ class ProfileScorer:
         self._rng = np.random.RandomState(seed)
         self._model = None
         self._trained = False
+        self._feature_means = None
         self._keywords = load_keywords(keywords_path or KEYWORDS_FILE)
         self._kw_names = keyword_feature_names(self._keywords)
         self._all_feature_names = list(MECHANICAL_FEATURES) + self._kw_names
@@ -65,7 +66,8 @@ class ProfileScorer:
         import duckdb
         import numpy as np
         import pandas as pd
-        from sklearn.linear_model import SGDClassifier
+        from sklearn.ensemble import HistGradientBoostingClassifier
+        from sklearn.model_selection import StratifiedKFold, cross_val_score
 
         if not ANALYTICS_DB.exists():
             logger.warning("Analytics DB not found at %s — skipping ML training", ANALYTICS_DB)
@@ -107,16 +109,28 @@ class ProfileScorer:
         else:
             X = X_mech
 
-        model = SGDClassifier(
-            loss="log_loss",
-            penalty="elasticnet",
-            l1_ratio=0.5,
+        model = HistGradientBoostingClassifier(
+            max_iter=200,
+            max_depth=4,
+            min_samples_leaf=5,
+            l2_regularization=1.0,
             random_state=42,
-            max_iter=1000,
         )
+
+        # Cross-validation to detect overfitting
+        n_splits = min(5, max(2, len(df) // 10))
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+        scores = cross_val_score(model, X, y, cv=cv, scoring="roc_auc")
+        logger.info(
+            "CV ROC-AUC (%d-fold): %.3f ± %.3f",
+            n_splits, scores.mean(), scores.std(),
+        )
+
+        # Fit on full data for production use
         model.fit(X, y)
 
         self._model = model
+        self._feature_means = X.mean(axis=0)
         self._trained = True
         n_features = X.shape[1]
         logger.info(
@@ -285,19 +299,31 @@ class ProfileScorer:
                 return "\n".join(lines)
             return "Model not trained — no explanation available"
 
-        features = self._extract_features(profile)
-        coefs = self._model.coef_[0]
+        import numpy as np
 
+        features = self._extract_features(profile)
+        X = np.array([features])
+        base_prob = self._model.predict_proba(X)[0, 1]
+
+        # Perturbation-based per-profile contributions:
+        # replace each feature with its training mean, measure prediction shift
         contributions = []
-        for name, coef, val in zip(self._all_feature_names, coefs, features):
-            contributions.append((name, coef * val, coef, val))
+        for i, (name, val) in enumerate(zip(self._all_feature_names, features)):
+            X_perturbed = X.copy()
+            X_perturbed[0, i] = self._feature_means[i]
+            perturbed_prob = self._model.predict_proba(X_perturbed)[0, 1]
+            contrib = base_prob - perturbed_prob
+            contributions.append((name, contrib, val))
 
         contributions.sort(key=lambda x: abs(x[1]), reverse=True)
 
-        lines = ["Feature contributions (coef * value):"]
-        for name, contrib, coef, val in contributions[:15]:
+        lines = [
+            f"Predicted acceptance probability: {base_prob:.3f}",
+            "Feature contributions (prediction shift when replaced with training mean):",
+        ]
+        for name, contrib, val in contributions[:15]:
             sign = "+" if contrib >= 0 else ""
-            lines.append(f"  {name:45s} {sign}{contrib:8.4f}  (coef={coef:.4f}, val={val})")
+            lines.append(f"  {name:45s} {sign}{contrib:8.4f}  (val={val})")
 
         if len(contributions) > 15:
             remaining = sum(abs(c[1]) for c in contributions[15:])
