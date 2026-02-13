@@ -5,7 +5,7 @@ import sys
 from typing import Dict, Any
 
 from linkedin.actions.connection_status import get_connection_status
-from linkedin.navigation.enums import ProfileState, MessageStatus
+from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.utils import goto_page
 from linkedin.sessions.registry import get_session
 from linkedin.templates.renderer import render_template
@@ -30,7 +30,8 @@ SELECTORS = {
 def send_follow_up_message(
         handle: str,
         profile: Dict[str, Any],
-):
+) -> str | None:
+    """Send a follow-up message. Returns the message text if sent, None if skipped."""
     session = get_session(
         handle=handle,
     )
@@ -44,16 +45,16 @@ def send_follow_up_message(
 
     if status != ProfileState.CONNECTED:
         logger.info(f"Message skipped → not connected with {public_identifier}")
-        return MessageStatus.SKIPPED
+        return None
 
     if template_file:
         message = render_template(session, template_file, template_type, profile)
 
     if _send_msg_pop_up(session, profile, message) or _send_message(session, profile, message):
         logger.debug("Message body: %s", message)
-        return MessageStatus.SENT
+        return message
 
-    return MessageStatus.SKIPPED
+    return None
 
 
 def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:

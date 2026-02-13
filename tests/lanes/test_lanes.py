@@ -15,7 +15,7 @@ from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.follow_up import FollowUpLane
 from linkedin.ml.scorer import ProfileScorer
-from linkedin.navigation.enums import ProfileState, MessageStatus
+from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.rate_limiter import RateLimiter
 
@@ -414,7 +414,7 @@ class TestFollowUpLaneExecute:
     def test_execute_sends_message_and_completes(
         self, mock_send, fake_session
     ):
-        mock_send.return_value = MessageStatus.SENT
+        mock_send.return_value = "Hello Alice!"
         lane = self._setup(fake_session)
         lane.execute()
 
@@ -423,15 +423,45 @@ class TestFollowUpLaneExecute:
         assert lane.rate_limiter._daily_count == 1
 
     @patch("linkedin.actions.message.send_follow_up_message")
+    def test_execute_saves_chat_message(
+        self, mock_send, fake_session
+    ):
+        from chat.models import ChatMessage
+        from django.contrib.contenttypes.models import ContentType
+        from crm.models import Lead
+
+        mock_send.return_value = "Hello Alice!"
+        lane = self._setup(fake_session)
+        lane.execute()
+
+        lead = Lead.objects.get(website="https://www.linkedin.com/in/alice/")
+        ct = ContentType.objects.get_for_model(lead)
+        msg = ChatMessage.objects.get(content_type=ct, object_id=lead.pk)
+        assert msg.content == "Hello Alice!"
+        assert msg.owner == fake_session.django_user
+
+    @patch("linkedin.actions.message.send_follow_up_message")
     def test_execute_skipped_message_stays_connected(
         self, mock_send, fake_session
     ):
-        mock_send.return_value = MessageStatus.SKIPPED
+        mock_send.return_value = None
         lane = self._setup(fake_session)
         lane.execute()
 
         result = get_profile(fake_session, "alice")
         assert result["state"] == ProfileState.CONNECTED.value
+
+    @patch("linkedin.actions.message.send_follow_up_message")
+    def test_execute_skipped_message_no_chat_saved(
+        self, mock_send, fake_session
+    ):
+        from chat.models import ChatMessage
+
+        mock_send.return_value = None
+        lane = self._setup(fake_session)
+        lane.execute()
+
+        assert ChatMessage.objects.count() == 0
 
     @patch("linkedin.actions.message.send_follow_up_message")
     def test_execute_noop_when_no_profiles(

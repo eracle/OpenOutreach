@@ -1,11 +1,6 @@
 from enum import Enum
 
 
-class MessageStatus(Enum):
-    SENT = "sent"
-    SKIPPED = "skipped"
-
-
 class ProfileState(str, Enum):
     DISCOVERED = "discovered"
     ENRICHED = "enriched"

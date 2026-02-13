@@ -3,16 +3,11 @@ from __future__ import annotations
 
 import logging
 
-from linkedin.db.crm_profiles import get_connected_profiles, set_profile_state
-from linkedin.navigation.enums import ProfileState, MessageStatus
+from linkedin.db.crm_profiles import get_connected_profiles, set_profile_state, save_chat_message
+from linkedin.navigation.enums import ProfileState
 from linkedin.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
-
-_MESSAGE_STATUS_TO_STATE = {
-    MessageStatus.SENT: ProfileState.COMPLETED,
-    MessageStatus.SKIPPED: ProfileState.CONNECTED,
-}
 
 
 class FollowUpLane:
@@ -37,10 +32,15 @@ class FollowUpLane:
         public_id = candidate["public_identifier"]
         profile = candidate.get("profile") or candidate
 
-        status = send_follow_up_message(
+        message_text = send_follow_up_message(
             handle=self.session.handle,
             profile=profile,
         )
-        new_state = _MESSAGE_STATUS_TO_STATE.get(status, ProfileState.CONNECTED)
-        set_profile_state(self.session, public_id, new_state.value)
+
+        if message_text is not None:
+            set_profile_state(self.session, public_id, ProfileState.COMPLETED.value)
+            save_chat_message(self.session, public_id, message_text)
+        else:
+            set_profile_state(self.session, public_id, ProfileState.CONNECTED.value)
+
         self.rate_limiter.record()
