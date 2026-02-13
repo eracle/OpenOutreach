@@ -79,7 +79,6 @@ accounts:
     username: jane.doe@gmail.com
     password: SuperSecret123!
     subscribe_newsletter:
-    input_csv: inputs/urls.csv
     followup_template: templates/messages/followup.j2
     followup_template_type: jinja
     booking_link: https://calendly.com/your-link
@@ -91,7 +90,6 @@ accounts:
 | `username` | string | LinkedIn login email. | (required) |
 | `password` | string | LinkedIn password. | (required) |
 | `subscribe_newsletter` | boolean/null | Receive OpenOutreach updates. | `null` |
-| `input_csv` | string | Path to CSV file with target profile URLs (relative to `assets/`). | (required) |
 | `followup_template` | string | Path to the follow-up message template (relative to `assets/`). | (required) |
 | `followup_template_type` | string | Template engine: `"jinja"` for Jinja2, `"ai_prompt"` for LLM-generated messages. | (required) |
 | `booking_link` | string | URL appended to follow-up messages (e.g. your calendar page). | (none) |

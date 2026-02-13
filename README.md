@@ -88,17 +88,7 @@ You need to provide your LinkedIn credentials and target profiles.
    ```
    Edit `assets/accounts.secrets.yaml` with your credentials (and add your OpenAI key under `env:` if you want AI follow-ups).
 
-2. **Add target profiles**
-   Paste LinkedIn profile URLs into `assets/inputs/urls.csv`.
-
-### 5. Load Target Profiles
-
-```bash
-make load CSV=assets/inputs/urls.csv                  # import URLs into CRM
-make load CSV=assets/inputs/urls.csv HANDLE=myhandle  # import for a specific account
-```
-
-### 6. Run the Daemon
+### 5. Run the Daemon
 
 ```bash
 make run                    # run with first active account
@@ -106,7 +96,7 @@ make run HANDLE=myhandle    # run with a specific account
 ```
 The daemon priority-schedules four action lanes (check pending, follow up, connect, + enrich as gap-filler) across configurable working hours with rate limits. Fully resumable — stop/restart anytime without losing progress.
 
-### 7. View Your Data (CRM Admin)
+### 6. View Your Data (CRM Admin)
 
 OpenOutreach includes a full CRM web interface powered by DjangoCRM:
 ```bash
@@ -216,8 +206,7 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 ├── assets/
 │   ├── accounts.secrets.yaml        # Credentials + campaign + LLM config (gitignored)
 │   ├── campaign/                    # Keywords + onboarding files (generated)
-│   ├── data/                        # crm.db (SQLite), analytics.duckdb
-│   └── inputs/                      # Target profile CSVs
+│   └── data/                        # crm.db (SQLite), analytics.duckdb
 ├── docs/
 │   ├── architecture.md              # System architecture
 │   ├── configuration.md             # Configuration reference
@@ -239,10 +228,10 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   ├── rate_limiter.py              # Daily/weekly rate limiting
 │   ├── sessions/                    # Session management (AccountSession)
 │   └── templates/                   # Message rendering (Jinja2 / AI-prompt)
-├── main.py                          # CLI entry point (load / run / generate-keywords)
+├── main.py                          # CLI entry point (run / generate-keywords)
 ├── manage_crm.py                    # Django manage.py (migrate, runserver, createsuperuser)
 ├── local.yml                        # Docker Compose
-└── Makefile                         # Shortcuts (setup, run, load, admin, analytics, test)
+└── Makefile                         # Shortcuts (setup, run, admin, analytics, test)
 ```
 
 ---

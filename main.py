@@ -24,30 +24,6 @@ for _name in ("urllib3", "httpx", "langchain", "dbt", "playwright", "httpcore"):
 logger = logging.getLogger(__name__)
 
 
-def cmd_load(args):
-    from linkedin.csv_launcher import load_profiles_df
-    from linkedin.db.crm_profiles import add_profile_urls
-    from linkedin.sessions.registry import get_session
-    from linkedin.conf import get_first_active_account
-
-    handle = args.handle
-    if handle is None:
-        handle = get_first_active_account()
-        if handle is None:
-            logger.error("No handle provided and no active accounts found.")
-            sys.exit(1)
-
-    session = get_session(handle=handle)
-    profiles_df = load_profiles_df(args.csv)
-
-    url_col = next(
-        col for col in profiles_df.columns
-        if col.lower() in ["url", "linkedin_url", "profile_url"]
-    )
-    urls = profiles_df[url_col].tolist()
-    add_profile_urls(session, urls)
-
-
 def cmd_generate_keywords(args):
     import yaml
 
@@ -70,6 +46,7 @@ def cmd_run(args):
     from linkedin.api.emails import ensure_newsletter_subscription
     from linkedin.conf import get_first_active_account
     from linkedin.daemon import run_daemon
+    from linkedin.db.crm_profiles import add_profile_urls
     from linkedin.onboarding import ensure_keywords
     from linkedin.sessions.registry import get_session
 
@@ -86,6 +63,7 @@ def cmd_run(args):
             sys.exit(1)
 
     session = get_session(handle=handle)
+    add_profile_urls(session, ["https://www.linkedin.com/in/eracle/"])
     session.ensure_browser()
     ensure_newsletter_subscription(session)
     run_daemon(session)
@@ -103,11 +81,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="openoutreach", description="OpenOutreach CLI")
     subparsers = parser.add_subparsers(dest="command")
 
-    # load subcommand
-    load_parser = subparsers.add_parser("load", help="Load profile URLs from CSV into CRM")
-    load_parser.add_argument("csv", help="Path to CSV file with LinkedIn URLs")
-    load_parser.add_argument("--handle", default=None, help="Account handle to use")
-
     # run subcommand
     run_parser = subparsers.add_parser("run", help="Run the daemon campaign loop")
     run_parser.add_argument("handle", nargs="?", default=None, help="Account handle to use")
@@ -121,9 +94,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.command == "load":
-        cmd_load(args)
-    elif args.command == "run":
+    if args.command == "run":
         cmd_run(args)
     elif args.command == "generate-keywords":
         cmd_generate_keywords(args)
