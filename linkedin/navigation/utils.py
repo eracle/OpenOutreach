@@ -31,6 +31,8 @@ def goto_page(session: "AccountSession",
 
     current = unquote(page.url)
     if expected_url_pattern not in current:
+        if "/404" in current:
+            raise SkipProfile(f"Profile returned 404 → {current}")
         raise RuntimeError(f"{error_message} → expected '{expected_url_pattern}' | got '{current}'")
 
     logger.debug("Navigated to %s", page.url)
