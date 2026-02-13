@@ -12,7 +12,7 @@ from linkedin.management.setup_crm import setup_crm
 
 logging.getLogger().handlers.clear()
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s  %(message)s",
     datefmt="%H:%M:%S",
 )
@@ -49,42 +49,15 @@ def cmd_load(args):
 
 
 def cmd_generate_keywords(args):
-    import re
-
-    import jinja2
     import yaml
 
-    from linkedin.conf import ASSETS_DIR, KEYWORDS_FILE
-    from linkedin.templates.renderer import call_llm
+    from linkedin.conf import KEYWORDS_FILE
+    from linkedin.onboarding import generate_keywords
 
-    product_docs_path = args.product_docs
-    campaign_objective = args.campaign_objective
-
-    with open(product_docs_path, "r", encoding="utf-8") as f:
+    with open(args.product_docs, "r", encoding="utf-8") as f:
         product_docs = f.read()
 
-    template_dir = ASSETS_DIR / "templates" / "prompts"
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_dir)))
-    template = env.get_template("generate_keywords.j2")
-    prompt = template.render(product_docs=product_docs, campaign_objective=campaign_objective)
-
-    logger.info("Calling LLM to generate campaign keywords...")
-    response = call_llm(prompt)
-
-    # Strip markdown code fences if present
-    cleaned = re.sub(r"^```(?:yaml|yml)?\s*\n?", "", response, flags=re.MULTILINE)
-    cleaned = re.sub(r"\n?```\s*$", "", cleaned, flags=re.MULTILINE)
-
-    data = yaml.safe_load(cleaned)
-    if not isinstance(data, dict):
-        logger.error("LLM response did not parse as YAML dict:\n%s", response)
-        sys.exit(1)
-
-    for key in ("positive", "negative", "exploratory"):
-        if key not in data or not isinstance(data[key], list):
-            logger.error("Missing or invalid '%s' list in LLM response", key)
-            sys.exit(1)
-        data[key] = [kw.lower().strip() for kw in data[key]]
+    data = generate_keywords(product_docs, args.campaign_objective)
 
     with open(KEYWORDS_FILE, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
@@ -97,7 +70,13 @@ def cmd_run(args):
     from linkedin.api.emails import ensure_newsletter_subscription
     from linkedin.conf import get_first_active_account
     from linkedin.daemon import run_daemon
+    from linkedin.onboarding import ensure_keywords
     from linkedin.sessions.registry import get_session
+
+    ensure_keywords(
+        product_docs_path=args.product_docs,
+        campaign_objective_path=args.campaign_objective,
+    )
 
     handle = args.handle
     if handle is None:
@@ -132,6 +111,8 @@ if __name__ == "__main__":
     # run subcommand
     run_parser = subparsers.add_parser("run", help="Run the daemon campaign loop")
     run_parser.add_argument("handle", nargs="?", default=None, help="Account handle to use")
+    run_parser.add_argument("--product-docs", default=None, help="Path to product description file")
+    run_parser.add_argument("--campaign-objective", default=None, help="Path to campaign objective file")
 
     # generate-keywords subcommand
     gk_parser = subparsers.add_parser("generate-keywords", help="Generate campaign keywords via LLM")

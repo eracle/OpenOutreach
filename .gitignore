@@ -8,6 +8,7 @@ __pycache__/
 
 /linkedin_state.json
 assets/accounts.secrets.yaml
+assets/campaign/campaign_keywords.yaml
 assets/cookies/
 assets/data/
 /analytics/logs/dbt.log
