@@ -62,6 +62,29 @@ def _seconds_until_work_starts(start: tuple[int, int]) -> float:
     return (target - now).total_seconds()
 
 
+def _update_intervals(schedules, wh_end, cfg):
+    """Recompute lane intervals based on remaining time in work window."""
+    now = datetime.now()
+    end_minutes = wh_end[0] * 60 + wh_end[1]
+    remaining_minutes = max(end_minutes - (now.hour * 60 + now.minute), 1)
+
+    interval_map = {
+        "connect": (remaining_minutes * 60) / cfg["connect_daily_limit"],
+        "follow_up": (remaining_minutes * 60) / cfg["follow_up_daily_limit"],
+    }
+    for s in schedules:
+        if s.name in interval_map:
+            s.base_interval = interval_map[s.name]
+
+    logger.info(
+        colored("Pacing updated", "white")
+        + " — %d min remaining, connect every %.0fm, follow_up every %.0fm",
+        remaining_minutes,
+        interval_map["connect"] / 60,
+        interval_map["follow_up"] / 60,
+    )
+
+
 def _rebuild_analytics():
     """Run dbt to rebuild the analytics DB."""
     import subprocess
@@ -122,27 +145,21 @@ def run_daemon(session):
     # Working hours
     wh_start = _parse_time(cfg["working_hours_start"])
     wh_end = _parse_time(cfg["working_hours_end"])
-    active_minutes = (wh_end[0] * 60 + wh_end[1]) - (wh_start[0] * 60 + wh_start[1])
-
-    # Compute intervals (seconds) from active window / daily limit
-    connect_interval = (active_minutes * 60) / cfg["connect_daily_limit"]
-    follow_up_interval = (active_minutes * 60) / cfg["follow_up_daily_limit"]
     check_pending_interval = cfg["check_pending_recheck_after_hours"] * 3600
     min_enrich_interval = cfg["enrich_min_interval"]
 
     schedules = [
-        LaneSchedule("connect", connect_lane, connect_interval),
-        LaneSchedule("follow_up", follow_up_lane, follow_up_interval),
+        LaneSchedule("connect", connect_lane, 0),
+        LaneSchedule("follow_up", follow_up_lane, 0),
         LaneSchedule("check_pending", check_pending_lane, check_pending_interval),
     ]
+    _update_intervals(schedules, wh_end, cfg)
 
     logger.info(
         colored("Daemon started", "green", attrs=["bold"])
-        + " — working hours %s–%s, connect every %.0fm, follow_up every %.0fm, check_pending every %.0fm",
+        + " — working hours %s–%s, check_pending every %.0fm",
         cfg["working_hours_start"],
         cfg["working_hours_end"],
-        connect_interval / 60,
-        follow_up_interval / 60,
         check_pending_interval / 60,
     )
 
@@ -156,6 +173,9 @@ def run_daemon(session):
                 wh_start[0], wh_start[1], wait / 60,
             )
             time.sleep(wait)
+            _update_intervals(schedules, wh_end, cfg)
+            for s in schedules:
+                s.next_run = time.time()  # fire immediately in new window
             continue
 
         # ── Find soonest major action ──
