@@ -1,6 +1,6 @@
 -- One row per profile that had a connection request sent (reached PENDING).
 -- target: 1 = accepted (reached CONNECTED+), 0 = not accepted (stuck at PENDING)
--- 24 mechanical features + profile_text for keyword extraction
+-- 3 mechanical features + profile_text for keyword extraction
 
 WITH profiles AS (
     SELECT
@@ -18,18 +18,12 @@ WITH profiles AS (
 
         -- Lead features
         l.headline,
-        l.city_name,
-        l.company_name,
+        l.summary,
         l.location,
         l.industry_name,
-        l.geo_name,
         l.connection_degree,
-        l.num_positions,
-        l.num_educations,
-        l.summary,
         l.positions_json,
-        l.educations_json,
-        l.profile_json
+        l.educations_json
 
     FROM {{ ref('stg_deals') }} d
     JOIN {{ ref('stg_leads') }} l ON d.lead_id = l.lead_id
@@ -74,28 +68,11 @@ positions_unnested AS (
 position_aggs AS (
     SELECT
         deal_id,
-        COUNT(DISTINCT pos_company) AS num_distinct_companies,
-        CASE WHEN COUNT(*) > 0
-             THEN SUM(CASE WHEN pos_description IS NOT NULL AND length(pos_description) > 0 THEN 1 ELSE 0 END)::FLOAT / COUNT(*)
-             ELSE 0 END AS positions_with_description_ratio,
-        COUNT(DISTINCT pos_location) FILTER (WHERE pos_location IS NOT NULL) AS num_position_locations,
-        SUM(length(coalesce(pos_description, ''))) AS total_description_length,
-        CASE WHEN SUM(CASE WHEN pos_description IS NOT NULL AND length(pos_description) > 0 THEN 1 ELSE 0 END) > 0
-             THEN 1 ELSE 0 END AS has_position_descriptions,
         MAX(is_current) AS is_currently_employed,
-        AVG(length(coalesce(pos_title, ''))) AS avg_title_length,
         -- Years experience: earliest start to latest end
         CASE WHEN MIN(start_frac) IS NOT NULL AND MAX(end_frac) IS NOT NULL
              THEN MAX(end_frac) - MIN(start_frac)
              ELSE 0 END AS years_experience,
-        -- Current position tenure (months) — latest current position
-        CASE WHEN MAX(is_current) = 1
-             THEN (MAX(end_frac) FILTER (WHERE is_current = 1) - MAX(start_frac) FILTER (WHERE is_current = 1)) * 12
-             ELSE 0 END AS current_position_tenure_months,
-        -- Avg tenure across all positions (months)
-        AVG((end_frac - start_frac) * 12) FILTER (WHERE start_frac IS NOT NULL) AS avg_position_tenure_months,
-        -- Longest single tenure (months)
-        MAX((end_frac - start_frac) * 12) FILTER (WHERE start_frac IS NOT NULL) AS longest_tenure_months,
         -- Concatenated text for keyword matching
         string_agg(
             coalesce(pos_title, '') || ' ' || coalesce(pos_company, '') || ' ' || coalesce(pos_location, '') || ' ' || coalesce(pos_description, ''),
@@ -105,14 +82,10 @@ position_aggs AS (
     GROUP BY deal_id
 ),
 
--- Unnest educations and aggregate
+-- Unnest educations and aggregate text for keyword matching
 education_aggs AS (
     SELECT
         p.deal_id,
-        MAX(CASE WHEN edu.degree IS NOT NULL AND length(edu.degree) > 0 THEN 1 ELSE 0 END) AS has_education_degree,
-        MAX(CASE WHEN edu.field_of_study IS NOT NULL AND length(edu.field_of_study) > 0 THEN 1 ELSE 0 END) AS has_field_of_study,
-        CASE WHEN SUM(CASE WHEN edu.degree IS NOT NULL AND length(edu.degree) > 0 THEN 1 ELSE 0 END) > 1
-             THEN 1 ELSE 0 END AS has_multiple_degrees,
         string_agg(
             coalesce(edu.school_name, '') || ' ' || coalesce(edu.degree, '') || ' ' || coalesce(edu.field_of_study, ''),
             ' '
@@ -135,53 +108,10 @@ SELECT
     p.lead_id,
     p.accepted,
 
-    -- Basic profile features
-    p.headline,
-    p.city_name,
-    p.company_name,
-    p.location,
-    p.industry_name,
-    p.geo_name,
+    -- Mechanical features
     p.connection_degree,
-    p.num_positions,
-    p.num_educations,
-
-    -- Derived boolean/length features
-    CASE WHEN p.summary IS NOT NULL AND length(p.summary) > 0
-         THEN 1 ELSE 0
-    END AS has_summary,
-    length(coalesce(p.headline, '')) AS headline_length,
-    length(coalesce(p.summary, '')) AS summary_length,
-    CASE WHEN p.industry_name IS NOT NULL AND length(p.industry_name) > 0
-         THEN 1 ELSE 0
-    END AS has_industry,
-    CASE WHEN p.geo_name IS NOT NULL AND length(p.geo_name) > 0
-         THEN 1 ELSE 0
-    END AS has_geo,
-    CASE WHEN p.location IS NOT NULL AND length(p.location) > 0
-         THEN 1 ELSE 0
-    END AS has_location,
-    CASE WHEN p.company_name IS NOT NULL AND length(p.company_name) > 0
-         THEN 1 ELSE 0
-    END AS has_company,
-
-    -- Position-derived features
-    coalesce(pa.num_distinct_companies, 0) AS num_distinct_companies,
-    coalesce(pa.positions_with_description_ratio, 0) AS positions_with_description_ratio,
-    coalesce(pa.num_position_locations, 0) AS num_position_locations,
-    coalesce(pa.total_description_length, 0) AS total_description_length,
-    coalesce(pa.has_position_descriptions, 0) AS has_position_descriptions,
     coalesce(pa.is_currently_employed, 0) AS is_currently_employed,
-    coalesce(pa.avg_title_length, 0) AS avg_title_length,
     coalesce(pa.years_experience, 0) AS years_experience,
-    coalesce(pa.current_position_tenure_months, 0) AS current_position_tenure_months,
-    coalesce(pa.avg_position_tenure_months, 0) AS avg_position_tenure_months,
-    coalesce(pa.longest_tenure_months, 0) AS longest_tenure_months,
-
-    -- Education-derived features
-    coalesce(ea.has_education_degree, 0) AS has_education_degree,
-    coalesce(ea.has_field_of_study, 0) AS has_field_of_study,
-    coalesce(ea.has_multiple_degrees, 0) AS has_multiple_degrees,
 
     -- Timestamps
     p.deal_created,

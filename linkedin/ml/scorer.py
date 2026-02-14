@@ -17,32 +17,12 @@ logger = logging.getLogger(__name__)
 
 ANALYTICS_DB = DATA_DIR / "analytics.duckdb"
 
-# 24 mechanical features matching the mart column names exactly
+# Mechanical features matching the mart column names exactly.
+# Kept minimal to avoid overshadowing keyword-based features.
 MECHANICAL_FEATURES = [
     "connection_degree",
-    "num_positions",
-    "num_educations",
-    "has_summary",
-    "headline_length",
-    "summary_length",
-    "has_industry",
-    "has_geo",
-    "has_location",
-    "has_company",
-    "num_distinct_companies",
-    "positions_with_description_ratio",
-    "num_position_locations",
-    "total_description_length",
-    "has_position_descriptions",
     "is_currently_employed",
-    "avg_title_length",
     "years_experience",
-    "current_position_tenure_months",
-    "avg_position_tenure_months",
-    "longest_tenure_months",
-    "has_education_degree",
-    "has_field_of_study",
-    "has_multiple_degrees",
 ]
 
 
@@ -140,106 +120,35 @@ class ProfileScorer:
         return True
 
     def _extract_mechanical_features(self, profile: dict) -> list:
-        """Compute 24 mechanical features from in-memory profile dict."""
+        """Compute mechanical features from in-memory profile dict."""
         p = profile.get("profile", {}) or {}
         positions = p.get("positions", []) or []
-        educations = p.get("educations", []) or []
-        summary = p.get("summary", "") or ""
-        headline = p.get("headline", "") or ""
-        industry = p.get("industry", {}) or {}
-        geo = p.get("geo", {}) or {}
-        location_name = p.get("location_name", "") or ""
-        company_name = p.get("company_name", "") or ""
-
-        # Position-derived features
-        num_distinct_companies = len({
-            pos.get("company_name", "")
-            for pos in positions
-            if pos.get("company_name")
-        })
-        pos_with_desc = sum(1 for pos in positions if pos.get("description"))
-        positions_with_description_ratio = pos_with_desc / len(positions) if positions else 0.0
-        num_position_locations = len({
-            pos.get("location", "")
-            for pos in positions
-            if pos.get("location")
-        })
-        total_description_length = sum(
-            len(pos.get("description", "") or "") for pos in positions
-        )
-        has_position_descriptions = 1 if pos_with_desc > 0 else 0
 
         now_frac = date.today().year + date.today().month / 12.0
         is_currently_employed = 0
-        title_lengths = []
-        tenures = []
         start_fracs = []
         end_fracs = []
-        current_tenure = 0.0
 
         for pos in positions:
-            title_lengths.append(len(pos.get("title", "") or ""))
-            start_year = pos.get("start_year")
-            start_month = pos.get("start_month") or 1
-            end_year = pos.get("end_year")
-            end_month = pos.get("end_month") or 1
-            is_current = end_year is None
-
-            if is_current:
+            if pos.get("end_year") is None:
                 is_currently_employed = 1
 
+            start_year = pos.get("start_year")
             if start_year is not None:
-                sf = start_year + start_month / 12.0
-                ef = (end_year + end_month / 12.0) if end_year else now_frac
-                start_fracs.append(sf)
-                end_fracs.append(ef)
-                tenure_months = (ef - sf) * 12
-                tenures.append(tenure_months)
-                if is_current:
-                    current_tenure = max(current_tenure, tenure_months)
+                start_month = pos.get("start_month") or 1
+                end_year = pos.get("end_year")
+                end_month = pos.get("end_month") or 1
+                start_fracs.append(start_year + start_month / 12.0)
+                end_fracs.append(
+                    (end_year + end_month / 12.0) if end_year else now_frac
+                )
 
-        avg_title_length = sum(title_lengths) / len(title_lengths) if title_lengths else 0.0
         years_experience = (max(end_fracs) - min(start_fracs)) if start_fracs else 0.0
-        avg_position_tenure_months = sum(tenures) / len(tenures) if tenures else 0.0
-        longest_tenure_months = max(tenures) if tenures else 0.0
-
-        # Education-derived features
-        has_education_degree = 0
-        has_field_of_study = 0
-        degree_count = 0
-        for edu in educations:
-            if edu.get("degree"):
-                has_education_degree = 1
-                degree_count += 1
-            if edu.get("field_of_study"):
-                has_field_of_study = 1
-        has_multiple_degrees = 1 if degree_count > 1 else 0
 
         return [
             p.get("connection_degree") or 0,
-            len(positions),
-            len(educations),
-            1 if summary else 0,
-            len(headline),
-            len(summary),
-            1 if industry.get("name") else 0,
-            1 if geo.get("defaultLocalizedNameWithoutCountryName") else 0,
-            1 if location_name else 0,
-            1 if company_name else 0,
-            num_distinct_companies,
-            positions_with_description_ratio,
-            num_position_locations,
-            total_description_length,
-            has_position_descriptions,
             is_currently_employed,
-            avg_title_length,
             years_experience,
-            current_tenure,
-            avg_position_tenure_months,
-            longest_tenure_months,
-            has_education_degree,
-            has_field_of_study,
-            has_multiple_degrees,
         ]
 
     def _extract_features(self, profile: dict) -> list:

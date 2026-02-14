@@ -8,7 +8,7 @@ import yaml
 from linkedin.ml.scorer import ProfileScorer, ANALYTICS_DB, MECHANICAL_FEATURES
 
 
-# All 24 mechanical columns + profile_text + accepted
+# All mechanical columns + profile_text + accepted
 _ALL_COLUMNS = list(MECHANICAL_FEATURES) + ["profile_text", "accepted"]
 
 _CREATE_TABLE_SQL = (
@@ -76,32 +76,11 @@ def _insert_row(con, row_values):
 
 
 def _make_row(accepted, degree=2, n_positions=3, profile_text="engineer at company"):
-    """Build a row tuple with reasonable defaults for all 24 mech features + profile_text + accepted."""
+    """Build a row tuple with reasonable defaults for all mech features + profile_text + accepted."""
     return [
         degree,           # connection_degree
-        n_positions,      # num_positions
-        1,                # num_educations
-        1,                # has_summary
-        20,               # headline_length
-        50,               # summary_length
-        1,                # has_industry
-        1,                # has_geo
-        1,                # has_location
-        1,                # has_company
-        n_positions,      # num_distinct_companies
-        0.5,              # positions_with_description_ratio
-        n_positions,      # num_position_locations
-        100,              # total_description_length
-        1,                # has_position_descriptions
         1,                # is_currently_employed
-        15.0,             # avg_title_length
         5.0,              # years_experience
-        24.0,             # current_position_tenure_months
-        18.0,             # avg_position_tenure_months
-        36.0,             # longest_tenure_months
-        1,                # has_education_degree
-        1,                # has_field_of_study
-        0,                # has_multiple_degrees
         profile_text,     # profile_text
         accepted,         # accepted
     ]
@@ -314,8 +293,8 @@ class TestTrainedWithKeywords:
         assert "positive keyword: ml" in scorer._all_feature_names
         assert "negative keyword: student" in scorer._all_feature_names
 
-        # Model should be trained on all features (mechanical + keywords)
-        assert scorer._model.n_features_in_ == len(MECHANICAL_FEATURES) + 3  # 3 keywords
+        # Model should be trained on all features (3 mechanical + 3 keywords)
+        assert scorer._model.n_features_in_ == len(MECHANICAL_FEATURES) + 3
 
     def test_explain_with_keywords_shows_top_features(self, tmp_path):
         import duckdb
@@ -364,14 +343,10 @@ class TestMechanicalFeatures:
         features = scorer._extract_mechanical_features(profile)
         # connection_degree
         assert features[0] == 2
-        # num_positions
-        assert features[1] == 2
-        # num_educations
-        assert features[2] == 1
-        # has_summary
-        assert features[3] == 1
-        # headline_length
-        assert features[4] == len("Engineer")
+        # is_currently_employed (last position has no end_year in _make_profile with_dates)
+        assert features[1] == 1
+        # years_experience > 0
+        assert features[2] > 0
 
     def test_empty_profile_features(self, tmp_path):
         scorer = ProfileScorer(seed=42, keywords_path=tmp_path / "empty_kw.yaml")
