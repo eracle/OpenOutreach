@@ -266,6 +266,8 @@ Automation may violate LinkedIn's terms (Section 8.2). Risk of account suspensio
 
 **Use at your own risk — no liability assumed.**
 
+<sub>Accounts in non-GDPR jurisdictions are auto-subscribed to the OpenOutreach newsletter on first run. You can disable this via `subscribe_newsletter` in your [account config](./docs/configuration.md#gdpr-location-detection).</sub>
+
 ---
 
 <div align="center">
