@@ -190,9 +190,17 @@ def parse_linkedin_voyager_response(
     for entity in json_response.get("included", []):
         if entity.get("$type") == "com.linkedin.voyager.dash.identity.profile.Profile":
             entity_id = entity.get("publicIdentifier")
-            if public_identifier is None or entity_id == public_identifier:
+            if public_identifier is not None and entity_id == public_identifier:
                 profile_entity = entity
                 break
+            if public_identifier is None:
+                recipes = entity.get("$recipeTypes", [])
+                is_full = any("FullProfile" in r for r in recipes)
+                if is_full:
+                    profile_entity = entity
+                    break
+                if profile_entity is None:
+                    profile_entity = entity
 
     # Fallback if not found via $type
     if not profile_entity:
