@@ -68,6 +68,8 @@ class LinkedInProfile:
     positions: List[Position] = field(default_factory=list)
     educations: List[Education] = field(default_factory=list)
 
+    country_code: Optional[str] = None
+
     connection_distance: Optional[ConnectionDistance] = None
     connection_degree: Optional[int] = None
 
@@ -236,6 +238,22 @@ def parse_linkedin_voyager_response(
                 if edu:
                     educations.append(_enrich_education(edu, urn_map))
 
+    # Resolve geo — try direct *geo first, then nested geoLocation.*geo
+    geo_entity = _resolve_star_field(profile_entity, urn_map, "*geo")
+    if not geo_entity:
+        geo_location = profile_entity.get("geoLocation")
+        if geo_location:
+            geo_urn = geo_location.get("*geo") or geo_location.get("geoUrn")
+            if geo_urn:
+                geo_entity = urn_map.get(geo_urn)
+
+    location_name = profile_entity.get("locationName")
+    if not location_name and geo_entity:
+        location_name = geo_entity.get("defaultLocalizedName")
+
+    # Extract country code from profile location
+    country_code = profile_entity.get("location", {}).get("countryCode")
+
     # Assemble data for dataclass validation
     profile_data = {
         "urn": profile_entity["entityUrn"],
@@ -245,9 +263,10 @@ def parse_linkedin_voyager_response(
         "headline": profile_entity.get("headline"),
         "summary": profile_entity.get("summary"),
         "public_identifier": profile_entity.get("publicIdentifier"),
-        "location_name": profile_entity.get("locationName"),
-        "geo": _resolve_star_field(profile_entity, urn_map, "*geo"),
+        "location_name": location_name,
+        "geo": geo_entity,
         "industry": _resolve_star_field(profile_entity, urn_map, "*industry"),
+        "country_code": country_code,
         "url": f"https://www.linkedin.com/in/{profile_entity.get('publicIdentifier', '')}/",
         "positions": positions,
         "educations": educations,

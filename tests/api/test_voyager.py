@@ -94,3 +94,75 @@ def test_no_exceptions_on_empty_or_minimal_profiles():
     profile = parse_linkedin_voyager_response(minimal)
     assert profile["full_name"] == "John Doe"
     assert profile["connection_degree"] is None
+
+
+def test_country_code_extracted():
+    """country_code is extracted from profile_entity.location.countryCode."""
+    data = {
+        "data": {"*elements": ["urn:li:fsd_profile:ACoAAA789"]},
+        "included": [
+            {
+                "entityUrn": "urn:li:fsd_profile:ACoAAA789",
+                "$type": "com.linkedin.voyager.dash.identity.profile.Profile",
+                "firstName": "Anna",
+                "lastName": "Schmidt",
+                "publicIdentifier": "anna-schmidt",
+                "location": {
+                    "countryCode": "de",
+                    "$type": "com.linkedin.voyager.dash.identity.profile.ProfileLocation",
+                },
+            }
+        ],
+    }
+    profile = parse_linkedin_voyager_response(data)
+    assert profile["country_code"] == "de"
+
+
+def test_country_code_missing():
+    """country_code is None when location block is absent."""
+    data = {
+        "data": {"*elements": ["urn:li:fsd_profile:ACoAAA000"]},
+        "included": [
+            {
+                "entityUrn": "urn:li:fsd_profile:ACoAAA000",
+                "$type": "com.linkedin.voyager.dash.identity.profile.Profile",
+                "firstName": "No",
+                "lastName": "Location",
+                "publicIdentifier": "no-location",
+            }
+        ],
+    }
+    profile = parse_linkedin_voyager_response(data)
+    assert profile["country_code"] is None
+
+
+def test_location_fallback_from_geo_location():
+    """locationName is None but geoLocation.*geo resolves to a geo entity."""
+    data = {
+        "data": {"*elements": ["urn:li:fsd_profile:ACoAAA456"]},
+        "included": [
+            {
+                "entityUrn": "urn:li:fsd_profile:ACoAAA456",
+                "$type": "com.linkedin.voyager.dash.identity.profile.Profile",
+                "firstName": "Diego",
+                "lastName": "Ramirez",
+                "publicIdentifier": "diego-ramirez",
+                "locationName": None,
+                "*geo": None,
+                "geoLocation": {
+                    "*geo": "urn:li:fsd_geo:104189151",
+                    "geoUrn": "urn:li:fsd_geo:104189151",
+                },
+            },
+            {
+                "entityUrn": "urn:li:fsd_geo:104189151",
+                "$type": "com.linkedin.voyager.dash.common.Geo",
+                "defaultLocalizedName": "Brazoria, Texas, United States",
+                "defaultLocalizedNameWithoutCountryName": "Brazoria, Texas",
+                "countryUrn": "urn:li:fsd_geo:103644278",
+            },
+        ],
+    }
+    profile = parse_linkedin_voyager_response(data)
+    assert profile["location_name"] == "Brazoria, Texas, United States"
+    assert profile["geo"]["defaultLocalizedName"] == "Brazoria, Texas, United States"

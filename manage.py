@@ -105,8 +105,8 @@ def _run_daemon():
 
     newsletter_marker = COOKIES_DIR / f".{session.handle}_newsletter_processed"
     if not newsletter_marker.exists():
-        location = profile.get("location_name") if profile else None
-        apply_gdpr_newsletter_override(session, location)
+        country_code = profile.get("country_code") if profile else None
+        apply_gdpr_newsletter_override(session, country_code)
         ensure_newsletter_subscription(session)
         newsletter_marker.touch()
 
