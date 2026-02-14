@@ -69,8 +69,7 @@ Outside working hours, the daemon sleeps until the next window starts.
 
 ## Account Configuration (`accounts:`)
 
-Define one or more LinkedIn accounts. The daemon uses the first active account by default, or you can specify
-one with `python main.py run <handle>`.
+Define one or more LinkedIn accounts. The daemon uses the first active account by default.
 
 ```yaml
 accounts:
@@ -116,8 +115,8 @@ The system automatically generates these paths per account:
 
 ## Campaign Keywords
 
-Campaign keywords are stored at `assets/campaign/campaign_keywords.yaml` and generated via onboarding or the
-`generate-keywords` CLI command. They contain three lists used by the ML scorer:
+Campaign keywords are stored at `assets/campaign/campaign_keywords.yaml` and generated via interactive
+onboarding on first run. They contain three lists used by the ML scorer:
 
 ```yaml
 positive:

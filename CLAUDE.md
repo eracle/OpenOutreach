@@ -13,11 +13,10 @@ OpenOutreach is a self-hosted LinkedIn automation tool for B2B lead generation. 
 python -m venv venv && source venv/bin/activate
 make setup                           # install deps + migrate + bootstrap CRM
 playwright install --with-deps chromium
-python main.py run                   # run the daemon (interactive onboarding on first run)
-python main.py run <handle>          # run the daemon with a specific account
-python main.py run --product-docs docs.txt --campaign-objective obj.txt  # skip interactive onboarding
-python main.py generate-keywords docs.md "sell X to Y"  # generate campaign keywords via LLM
-python manage_crm.py runserver       # Django Admin at http://localhost:8000/admin/
+python manage.py                     # run the daemon (interactive onboarding on first run)
+python manage.py runserver           # Django Admin at http://localhost:8000/admin/
+python manage.py migrate             # run Django migrations
+python manage.py createsuperuser     # create Django admin user
 make analytics                       # build dbt models (DuckDB analytics)
 make analytics-test                  # run dbt schema tests
 ```
@@ -42,16 +41,15 @@ make up-view  # run + open VNC viewer
 ## Architecture
 
 ### Entry Flow
-`main.py` (Django bootstrap + auto-migrate + CRM setup) → argparse subcommands:
-- `run [handle]` — seeds `/in/eracle/` profile (returns full profile dict), runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages.
-- `generate-keywords <product_docs> "<objective>"` — calls LLM to generate `assets/campaign_keywords.yaml` with positive/negative/exploratory keyword lists for ML scoring
+`manage.py` (Django bootstrap + auto-migrate + CRM setup):
+- No args → runs the daemon: seeds own profile, runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages.
+- Any args → delegates to Django's `execute_from_command_line` (e.g. `runserver`, `migrate`, `createsuperuser`).
 
 ### Onboarding (`onboarding.py`)
-Before the daemon starts, `ensure_keywords()` ensures campaign keywords exist. Three paths:
+Before the daemon starts, `ensure_keywords()` ensures campaign keywords exist. Two paths:
 
-1. **CLI file args** (`python main.py run --product-docs docs.txt --campaign-objective obj.txt`) — reads both files, calls LLM to generate keywords, persists all three files to `assets/campaign/`.
-2. **Already onboarded** — if `assets/campaign/campaign_keywords.yaml` exists, does nothing.
-3. **Interactive onboarding** — if no keywords file exists and no CLI args, prompts the user in the terminal:
+1. **Already onboarded** — if `assets/campaign/campaign_keywords.yaml` exists, does nothing.
+2. **Interactive onboarding** — if no keywords file exists, prompts the user in the terminal:
    - Product/service description (multi-line, Ctrl-D to finish)
    - Campaign objective (multi-line, Ctrl-D to finish)
    - Validates non-empty, persists inputs to `assets/campaign/product_docs.txt` and `assets/campaign/campaign_objective.txt`, then calls LLM to generate keywords.
@@ -93,7 +91,7 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
 - **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_pending_profiles()` (per-profile exponential backoff via `deal.next_step`), `get_connected_profiles()` for lane queries. `_deal_to_profile_dict()` includes a `meta` key with parsed `next_step` JSON. `set_profile_state()` clears `next_step` on any transition to/from PENDING. CRM lookups are `@lru_cache`d.
 - **`gdpr.py`** — GDPR location detection for newsletter auto-subscription. Checks LinkedIn location against keyword list of opt-in email marketing jurisdictions (EU/EEA, UK, Switzerland, Canada, Brazil, Australia, Japan, South Korea, New Zealand). Falls back to LLM for unrecognised locations. `apply_gdpr_newsletter_override()` runs once per account (marker file), auto-enabling `subscribe_newsletter` for non-GDPR locations.
-- **`onboarding.py`** — Interactive onboarding and keyword generation. `ensure_keywords()` handles three paths (CLI files, already onboarded, interactive). `generate_keywords()` calls LLM via Jinja2 prompt template and validates the YAML response. `_read_multiline()` reads multi-line terminal input (Ctrl-D to finish).
+- **`onboarding.py`** — Interactive onboarding and keyword generation. `ensure_keywords()` handles two paths (already onboarded, interactive). `generate_keywords()` calls LLM via Jinja2 prompt template and validates the YAML response. `_read_multiline()` reads multi-line terminal input (Ctrl-D to finish).
 - **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. Exports `CAMPAIGN_CONFIG` dict (rate limits, timing, feature flags), `KEYWORDS_FILE` / `PRODUCT_DOCS_FILE` / `CAMPAIGN_OBJECTIVE_FILE` paths. All paths derived from `ASSETS_DIR`.
 - **`api/voyager.py`** — Parses LinkedIn's Voyager API JSON responses into clean dicts via internal dataclasses (`LinkedInProfile`, `Position`, `Education`). Uses URN reference resolution from the `included` array.
 - **`django_settings.py`** — Django settings importing DjangoCRM's default settings. SQLite DB at `assets/data/crm.db`.
@@ -105,7 +103,7 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 ### Configuration
 - **`assets/accounts.secrets.yaml`** — Single config file containing: `env:` (API keys, model), `campaign:` (rate limits, timing, feature flags), `accounts:` (credentials, template). Copy from `assets/accounts.secrets.template.yaml`.
 - **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.recheck_after_hours` (base interval, doubles per profile via exponential backoff), `follow_up.daily_limit`, `follow_up.existing_connections` (false = ignore pre-existing connections), `enrich_min_interval` (floor seconds between enrichment API calls, default 1), `working_hours.start` / `working_hours.end` (HH:MM, default 09:00–18:00, OS local timezone).
-- **`assets/campaign/campaign_keywords.yaml`** — Generated by `generate-keywords` subcommand or interactive onboarding. Contains `positive`, `negative`, and `exploratory` keyword lists used by the ML scorer for boolean presence features and cold-start ranking.
+- **`assets/campaign/campaign_keywords.yaml`** — Generated by interactive onboarding on first run. Contains `positive`, `negative`, and `exploratory` keyword lists used by the ML scorer for boolean presence features and cold-start ranking.
 - **`assets/campaign/product_docs.txt`** — Persisted product/service description from onboarding. Used to regenerate keywords if needed.
 - **`assets/campaign/campaign_objective.txt`** — Persisted campaign objective from onboarding.
 - **`assets/templates/prompts/generate_keywords.j2`** — Jinja2 prompt template for LLM-based keyword generation. Receives `product_docs` and `campaign_objective` variables.

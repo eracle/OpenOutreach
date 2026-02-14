@@ -36,8 +36,8 @@ jobs:
 
       - name: Bootstrap CRM database
         run: |
-          python manage_crm.py migrate --no-input
-          python -m linkedin.management.setup_crm
+          python manage.py migrate --no-input
+          python manage.py setup_crm
 
       - name: dbt run
         run: cd analytics && dbt run

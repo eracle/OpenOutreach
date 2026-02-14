@@ -1,10 +1,9 @@
 # linkedin/onboarding.py
-"""Keyword generation: CLI file arguments or interactive onboarding."""
+"""Keyword generation: interactive onboarding."""
 from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 
 import jinja2
 import yaml
@@ -126,29 +125,12 @@ def _interactive_onboarding() -> None:
     print()
 
 
-def ensure_keywords(
-    product_docs_path: str | None = None,
-    campaign_objective_path: str | None = None,
-) -> None:
+def ensure_keywords() -> None:
     """Ensure campaign keywords exist before the daemon starts.
 
-    If both file paths are given, generates new keywords via LLM and persists inputs.
     If keywords already exist, does nothing (already onboarded).
     Otherwise, runs interactive onboarding to collect inputs and generate keywords.
     """
-    if product_docs_path and campaign_objective_path:
-        product_docs = Path(product_docs_path).read_text(encoding="utf-8").strip()
-        objective = Path(campaign_objective_path).read_text(encoding="utf-8").strip()
-
-        # Persist inputs alongside keywords
-        CAMPAIGN_DIR.mkdir(parents=True, exist_ok=True)
-        PRODUCT_DOCS_FILE.write_text(product_docs, encoding="utf-8")
-        CAMPAIGN_OBJECTIVE_FILE.write_text(objective, encoding="utf-8")
-
-        data = generate_keywords(product_docs, objective)
-        _save_keywords(data)
-        return
-
     if KEYWORDS_FILE.exists():
         return
 

@@ -21,8 +21,8 @@ export DISPLAY=:99
 x11vnc -display :99 -forever -shared -nopw &
 
 # Run Django migrations and bootstrap CRM data
-python manage_crm.py migrate --no-input
-python -m linkedin.management.setup_crm
+python manage.py migrate --no-input
+python manage.py setup_crm
 
-# Run the main Python script/module
-python main.py
+# Run the daemon
+python manage.py

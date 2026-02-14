@@ -91,8 +91,7 @@ You need to provide your LinkedIn credentials and target profiles.
 ### 5. Run the Daemon
 
 ```bash
-make run                    # run with first active account
-make run HANDLE=myhandle    # run with a specific account
+make run
 ```
 The daemon priority-schedules four action lanes (check pending, follow up, connect, + enrich as gap-filler) across configurable working hours with rate limits. Fully resumable — stop/restart anytime without losing progress.
 
@@ -101,7 +100,7 @@ The daemon priority-schedules four action lanes (check pending, follow up, conne
 OpenOutreach includes a full CRM web interface powered by DjangoCRM:
 ```bash
 # Create an admin account (first time only)
-python manage_crm.py createsuperuser
+python manage.py createsuperuser
 
 # Start the web server
 make admin
@@ -228,8 +227,7 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   ├── rate_limiter.py              # Daily/weekly rate limiting
 │   ├── sessions/                    # Session management (AccountSession)
 │   └── templates/                   # Message rendering (Jinja2 / AI-prompt)
-├── main.py                          # CLI entry point (run / generate-keywords)
-├── manage_crm.py                    # Django manage.py (migrate, runserver, createsuperuser)
+├── manage.py                         # Entry point (no args = daemon, or Django commands)
 ├── local.yml                        # Docker Compose
 └── Makefile                         # Shortcuts (setup, run, admin, analytics, test)
 ```

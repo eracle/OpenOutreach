@@ -6,12 +6,7 @@ Creates the default Department, Django Users for each LinkedIn account,
 Deal Stages mapped to the profile state machine, ClosingReasons, and LeadSource.
 
 Idempotent — safe to run multiple times.
-
-Usage:
-    python -m linkedin.management.setup_crm
 """
-import os
-import sys
 import logging
 
 logger = logging.getLogger(__name__)
@@ -112,13 +107,3 @@ def setup_crm():
         logger.info("Created lead source: %s", LEAD_SOURCE_NAME)
 
     logger.debug("CRM setup complete.")
-
-
-if __name__ == "__main__":
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
-
-    import django
-    django.setup()
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    setup_crm()

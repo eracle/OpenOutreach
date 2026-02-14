@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "common.apps.CommonConfig",
     "settings",
     "quality",
+    "linkedin",
 ]
 
 MIDDLEWARE = [

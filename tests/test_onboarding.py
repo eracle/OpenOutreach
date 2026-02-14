@@ -2,7 +2,6 @@
 """Tests for the onboarding module (keyword generation + interactive onboarding)."""
 from __future__ import annotations
 
-import io
 from unittest.mock import patch
 
 import pytest
@@ -73,61 +72,6 @@ class TestGenerateKeywords:
             with patch("linkedin.templates.renderer.call_llm", return_value=incomplete):
                 with pytest.raises(ValueError, match="exploratory"):
                     generate_keywords("product", "objective")
-
-
-# ---------------------------------------------------------------------------
-# ensure_keywords — both files provided (CLI path)
-# ---------------------------------------------------------------------------
-class TestEnsureKeywordsBothFiles:
-    def test_generates_when_both_files(self, tmp_path):
-        """Both files provided → generates and writes keywords + persists inputs."""
-        prod = tmp_path / "prod.md"
-        prod.write_text("My SaaS product", encoding="utf-8")
-        obj = tmp_path / "obj.md"
-        obj.write_text("Sell to CTOs", encoding="utf-8")
-        kw_file = tmp_path / "keywords.yaml"
-        product_docs_file = tmp_path / "product_docs.txt"
-        objective_file = tmp_path / "campaign_objective.txt"
-
-        with (
-            patch.object(onboarding, "generate_keywords", return_value=SAMPLE_DATA) as mock_gen,
-            patch("linkedin.onboarding.KEYWORDS_FILE", kw_file),
-            patch("linkedin.onboarding.CAMPAIGN_DIR", tmp_path),
-            patch("linkedin.onboarding.PRODUCT_DOCS_FILE", product_docs_file),
-            patch("linkedin.onboarding.CAMPAIGN_OBJECTIVE_FILE", objective_file),
-        ):
-            ensure_keywords(
-                product_docs_path=str(prod),
-                campaign_objective_path=str(obj),
-            )
-
-        mock_gen.assert_called_once_with("My SaaS product", "Sell to CTOs")
-        loaded = yaml.safe_load(kw_file.read_text(encoding="utf-8"))
-        assert loaded == SAMPLE_DATA
-        assert product_docs_file.read_text(encoding="utf-8") == "My SaaS product"
-        assert objective_file.read_text(encoding="utf-8") == "Sell to CTOs"
-
-    def test_only_product_docs_triggers_interactive(self, tmp_path):
-        """Only --product-docs without --campaign-objective → triggers interactive."""
-        f = tmp_path / "prod.md"
-        f.write_text("product", encoding="utf-8")
-        with (
-            patch.object(onboarding, "_interactive_onboarding") as mock_interactive,
-            patch("linkedin.onboarding.KEYWORDS_FILE", tmp_path / "nonexistent.yaml"),
-        ):
-            ensure_keywords(product_docs_path=str(f))
-            mock_interactive.assert_called_once()
-
-    def test_only_objective_triggers_interactive(self, tmp_path):
-        """Only --campaign-objective without --product-docs → triggers interactive."""
-        f = tmp_path / "obj.md"
-        f.write_text("objective", encoding="utf-8")
-        with (
-            patch.object(onboarding, "_interactive_onboarding") as mock_interactive,
-            patch("linkedin.onboarding.KEYWORDS_FILE", tmp_path / "nonexistent.yaml"),
-        ):
-            ensure_keywords(campaign_objective_path=str(f))
-            mock_interactive.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

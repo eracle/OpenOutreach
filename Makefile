@@ -31,19 +31,19 @@ install: ## install all Python dependencies (local dev)
 	uv pip install -r requirements/local.txt
 
 setup: install ## install deps + migrate + bootstrap CRM
-	python manage_crm.py migrate --no-input
-	python -m linkedin.management.setup_crm
+	python manage.py migrate --no-input
+	python manage.py setup_crm
 
-run: ## run the daemon (optionally: make run HANDLE=myhandle)
-	python -m main run $(if $(HANDLE),$(HANDLE),)
+run: ## run the daemon
+	python manage.py
 
 admin: ## start the Django Admin web server
 	@echo ""
 	@echo "  Django Admin: http://localhost:8000/admin/"
 	@echo "  CRM UI:       http://localhost:8000/crm/"
-	@echo "  No superuser yet? Run: python manage_crm.py createsuperuser"
+	@echo "  No superuser yet? Run: python manage.py createsuperuser"
 	@echo ""
-	python manage_crm.py runserver
+	python manage.py runserver
 
 analytics: ## run dbt models (build analytics tables)
 	cd analytics && dbt run
