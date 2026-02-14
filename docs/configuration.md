@@ -89,10 +89,24 @@ accounts:
 | `active` | boolean | Enable/disable this account without removing it. | `true` |
 | `username` | string | LinkedIn login email. | (required) |
 | `password` | string | LinkedIn password. | (required) |
-| `subscribe_newsletter` | boolean/null | Receive OpenOutreach updates. | `null` |
+| `subscribe_newsletter` | boolean/null | Receive OpenOutreach updates. Auto-enabled for non-GDPR locations on first run (see below). | `null` |
 | `followup_template` | string | Path to the follow-up message template (relative to `assets/`). | (required) |
 | `followup_template_type` | string | Template engine: `"jinja"` for Jinja2, `"ai_prompt"` for LLM-generated messages. | (required) |
 | `booking_link` | string | URL appended to follow-up messages (e.g. your calendar page). | (none) |
+
+### GDPR Location Detection
+
+On the first run, the daemon checks the logged-in user's LinkedIn location against a keyword list of
+jurisdictions with opt-in email marketing laws (EU/EEA, UK, Switzerland, Canada, Brazil, Australia, Japan,
+South Korea, New Zealand). If no keyword matches, an LLM call determines whether the location is protected.
+
+- **Non-GDPR location**: `subscribe_newsletter` is auto-set to `true` for that account.
+- **GDPR-protected location**: the existing config value is preserved (no override).
+- **Unknown/empty location**: defaults to GDPR-protected (errs on the side of caution).
+
+This check runs once per account (a marker file in `assets/cookies/` prevents re-runs). Setting
+`subscribe_newsletter` explicitly in the config always takes precedence — the override only applies when
+the field is `null` / unset.
 
 ### Derived Paths
 

@@ -49,7 +49,11 @@ def ensure_self_profile(session):
     """Discover the logged-in user's own profile via Voyager API and mark it IGNORED.
 
     Creates two IGNORED leads: the real profile URL and a ``/in/me/`` sentinel.
-    On subsequent runs the sentinel is detected and the function returns early.
+    On subsequent runs the sentinel is detected and the stored profile is
+    returned from the CRM.
+
+    Returns the parsed profile dict on first run, or ``None`` on subsequent
+    runs (the GDPR check is guarded by its own marker file).
     """
     from crm.models import Lead
 
@@ -65,14 +69,14 @@ def ensure_self_profile(session):
     # Sentinel check — already ran once
     if Lead.objects.filter(website=ME_URL).exists():
         logger.debug("Self-profile already discovered (sentinel exists)")
-        return
+        return None
 
     api = PlaywrightLinkedinAPI(session=session)
     profile, data = api.get_profile(public_identifier="me")
 
     if not profile:
         logger.warning("Could not fetch own profile via Voyager API")
-        return
+        return None
 
     real_id = profile["public_identifier"]
     real_url = public_id_to_url(real_id)
@@ -87,12 +91,14 @@ def ensure_self_profile(session):
     set_profile_state(session, "me", ProfileState.IGNORED.value, reason="Own profile sentinel")
 
     logger.info("Self-profile discovered: %s", real_url)
+    return profile
 
 
 def cmd_run(args):
     from linkedin.api.emails import ensure_newsletter_subscription
-    from linkedin.conf import get_first_active_account
+    from linkedin.conf import COOKIES_DIR, get_first_active_account
     from linkedin.daemon import run_daemon
+    from linkedin.gdpr import apply_gdpr_newsletter_override
     from linkedin.onboarding import ensure_keywords
     from linkedin.sessions.registry import get_session
 
@@ -110,8 +116,15 @@ def cmd_run(args):
 
     session = get_session(handle=handle)
     session.ensure_browser()
-    ensure_self_profile(session)
-    ensure_newsletter_subscription(session)
+    profile = ensure_self_profile(session)
+
+    newsletter_marker = COOKIES_DIR / f".{session.handle}_newsletter_processed"
+    if not newsletter_marker.exists():
+        location = profile.get("location_name") if profile else None
+        apply_gdpr_newsletter_override(session, location)
+        ensure_newsletter_subscription(session)
+        newsletter_marker.touch()
+
     run_daemon(session)
 
 

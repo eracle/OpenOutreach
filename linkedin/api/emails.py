@@ -5,7 +5,6 @@ import logging
 from typing import Any
 
 import requests
-from linkedin.conf import COOKIES_DIR
 from linkedin.sessions.account import AccountSession
 
 logger = logging.getLogger(__name__)
@@ -82,7 +81,7 @@ def normalize_boolean(value: Any) -> bool | None:
 
 
 def ensure_newsletter_subscription(session: AccountSession):
-    """One-time newsletter opt-in check and action per campaign run."""
+    """Subscribe the account to the OpenOutreach newsletter if enabled."""
     cfg = session.account_cfg
     handle = session.handle
     subscribe_raw = cfg.get("subscribe_newsletter")
@@ -104,12 +103,7 @@ def ensure_newsletter_subscription(session: AccountSession):
         logger.debug("Newsletter disabled for %s", handle)
         return
 
-    # Case 3: True → check marker
-    marker_file = COOKIES_DIR / f".{handle}_newsletter_subscribed"
-    if marker_file.exists():
-        logger.debug("Already subscribed: %s", handle)
-        return
-
+    # Case 3: True → subscribe
     email = cfg.get("username")
     if not email or "@" not in str(email):
         logger.warning("No valid email for newsletter: %s", handle)
@@ -117,9 +111,3 @@ def ensure_newsletter_subscription(session: AccountSession):
 
     logger.debug("Subscribing %s to OpenOutreach newsletter...", email)
     add_to_newsletter(email)
-
-    try:
-        marker_file.touch()
-        logger.debug("Newsletter marker created: %s", handle)
-    except Exception as e:
-        logger.error("Failed to create marker %s: %s", marker_file, e)

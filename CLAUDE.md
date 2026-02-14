@@ -43,7 +43,7 @@ make up-view  # run + open VNC viewer
 
 ### Entry Flow
 `main.py` (Django bootstrap + auto-migrate + CRM setup) → argparse subcommands:
-- `run [handle]` — seeds `/in/eracle/` profile, runs onboarding (if needed), then launches `daemon.run_daemon()` which time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages.
+- `run [handle]` — seeds `/in/eracle/` profile (returns full profile dict), runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages.
 - `generate-keywords <product_docs> "<objective>"` — calls LLM to generate `assets/campaign_keywords.yaml` with positive/negative/exploratory keyword lists for ML scoring
 
 ### Onboarding (`onboarding.py`)
@@ -92,6 +92,7 @@ The `IGNORED` state is a terminal state for pre-existing connections (already co
 - **`rate_limiter.py:RateLimiter`** — Daily/weekly rate limits with auto-reset. Supports external exhaustion (LinkedIn-side limits).
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
 - **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_pending_profiles()` (per-profile exponential backoff via `deal.next_step`), `get_connected_profiles()` for lane queries. `_deal_to_profile_dict()` includes a `meta` key with parsed `next_step` JSON. `set_profile_state()` clears `next_step` on any transition to/from PENDING. CRM lookups are `@lru_cache`d.
+- **`gdpr.py`** — GDPR location detection for newsletter auto-subscription. Checks LinkedIn location against keyword list of opt-in email marketing jurisdictions (EU/EEA, UK, Switzerland, Canada, Brazil, Australia, Japan, South Korea, New Zealand). Falls back to LLM for unrecognised locations. `apply_gdpr_newsletter_override()` runs once per account (marker file), auto-enabling `subscribe_newsletter` for non-GDPR locations.
 - **`onboarding.py`** — Interactive onboarding and keyword generation. `ensure_keywords()` handles three paths (CLI files, already onboarded, interactive). `generate_keywords()` calls LLM via Jinja2 prompt template and validates the YAML response. `_read_multiline()` reads multi-line terminal input (Ctrl-D to finish).
 - **`conf.py`** — Loads config from `.env` and `assets/accounts.secrets.yaml`. Exports `CAMPAIGN_CONFIG` dict (rate limits, timing, feature flags), `KEYWORDS_FILE` / `PRODUCT_DOCS_FILE` / `CAMPAIGN_OBJECTIVE_FILE` paths. All paths derived from `ASSETS_DIR`.
 - **`api/voyager.py`** — Parses LinkedIn's Voyager API JSON responses into clean dicts via internal dataclasses (`LinkedInProfile`, `Position`, `Education`). Uses URN reference resolution from the `included` array.
