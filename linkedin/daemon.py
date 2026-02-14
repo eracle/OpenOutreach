@@ -211,4 +211,7 @@ def run_daemon(session):
             color = LANE_COLORS[next_schedule.name]
             logger.info(colored(f"▶ {next_schedule.name}", color, attrs=["bold"]))
             next_schedule.lane.execute()
-        next_schedule.reschedule()
+            next_schedule.reschedule()
+        else:
+            # Nothing to do — retry soon instead of waiting the full interval
+            next_schedule.next_run = time.time() + 60
