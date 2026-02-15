@@ -95,6 +95,18 @@ def _paginate_to_next_page(session: "AccountSession", page_num: int):
     )
 
 
+def search_people(session: "AccountSession", keyword: str, page: int = 1):
+    """Search LinkedIn People by keyword and navigate to the given page.
+
+    Profile discovery happens automatically — goto_page() calls
+    _extract_in_urls() → add_profile_urls().
+    """
+    session.ensure_browser()
+    _initiate_search(session, keyword)
+    if page > 1:
+        _paginate_to_next_page(session, page)
+
+
 def _simulate_human_search(session: "AccountSession", profile: Dict[str, Any]) -> bool:
     full_name = profile.get("full_name")
     public_identifier = profile.get("public_identifier")

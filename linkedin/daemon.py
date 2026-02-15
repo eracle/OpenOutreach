@@ -14,6 +14,7 @@ from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.enrich import EnrichLane
 from linkedin.lanes.follow_up import FollowUpLane
+from linkedin.lanes.search import SearchLane
 from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.rate_limiter import RateLimiter
 
@@ -139,6 +140,7 @@ def run_daemon(session):
     connect_lane = ConnectLane(session, connect_limiter, qualifier)
     check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
     follow_up_lane = FollowUpLane(session, follow_up_limiter)
+    search_lane = SearchLane(session, qualifier)
 
     # Working hours
     wh_start = _parse_time(cfg["working_hours_start"])
@@ -181,7 +183,7 @@ def run_daemon(session):
         next_schedule = min(schedules, key=lambda s: s.next_run)
         gap = max(next_schedule.next_run - now, 0)
 
-        # ── Fill gap with enrichments + qualifications ──
+        # ── Fill gap with enrichments + qualifications + search ──
         if gap > min_enrich_interval:
             # Count *before* computing wait, but re-check *after* sleep
             to_enrich = count_pending_scrape(session)
@@ -205,7 +207,11 @@ def run_daemon(session):
                 elif qualify_lane.can_execute():
                     qualify_lane.execute()
                     continue  # re-evaluate gap
-                # Neither lane can execute — fall through to wait for major action
+
+            # Pipeline empty — search for new profiles
+            if search_lane.can_execute():
+                search_lane.execute()
+                continue  # re-evaluate gap
 
         # ── Wait for major action ──
         if gap > 0:
