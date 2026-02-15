@@ -113,7 +113,8 @@ class QualifyLane:
         )
         profile_text = self._get_profile_text(lead_id)
         if not profile_text:
-            logger.warning("No profile text for lead %d — skipping", lead_id)
+            logger.warning("No profile text for lead %d — disqualifying", lead_id)
+            self._record_decision(lead_id, public_id, embedding, 0, "no profile text available")
             return
 
         label, reason = qualify_profile_llm(profile_text)

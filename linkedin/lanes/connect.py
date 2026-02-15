@@ -42,6 +42,11 @@ class ConnectLane:
         public_id = candidate["public_identifier"]
         profile = candidate.get("profile") or candidate
 
+        from linkedin.ml.embeddings import get_qualification_reason
+        reason = get_qualification_reason(public_id)
+        if reason:
+            logger.info("Qualify motivation for %s: %s", public_id, reason)
+
         explanation = self.qualifier.explain_profile(candidate)
         logger.debug("ML explanation for %s:\n%s", public_id, explanation)
 

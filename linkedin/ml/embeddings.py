@@ -197,6 +197,18 @@ def get_embedded_lead_ids() -> set[int]:
     return {row[0] for row in rows}
 
 
+def get_qualification_reason(public_id: str) -> str | None:
+    """Return the qualification reason for a profile, or None if not found."""
+    con = _connect(read_only=True)
+    row = con.execute(
+        """SELECT llm_reason FROM profile_embeddings
+           WHERE public_identifier = ? AND label IS NOT NULL""",
+        [public_id],
+    ).fetchone()
+    con.close()
+    return row[0] if row else None
+
+
 def count_labeled() -> dict:
     """Count labeled profiles by class."""
     con = _connect(read_only=True)

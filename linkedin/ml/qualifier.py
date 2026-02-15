@@ -49,7 +49,7 @@ def qualify_profile_llm(profile_text: str) -> tuple[int, str]:
         profile_text=profile_text,
     )
 
-    llm = ChatOpenAI(model=AI_MODEL, temperature=0.7, api_key=LLM_API_KEY, base_url=LLM_API_BASE)
+    llm = ChatOpenAI(model=AI_MODEL, temperature=0.7, api_key=LLM_API_KEY, base_url=LLM_API_BASE, timeout=60)
     structured_llm = llm.with_structured_output(QualificationDecision)
     decision = structured_llm.invoke(prompt)
 
