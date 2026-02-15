@@ -1,4 +1,6 @@
 # tests/conftest.py
+from unittest.mock import patch
+
 import pytest
 from django.contrib.auth.models import Group
 
@@ -39,3 +41,27 @@ def fake_session(db):
     if dept not in user.groups.all():
         user.groups.add(dept)
     return FakeAccountSession(django_user=user)
+
+
+@pytest.fixture
+def embeddings_db(tmp_path):
+    """A fresh, initialized embeddings DB for tests that need it."""
+    import duckdb
+
+    db_path = tmp_path / "embeddings.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS profile_embeddings (
+            lead_id INTEGER PRIMARY KEY,
+            public_identifier VARCHAR NOT NULL,
+            embedding FLOAT[384] NOT NULL,
+            is_seed BOOLEAN DEFAULT FALSE,
+            label INTEGER,
+            llm_reason VARCHAR,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            labeled_at TIMESTAMP
+        )
+    """)
+    con.close()
+    with patch("linkedin.ml.embeddings.EMBEDDINGS_DB", db_path):
+        yield db_path

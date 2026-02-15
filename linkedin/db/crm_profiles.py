@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 STATE_TO_STAGE = {
     ProfileState.DISCOVERED: "Discovered",
     ProfileState.ENRICHED: "Enriched",
+    ProfileState.QUALIFIED: "Qualified",
+    ProfileState.DISQUALIFIED: "Disqualified",
     ProfileState.PENDING: "Pending",
     ProfileState.CONNECTED: "Connected",
     ProfileState.COMPLETED: "Completed",
@@ -47,7 +49,7 @@ def _get_department():
     return Department.objects.get(name="LinkedIn Outreach")
 
 
-@lru_cache(maxsize=8)
+@lru_cache(maxsize=16)
 def _get_stage(state: ProfileState):
     from crm.models import Stage
     dept = _get_department()
@@ -346,11 +348,21 @@ def set_profile_state(
             deal.closing_reason = closing
         deal.active = False
 
+    if ps == ProfileState.DISQUALIFIED:
+        closing = ClosingReason.objects.filter(
+            name="Disqualified", department=dept
+        ).first()
+        if closing:
+            deal.closing_reason = closing
+        deal.active = False
+
     deal.save()
 
     _STATE_LOG_STYLE = {
         ProfileState.DISCOVERED: ("DISCOVERED", "green", []),
         ProfileState.ENRICHED: ("ENRICHED", "yellow", ["bold"]),
+        ProfileState.QUALIFIED: ("QUALIFIED", "green", ["bold"]),
+        ProfileState.DISQUALIFIED: ("DISQUALIFIED", "red", ["bold"]),
         ProfileState.PENDING: ("PENDING", "cyan", []),
         ProfileState.CONNECTED: ("CONNECTED", "green", ["bold"]),
         ProfileState.COMPLETED: ("COMPLETED", "green", ["bold"]),
@@ -464,6 +476,30 @@ def count_enriched_profiles(session) -> int:
     from crm.models import Deal
 
     stage = _get_stage(ProfileState.ENRICHED)
+    return Deal.objects.filter(
+        stage=stage,
+        owner=session.django_user,
+    ).count()
+
+
+def get_qualified_profiles(session) -> list:
+    """All Deals at QUALIFIED stage for this user."""
+    from crm.models import Deal
+
+    stage = _get_stage(ProfileState.QUALIFIED)
+    deals = Deal.objects.filter(
+        stage=stage,
+        owner=session.django_user,
+    ).select_related("lead")
+
+    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
+
+
+def count_qualified_profiles(session) -> int:
+    """Count Deals at QUALIFIED stage."""
+    from crm.models import Deal
+
+    stage = _get_stage(ProfileState.QUALIFIED)
     return Deal.objects.filter(
         stage=stage,
         owner=session.django_user,

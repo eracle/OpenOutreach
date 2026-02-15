@@ -13,6 +13,7 @@ from linkedin.db.crm_profiles import (
     save_scraped_profile,
     set_profile_state,
     url_to_public_id,
+    public_id_to_url,
 )
 from linkedin.navigation.enums import ProfileState
 
@@ -66,6 +67,7 @@ class EnrichLane:
                     )
                 else:
                     set_profile_state(self.session, public_id, ProfileState.ENRICHED.value)
+                    self._embed_profile(public_id, profile)
         except Exception:
             logger.exception("Failed to enrich %s", url)
             try:
@@ -73,3 +75,17 @@ class EnrichLane:
                 set_profile_state(self.session, public_id, ProfileState.FAILED.value)
             except Exception:
                 pass
+
+    def _embed_profile(self, public_id: str, profile: dict):
+        """Compute and store embedding for a freshly enriched profile."""
+        from crm.models import Lead
+
+        from linkedin.ml.embeddings import embed_profile
+
+        clean_url = public_id_to_url(public_id)
+        lead = Lead.objects.filter(website=clean_url).first()
+        if not lead:
+            return
+
+        if embed_profile(lead.pk, public_id, profile):
+            logger.debug("Embedded %s during enrichment", public_id)
