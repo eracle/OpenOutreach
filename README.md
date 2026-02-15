@@ -26,7 +26,7 @@ OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** designed
 It automates the entire outreach process in a **stealthy, human-like way**:
 
 - Discovers and enriches target profiles
-- Ranks profiles using ML (gradient boosted trees + Thompson Sampling) for smart prioritization
+- Qualifies and ranks profiles using embedding-based ML (Bootstrap Ensemble + Thompson Sampling) with active learning
 - Sends personalized connection requests
 - Follows up with custom messages after acceptance
 - Tracks everything in a built-in CRM with web UI (full data ownership, resumable workflows)
@@ -86,14 +86,21 @@ You need to provide your LinkedIn credentials and target profiles.
    ```bash
    cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
    ```
-   Edit `assets/accounts.secrets.yaml` with your credentials (and add your OpenAI key under `env:` if you want AI follow-ups).
+   Edit `assets/accounts.secrets.yaml` with your credentials and add your LLM API key under `env:` (required for profile qualification).
+
+2. **Provide seed URLs**
+   ```bash
+   # Create a CSV with LinkedIn profile URLs to target
+   echo 'url' > assets/inputs/urls.csv
+   echo 'https://www.linkedin.com/in/example-profile/' >> assets/inputs/urls.csv
+   ```
 
 ### 5. Run the Daemon
 
 ```bash
 make run
 ```
-The daemon priority-schedules four action lanes (check pending, follow up, connect, + enrich as gap-filler) across configurable working hours with rate limits. Fully resumable — stop/restart anytime without losing progress.
+The daemon priority-schedules five action lanes (connect, check pending, follow up, + enrich and qualify as gap-fillers) across configurable working hours with rate limits. Fully resumable — stop/restart anytime without losing progress.
 
 ### 6. View Your Data (CRM Admin)
 
@@ -124,8 +131,8 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 | 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
 | 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
 | 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
-| 🧠 **ML-Driven Prioritization**   | Gradient boosted trees + Thompson Sampling ranks profiles by predicted connection acceptance -- learns and retrains as data grows. |
-| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
+| 🧠 **ML-Driven Qualification**    | Embedding-based Bootstrap Ensemble + Thompson Sampling qualifies and ranks profiles with active learning -- auto-retrains as data grows. |
+| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
 | ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically. |
 | 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI -- browse Leads, Contacts, Companies, and Deals in your browser. |
 | 🐳 **Containerized Setup**         | One-command Docker + Make deployment.                                                                                |
@@ -179,18 +186,19 @@ Book a **free 15-minute call** — I’d love to hear your needs and improve the
 
 ## 📖 Usage & Customization
 
-The daemon (`linkedin/daemon.py`) priority-schedules four action lanes across configurable working hours:
+The daemon (`linkedin/daemon.py`) priority-schedules five action lanes across configurable working hours:
 
 | Lane | What it does | Rate limited? |
 |------|-------------|---------------|
-| **Enrich** | Scrapes DISCOVERED profiles via LinkedIn's Voyager API | Throttled by batch size |
-| **Connect** | ML-ranks ENRICHED profiles, sends connection requests | Daily + weekly limits |
-| **Check Pending** | Checks if PENDING requests were accepted, retrains ML model | Age-gated |
+| **Enrich** | Scrapes DISCOVERED profiles via LinkedIn's Voyager API, computes embeddings | Throttled by batch size |
+| **Qualify** | Qualifies ENRICHED profiles via ML classifier + LLM active learning | Gap-filling |
+| **Connect** | ML-ranks QUALIFIED profiles, sends connection requests | Daily + weekly limits |
+| **Check Pending** | Checks if PENDING requests were accepted | Age-gated |
 | **Follow Up** | Sends personalized messages to CONNECTED profiles | Daily limit |
 
-**Profile states:** `DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED` (or `FAILED` / `IGNORED`)
+**Profile states:** `DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED` (or `FAILED` / `IGNORED` / `DISQUALIFIED`)
 
-Pre-existing connections (already connected before automation) are automatically set to `IGNORED` during enrichment. If `connection_degree` was unknown at scrape time, they're caught during the connect step.
+Pre-existing connections (already connected before automation) are automatically set to `IGNORED` during enrichment. If `connection_degree` was unknown at scrape time, they're caught during the connect step. Profiles rejected by the qualification pipeline are set to `DISQUALIFIED`.
 
 Configure rate limits, timing, and behavior in the `campaign:` section of `accounts.secrets.yaml`.
 
@@ -204,8 +212,9 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   └── models/marts/                # ML training set (ml_connection_accepted)
 ├── assets/
 │   ├── accounts.secrets.yaml        # Credentials + campaign + LLM config (gitignored)
-│   ├── campaign/                    # Keywords + onboarding files (generated)
-│   └── data/                        # crm.db (SQLite), analytics.duckdb
+│   ├── inputs/urls.csv              # Seed URLs CSV (required)
+│   ├── campaign/                    # Onboarding files (product_docs.txt, campaign_objective.txt)
+│   └── data/                        # crm.db (SQLite), analytics.duckdb (embeddings + analytics)
 ├── docs/
 │   ├── architecture.md              # System architecture
 │   ├── configuration.md             # Configuration reference
@@ -219,11 +228,12 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   ├── daemon.py                    # Main daemon loop (priority-scheduled lanes)
 │   ├── db/crm_profiles.py           # CRM-backed profile CRUD (Lead, Contact, Company, Deal)
 │   ├── django_settings.py           # Django/CRM settings (SQLite at assets/data/crm.db)
-│   ├── lanes/                       # Action lanes (enrich, connect, check_pending, follow_up)
+│   ├── lanes/                       # Action lanes (enrich, qualify, connect, check_pending, follow_up)
 │   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Users)
-│   ├── ml/                          # ML scoring (scorer.py, keywords.py)
+│   ├── ml/                          # ML qualification (qualifier.py, embeddings.py, profile_text.py)
 │   ├── navigation/                  # Login, throttling, browser utilities, enums
-│   ├── onboarding.py                # Interactive onboarding + keyword generation
+│   ├── onboarding.py                # Interactive onboarding (product docs + campaign objective)
+│   ├── seeds.py                     # Seed URL loading from CSV
 │   ├── rate_limiter.py              # Daily/weekly rate limiting
 │   ├── sessions/                    # Session management (AccountSession)
 │   └── templates/                   # Message rendering (Jinja2 / AI-prompt)
