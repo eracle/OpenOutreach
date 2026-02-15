@@ -64,9 +64,9 @@ States map to DjangoCRM Deal Stages (defined in `db/crm_profiles.py:STATE_TO_STA
 
 The daemon (`daemon.py`) spreads actions across configurable working hours (default 09:00–18:00, OS local timezone). Three **major lanes** are scheduled at fixed intervals derived from `active_hours / daily_limit` (±20% random jitter). **Enrichment** dynamically fills the gaps between major actions (`gap / profiles_to_enrich`, floored at `enrich_min_interval`). Outside working hours the daemon sleeps until the next window starts.
 
-1. **Check Pending** (scheduled, highest priority) — checks PENDING profiles for acceptance → CONNECTED (triggers ML retrain via dbt). Uses exponential backoff per profile: initial interval = `check_pending_recheck_after_hours`, doubles each time a profile is still pending.
-2. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Contacts profiles immediately once discovered as connected. Interval = active_minutes / follow_up_daily_limit.
-3. **Connect** (scheduled) — ML-ranks ENRICHED profiles, sends connection request → PENDING. Interval = active_minutes / connect_daily_limit.
+1. **Connect** (scheduled, highest priority) — ML-ranks ENRICHED profiles, sends connection request → PENDING. Interval = active_minutes / connect_daily_limit.
+2. **Check Pending** (scheduled) — checks PENDING profiles for acceptance → CONNECTED. Uses exponential backoff per profile: initial interval = `check_pending_recheck_after_hours` (default 24h), doubles each time a profile is still pending.
+3. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Contacts profiles immediately once discovered as connected. Interval = active_minutes / follow_up_daily_limit.
 4. **Enrich** (gap-filling) — scrapes 1 DISCOVERED profile per tick via Voyager API → ENRICHED (or IGNORED if pre-existing connection). Paced to fill time between major actions.
 
 The `IGNORED` state is a terminal state for pre-existing connections (already connected before the automation ran). Controlled by `follow_up_existing_connections` config flag.

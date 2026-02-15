@@ -138,9 +138,9 @@ def run_daemon(session):
     min_enrich_interval = cfg["enrich_min_interval"]
 
     schedules = [
+        LaneSchedule("connect", connect_lane, 0),
         LaneSchedule("check_pending", check_pending_lane, check_pending_interval),
         LaneSchedule("follow_up", follow_up_lane, 0),
-        LaneSchedule("connect", connect_lane, 0),
     ]
     _update_intervals(schedules, wh_end, cfg)
 

@@ -67,7 +67,7 @@ _qualification_cfg = _campaign_raw.get("qualification", {}) or {}
 CAMPAIGN_CONFIG = {
     "connect_daily_limit": _connect_cfg.get("daily_limit", 20),
     "connect_weekly_limit": _connect_cfg.get("weekly_limit", 100),
-    "check_pending_recheck_after_hours": _check_cfg.get("recheck_after_hours", 1),
+    "check_pending_recheck_after_hours": _check_cfg.get("recheck_after_hours", 24),
     "follow_up_daily_limit": _followup_cfg.get("daily_limit", 30),
     "follow_up_existing_connections": _followup_cfg.get("existing_connections", False),
     "working_hours_start": _schedule_cfg.get("start", "09:00"),
