@@ -41,6 +41,7 @@ class QualifyLane:
 
     def execute(self):
         """Embed one profile or qualify one profile per tick."""
+        logger.info(colored("▶ qualify", "blue", attrs=["bold"]))
         # Phase 1: embed profiles that don't have embeddings yet (legacy backfill)
         if self._embed_next_profile():
             return

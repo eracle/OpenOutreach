@@ -16,6 +16,7 @@ from linkedin.db.crm_profiles import (
     public_id_to_url,
 )
 from linkedin.navigation.enums import ProfileState
+from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class EnrichLane:
         return count_pending_scrape(self.session) > 0
 
     def execute(self):
+        logger.info(colored("▶ enrich", "yellow", attrs=["bold"]))
         urls = get_next_url_to_scrape(self.session)
 
         if not urls:

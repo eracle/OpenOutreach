@@ -3,11 +3,15 @@ import json
 import logging
 from typing import Optional, Any
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from linkedin.api.voyager import parse_linkedin_voyager_response
 from linkedin.db.crm_profiles import url_to_public_id
 from linkedin.navigation.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
+
+REQUEST_TIMEOUT_MS = 30_000
 
 
 class PlaywrightLinkedinAPI:
@@ -58,6 +62,12 @@ class PlaywrightLinkedinAPI:
             'x-restli-protocol-version': '2.0.0',
         }
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=30),
+        retry=retry_if_exception_type(IOError),
+        reraise=True,
+    )
     def get_profile(
             self, public_identifier: Optional[str] = None, profile_url: Optional[str] = None
     ) -> tuple[None, None] | tuple[dict, Any]:
@@ -77,7 +87,10 @@ class PlaywrightLinkedinAPI:
         uri = "/identity/dash/profiles"
         full_url = base_url + uri
 
-        res = self.context.request.get(full_url, params=params, headers=self.headers)
+        res = self.context.request.get(
+            full_url, params=params, headers=self.headers,
+            timeout=REQUEST_TIMEOUT_MS,
+        )
 
         match res.status:
             case 401:
@@ -93,7 +106,8 @@ class PlaywrightLinkedinAPI:
         if not res.ok:
             body_str = res.body().decode("utf-8", errors="ignore") if isinstance(res.body(), bytes) else str(res.body())
             logger.error("API request failed → %s | Status: %s", public_identifier, res.status)
-            raise Exception(f"LinkedIn API error {res.status}: {body_str[:500]}")
+            # IOError so tenacity retries on transient server errors
+            raise IOError(f"LinkedIn API error {res.status}: {body_str[:500]}")
 
         data = res.json()
         extracted_info = parse_linkedin_voyager_response(data, public_identifier=public_identifier)

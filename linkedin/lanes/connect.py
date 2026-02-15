@@ -13,6 +13,7 @@ from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.rate_limiter import RateLimiter
 from linkedin.ml.qualifier import QualificationScorer
+from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class ConnectLane:
         return self.rate_limiter.can_execute() and count_qualified_profiles(self.session) > 0
 
     def execute(self):
+        logger.info(colored("▶ connect", "cyan", attrs=["bold"]))
         from linkedin.actions.connect import send_connection_request
         from linkedin.actions.connection_status import get_connection_status
 

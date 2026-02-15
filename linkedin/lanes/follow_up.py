@@ -6,6 +6,7 @@ import logging
 from linkedin.db.crm_profiles import get_connected_profiles, set_profile_state, save_chat_message
 from linkedin.navigation.enums import ProfileState
 from linkedin.rate_limiter import RateLimiter
+from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class FollowUpLane:
         )
 
     def execute(self):
+        logger.info(colored("▶ follow_up", "green", attrs=["bold"]))
         from linkedin.actions.message import send_follow_up_message
 
         profiles = get_connected_profiles(self.session)
@@ -38,9 +40,10 @@ class FollowUpLane:
         )
 
         if message_text is not None:
-            set_profile_state(self.session, public_id, ProfileState.COMPLETED.value)
-            save_chat_message(self.session, public_id, message_text)
-        else:
-            set_profile_state(self.session, public_id, ProfileState.CONNECTED.value)
-
-        self.rate_limiter.record()
+            try:
+                save_chat_message(self.session, public_id, message_text)
+            finally:
+                # Guarantee these once the message is sent,
+                # even if chat save crashes.
+                self.rate_limiter.record()
+                set_profile_state(self.session, public_id, ProfileState.COMPLETED.value)

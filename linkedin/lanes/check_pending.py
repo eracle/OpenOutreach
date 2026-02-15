@@ -8,6 +8,7 @@ from linkedin.db.crm_profiles import get_pending_profiles, set_profile_state
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile
 from linkedin.ml.qualifier import QualificationScorer
+from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class CheckPendingLane:
         return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0
 
     def execute(self):
+        logger.info(colored("▶ check_pending", "magenta", attrs=["bold"]))
         from crm.models import Deal
         from linkedin.actions.connection_status import get_connection_status
         from linkedin.db.crm_profiles import public_id_to_url

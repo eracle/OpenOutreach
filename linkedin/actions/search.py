@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any
 from urllib.parse import urlparse, parse_qs, urlencode
 
-from linkedin.navigation.utils import goto_page
+from linkedin.navigation.utils import goto_page, human_type
 from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def _initiate_search(session: "AccountSession", full_name: str):
 
     search_bar = page.locator(SELECTORS["search_bar"])
     search_bar.click()
-    search_bar.type(full_name, delay=120)
+    human_type(search_bar, full_name)
 
     goto_page(
         session,

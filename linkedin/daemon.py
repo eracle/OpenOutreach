@@ -19,14 +19,6 @@ from linkedin.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
-LANE_COLORS = {
-    "enrich": "yellow",
-    "connect": "cyan",
-    "check_pending": "magenta",
-    "follow_up": "green",
-    "qualify": "blue",
-}
-
 
 
 class LaneSchedule:
@@ -181,28 +173,28 @@ def run_daemon(session):
         gap = max(next_schedule.next_run - now, 0)
 
         # ── Fill gap with enrichments + qualifications ──
-        to_enrich = count_pending_scrape(session)
-        to_qualify = count_enriched_profiles(session)
-        total_work = to_enrich + to_qualify
+        if gap > min_enrich_interval:
+            # Count *before* computing wait, but re-check *after* sleep
+            to_enrich = count_pending_scrape(session)
+            to_qualify = count_enriched_profiles(session)
+            total_work = to_enrich + to_qualify
 
-        if total_work > 0 and gap > min_enrich_interval:
-            enrich_wait = max(gap / total_work, min_enrich_interval)
-            enrich_wait *= random.uniform(0.8, 1.2)
-            enrich_wait = min(enrich_wait, gap)  # don't overshoot
-            logger.debug(
-                "gap-fill in %.0fs (gap %.0fs, %d to enrich, %d to qualify)",
-                enrich_wait, gap, to_enrich, to_qualify,
-            )
-            time.sleep(enrich_wait)
+            if total_work > 0:
+                enrich_wait = max(gap / total_work, min_enrich_interval)
+                enrich_wait *= random.uniform(0.8, 1.2)
+                enrich_wait = min(enrich_wait, gap)  # don't overshoot
+                logger.debug(
+                    "gap-fill in %.0fs (gap %.0fs, %d to enrich, %d to qualify)",
+                    enrich_wait, gap, to_enrich, to_qualify,
+                )
+                time.sleep(enrich_wait)
 
-            if enrich_lane.can_execute():
-                # Prefer enrich (feeds qualify pipeline)
-                logger.debug("▶ enrich")
-                enrich_lane.execute()
-            elif qualify_lane.can_execute():
-                logger.info(colored("▶ qualify", "blue", attrs=["bold"]))
-                qualify_lane.execute()
-            continue  # re-evaluate gap
+                # Fresh check after sleep — counts may have changed
+                if enrich_lane.can_execute():
+                    enrich_lane.execute()
+                elif qualify_lane.can_execute():
+                    qualify_lane.execute()
+                continue  # re-evaluate gap
 
         # ── Wait for major action ──
         if gap > 0:
@@ -213,8 +205,6 @@ def run_daemon(session):
             time.sleep(gap)
 
         if next_schedule.lane.can_execute():
-            color = LANE_COLORS[next_schedule.name]
-            logger.info(colored(f"▶ {next_schedule.name}", color, attrs=["bold"]))
             next_schedule.lane.execute()
             next_schedule.reschedule()
         else:

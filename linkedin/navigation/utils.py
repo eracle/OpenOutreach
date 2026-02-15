@@ -1,5 +1,6 @@
 # linkedin/navigation/utils.py
 import logging
+import random
 from urllib.parse import unquote, urlparse, urljoin
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -87,6 +88,11 @@ def get_top_card(session):
         logger.warning("Top card not found on %s", session.page.url)
         raise SkipProfile("Top Card section not found")
     return top_card
+
+
+def human_type(locator, text: str, min_delay: int = 50, max_delay: int = 200):
+    """Type text with randomized per-keystroke delay to mimic human input."""
+    locator.type(text, delay=random.randint(min_delay, max_delay))
 
 
 def save_page(session: "AccountSession", profile: dict, ):

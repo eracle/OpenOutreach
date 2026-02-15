@@ -7,7 +7,7 @@ from playwright_stealth import Stealth
 from termcolor import colored
 
 from linkedin.conf import get_account_config
-from linkedin.navigation.utils import goto_page
+from linkedin.navigation.utils import goto_page, human_type
 from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
@@ -34,9 +34,9 @@ def playwright_login(session: "AccountSession"):
         error_message="Failed to load login page",
     )
 
-    page.locator(SELECTORS["email"]).type(config["username"], delay=80)
+    human_type(page.locator(SELECTORS["email"]), config["username"])
     session.wait()
-    page.locator(SELECTORS["password"]).type(config["password"], delay=80)
+    human_type(page.locator(SELECTORS["password"]), config["password"])
     session.wait()
 
     goto_page(

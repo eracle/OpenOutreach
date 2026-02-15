@@ -1,14 +1,19 @@
 # linkedin/sessions/account.py
 from __future__ import annotations
 
+import json
 import logging
 import random
 import time
+from pathlib import Path
 
 from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY
 from linkedin.navigation.login import init_playwright_session
 
 logger = logging.getLogger(__name__)
+
+# The main LinkedIn auth cookie
+_AUTH_COOKIE_NAME = "li_at"
 
 
 def human_delay(min_val, max_val):
@@ -46,10 +51,30 @@ class AccountSession:
         if not self.page or self.page.is_closed():
             logger.debug("Launching/recovering browser for %s", self.handle)
             init_playwright_session(session=self, handle=self.handle)
+        else:
+            self._maybe_refresh_cookies()
 
     def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY):
         human_delay(min_delay, max_delay)
         self.page.wait_for_load_state("load")
+
+    def _maybe_refresh_cookies(self):
+        """Re-login if the li_at auth cookie in the saved file is expired."""
+        cookie_file = Path(self.account_cfg["cookie_file"])
+        if not cookie_file.exists():
+            return
+        try:
+            data = json.loads(cookie_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            return
+        for cookie in data.get("cookies", []):
+            if cookie.get("name") == _AUTH_COOKIE_NAME:
+                expires = cookie.get("expires", -1)
+                if expires > 0 and expires < time.time():
+                    logger.warning("Auth cookie expired for %s — re-authenticating", self.handle)
+                    self.close()
+                    init_playwright_session(session=self, handle=self.handle)
+                return
 
     def close(self):
         if self.context:

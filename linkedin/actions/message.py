@@ -6,7 +6,7 @@ from typing import Dict, Any
 
 from linkedin.actions.connection_status import get_connection_status
 from linkedin.navigation.enums import ProfileState
-from linkedin.navigation.utils import goto_page
+from linkedin.navigation.utils import goto_page, human_type
 from linkedin.sessions.registry import get_session
 from linkedin.templates.renderer import render_template
 
@@ -116,7 +116,7 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
     )
     try:
         # Search person
-        session.page.locator(SELECTORS["connections_input"]).type(full_name, delay=50)
+        human_type(session.page.locator(SELECTORS["connections_input"]), full_name)
         session.wait(0.5, 1)
 
         item = session.page.locator(SELECTORS["search_result_row"]).first
@@ -126,7 +126,7 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
         item.scroll_into_view_if_needed()
         item.click(delay=200)  # small delay between mousedown/mouseup = very human
 
-        session.page.locator(SELECTORS["compose_input"]).type(message, delay=10)
+        human_type(session.page.locator(SELECTORS["compose_input"]), message)
 
         session.page.locator(SELECTORS["compose_send"]).click(delay=200)
         session.wait(0.5, 1)

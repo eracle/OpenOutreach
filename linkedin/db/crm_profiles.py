@@ -8,9 +8,8 @@ import json
 import logging
 import uuid
 from datetime import date, timedelta
-from functools import lru_cache
 from typing import Dict, Any, Optional, List
-from urllib.parse import urlparse, unquote
+from urllib.parse import quote, urlparse, unquote
 
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -43,13 +42,11 @@ def _make_ticket() -> str:
     return uuid.uuid4().hex[:16]
 
 
-@lru_cache(maxsize=1)
 def _get_department():
     from common.models import Department
     return Department.objects.get(name="LinkedIn Outreach")
 
 
-@lru_cache(maxsize=16)
 def _get_stage(state: ProfileState):
     from crm.models import Stage
     dept = _get_department()
@@ -57,7 +54,6 @@ def _get_stage(state: ProfileState):
     return Stage.objects.get(name=stage_name, department=dept)
 
 
-@lru_cache(maxsize=1)
 def _get_lead_source():
     from crm.models import LeadSource
     dept = _get_department()
@@ -588,7 +584,7 @@ def public_id_to_url(public_id: str) -> str:
     if not public_id:
         return ""
     public_id = public_id.strip("/")
-    return f"https://www.linkedin.com/in/{public_id}/"
+    return f"https://www.linkedin.com/in/{quote(public_id, safe='')}/"
 
 
 def save_chat_message(session: "AccountSession", public_identifier: str, content: str):
