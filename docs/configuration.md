@@ -40,7 +40,7 @@ campaign:
     daily_limit: 20
     weekly_limit: 100
   check_pending:
-    recheck_after_hours: 1
+    recheck_after_hours: 24
   follow_up:
     daily_limit: 30
     existing_connections: false
@@ -54,7 +54,7 @@ campaign:
 |:------|:-----|:------------|:--------|
 | `connect.daily_limit` | integer | Max connection requests per day (resets at midnight). | `20` |
 | `connect.weekly_limit` | integer | Max connection requests per week (resets on Monday). | `100` |
-| `check_pending.recheck_after_hours` | float | Base interval (hours) before first check. Doubles per profile via exponential backoff. | `1` |
+| `check_pending.recheck_after_hours` | float | Base interval (hours) before first check. Doubles per profile via exponential backoff. | `24` |
 | `follow_up.daily_limit` | integer | Max follow-up messages per day (resets at midnight). | `30` |
 | `follow_up.existing_connections` | boolean | `false` = mark pre-existing connections as IGNORED. `true` = send follow-ups to all connections. | `false` |
 | `enrich_min_interval` | integer | Floor (seconds) between enrichment API calls. | `1` |

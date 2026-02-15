@@ -46,9 +46,9 @@ time is soonest:
 
 | Priority | Lane | Interval | Description |
 |----------|------|----------|-------------|
-| 1 (highest) | **Check Pending** | `recheck_after_hours` (default 1h) | Polls PENDING profiles for acceptance |
-| 2 | **Follow Up** | `remaining_minutes / follow_up_daily_limit` | Sends messages to CONNECTED profiles |
-| 3 | **Connect** | `remaining_minutes / connect_daily_limit` | ML-ranks and sends connection requests |
+| 1 (highest) | **Connect** | `remaining_minutes / connect_daily_limit` | ML-ranks and sends connection requests |
+| 2 | **Check Pending** | `recheck_after_hours` (default 24h) | Polls PENDING profiles for acceptance |
+| 3 | **Follow Up** | `remaining_minutes / follow_up_daily_limit` | Sends messages to CONNECTED profiles |
 
 Each major lane is tracked by a `LaneSchedule` object with a `next_run` timestamp. After execution,
 `reschedule()` sets the next run to `time.time() + interval * jitter` (jitter = uniform 0.8-1.2).
@@ -79,8 +79,7 @@ Each lane is a class with `can_execute()` and `execute()` methods:
 
 ### `check_pending.py` — CheckPendingLane
 - Checks PENDING profiles for acceptance via browser UI inspection.
-- Uses exponential backoff per profile: initial = `recheck_after_hours`, doubles each time via `deal.next_step` JSON metadata.
-- When connections flip (PENDING → CONNECTED), triggers `dbt run` + `scorer.train()` to retrain the ML model.
+- Uses exponential backoff per profile: initial = `recheck_after_hours` (default 24h), doubles each time via `deal.next_step` JSON metadata.
 
 ### `follow_up.py` — FollowUpLane
 - Sends a follow-up message to the first CONNECTED profile.
