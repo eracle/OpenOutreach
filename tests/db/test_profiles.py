@@ -16,6 +16,8 @@ from linkedin.db.crm_profiles import (
     get_next_url_to_scrape,
     count_pending_scrape,
     get_enriched_profiles,
+    get_qualified_profiles,
+    count_qualified_profiles,
     get_pending_profiles,
     get_connected_profiles,
 )
@@ -292,6 +294,56 @@ class TestGetPendingProfiles:
 
 
 # ── get_connected_profiles ──
+
+@pytest.mark.django_db
+class TestGetQualifiedProfiles:
+    def test_returns_qualified(self, fake_session):
+        save_scraped_profile(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            {"first_name": "Alice", "headline": "Eng", "positions": []},
+            None,
+        )
+        set_profile_state(fake_session, "alice", ProfileState.QUALIFIED.value)
+        profiles = get_qualified_profiles(fake_session)
+        assert len(profiles) == 1
+        assert profiles[0]["public_identifier"] == "alice"
+
+    def test_excludes_other_stages(self, fake_session):
+        set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)
+        set_profile_state(fake_session, "bob", ProfileState.PENDING.value)
+        profiles = get_qualified_profiles(fake_session)
+        assert len(profiles) == 0
+
+    def test_count_qualified(self, fake_session):
+        set_profile_state(fake_session, "alice", ProfileState.QUALIFIED.value)
+        set_profile_state(fake_session, "bob", ProfileState.QUALIFIED.value)
+        set_profile_state(fake_session, "charlie", ProfileState.ENRICHED.value)
+        assert count_qualified_profiles(fake_session) == 2
+
+
+@pytest.mark.django_db
+class TestDisqualifiedState:
+    def test_disqualified_sets_inactive(self, fake_session):
+        from crm.models import Deal
+
+        set_profile_state(fake_session, "alice", ProfileState.DISQUALIFIED.value)
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        assert deal.active is False
+
+    def test_disqualified_sets_closing_reason(self, fake_session):
+        from crm.models import Deal
+
+        set_profile_state(fake_session, "alice", ProfileState.DISQUALIFIED.value)
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        assert deal.closing_reason is not None
+        assert deal.closing_reason.name == "Disqualified"
+
+    def test_disqualified_state_roundtrip(self, fake_session):
+        set_profile_state(fake_session, "alice", ProfileState.DISQUALIFIED.value)
+        row = get_profile(fake_session, "alice")
+        assert row["state"] == ProfileState.DISQUALIFIED.value
+
 
 @pytest.mark.django_db
 class TestGetConnectedProfiles:

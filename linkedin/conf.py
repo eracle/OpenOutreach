@@ -19,9 +19,10 @@ ASSETS_DIR = ROOT_DIR / "assets"
 COOKIES_DIR = ASSETS_DIR / "cookies"
 DATA_DIR = ASSETS_DIR / "data"
 CAMPAIGN_DIR = ASSETS_DIR / "campaign"
-KEYWORDS_FILE = CAMPAIGN_DIR / "campaign_keywords.yaml"
 PRODUCT_DOCS_FILE = CAMPAIGN_DIR / "product_docs.txt"
 CAMPAIGN_OBJECTIVE_FILE = CAMPAIGN_DIR / "campaign_objective.txt"
+
+EMBEDDINGS_DB = DATA_DIR / "analytics.duckdb"
 
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
@@ -61,6 +62,7 @@ _check_cfg = _campaign_raw.get("check_pending", {}) or {}
 _followup_cfg = _campaign_raw.get("follow_up", {}) or {}
 
 _schedule_cfg = _campaign_raw.get("working_hours", {}) or {}
+_qualification_cfg = _campaign_raw.get("qualification", {}) or {}
 
 CAMPAIGN_CONFIG = {
     "connect_daily_limit": _connect_cfg.get("daily_limit", 20),
@@ -71,7 +73,26 @@ CAMPAIGN_CONFIG = {
     "working_hours_start": _schedule_cfg.get("start", "09:00"),
     "working_hours_end": _schedule_cfg.get("end", "18:00"),
     "enrich_min_interval": _campaign_raw.get("enrich_min_interval", 1),
+    "qualification_high_threshold": _qualification_cfg.get("high_threshold", 0.80),
+    "qualification_low_threshold": _qualification_cfg.get("low_threshold", 0.20),
+    "qualification_uncertainty_threshold": _qualification_cfg.get("uncertainty_threshold", 0.15),
+    "qualification_min_training_samples": _qualification_cfg.get("min_training_samples", 40),
+    "qualification_min_class_ratio": _qualification_cfg.get("min_class_ratio", 0.30),
+    "qualification_retrain_every": _qualification_cfg.get("retrain_every", 200),
+    "qualification_n_estimators": _qualification_cfg.get("n_estimators", 30),
+    "embedding_model": _qualification_cfg.get("embedding_model", "BAAI/bge-small-en-v1.5"),
 }
+
+# Seed URLs file — configured in secrets, defaults to assets/inputs/urls.csv
+_input_csv_rel = _campaign_raw.get("input_csv", "inputs/urls.csv")
+SEED_URLS_FILE = ASSETS_DIR / _input_csv_rel
+if not SEED_URLS_FILE.exists():
+    raise FileNotFoundError(
+        f"\nMissing seed URLs file: {SEED_URLS_FILE}\n"
+        f"Create it with a 'url' header, e.g.:\n"
+        f"  echo 'url' > {SEED_URLS_FILE}\n"
+        f"Or change 'campaign.input_csv' in {SECRETS_PATH}\n"
+    )
 
 # ----------------------------------------------------------------------
 # Global OpenAI / LLM config

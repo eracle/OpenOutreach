@@ -18,17 +18,20 @@ DEPARTMENT_NAME = "LinkedIn Outreach"
 STAGES = [
     (1, "Discovered", True, False),
     (2, "Enriched", False, False),
-    (3, "Pending", False, False),
-    (4, "Connected", False, False),
-    (5, "Completed", False, True),
-    (6, "Failed", False, False),
-    (7, "Ignored", False, False),
+    (3, "Qualified", False, False),
+    (4, "Disqualified", False, False),
+    (5, "Pending", False, False),
+    (6, "Connected", False, False),
+    (7, "Completed", False, True),
+    (8, "Failed", False, False),
+    (9, "Ignored", False, False),
 ]
 
 CLOSING_REASONS = [
-    (1, "Completed", True),   # success
-    (2, "Failed", False),     # failure
-    (3, "Ignored", False),    # skipped by automation
+    (1, "Completed", True),      # success
+    (2, "Failed", False),        # failure
+    (3, "Ignored", False),       # skipped by automation
+    (4, "Disqualified", False),  # rejected by qualification
 ]
 
 LEAD_SOURCE_NAME = "LinkedIn Scraper"
@@ -73,7 +76,7 @@ def setup_crm():
 
     # 3. Create Deal Stages
     for index, name, is_default, is_success in STAGES:
-        stage, created = Stage.objects.get_or_create(
+        stage, created = Stage.objects.update_or_create(
             name=name,
             department=dept,
             defaults={
@@ -87,7 +90,7 @@ def setup_crm():
 
     # 4. Create ClosingReasons
     for index, name, is_success in CLOSING_REASONS:
-        reason, created = ClosingReason.objects.get_or_create(
+        reason, created = ClosingReason.objects.update_or_create(
             name=name,
             department=dept,
             defaults={

@@ -9,12 +9,12 @@ from datetime import datetime, timedelta
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
-from linkedin.db.crm_profiles import count_pending_scrape
+from linkedin.db.crm_profiles import count_enriched_profiles, count_pending_scrape
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.enrich import EnrichLane
 from linkedin.lanes.follow_up import FollowUpLane
-from linkedin.ml.scorer import ProfileScorer
+from linkedin.ml.qualifier import QualificationScorer
 from linkedin.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ LANE_COLORS = {
     "connect": "cyan",
     "check_pending": "magenta",
     "follow_up": "green",
+    "qualify": "blue",
 }
 
 
@@ -110,24 +111,20 @@ def _rebuild_analytics():
 
 
 def run_daemon(session):
+    from linkedin.lanes.qualify import QualifyLane
+    from linkedin.ml.embeddings import ensure_embeddings_table
+    from linkedin.seeds import ensure_seeds
+
     cfg = CAMPAIGN_CONFIG
 
-    scorer = ProfileScorer(seed=42)
-    try:
-        trained = scorer.train()
-    except Exception:
-        # Schema mismatch — rebuild analytics and retry
-        if _rebuild_analytics():
-            trained = scorer.train()
-        else:
-            trained = False
+    # Initialize qualification scorer
+    ensure_embeddings_table()
+    ensure_seeds(session)
 
-    if trained:
-        logger.info(colored("ML model loaded from existing analytics data", "green", attrs=["bold"]))
-    elif scorer.has_keywords:
-        logger.info(colored("No analytics data yet — using keyword heuristic for ranking", "yellow"))
-    else:
-        logger.info(colored("No analytics data yet — ML scoring disabled (FIFO ordering)", "yellow"))
+    scorer = QualificationScorer(seed=42)
+    scorer.train()  # returns False initially — degrades to similarity or FIFO
+
+    qualify_lane = QualifyLane(session, scorer)
 
     connect_limiter = RateLimiter(
         daily_limit=cfg["connect_daily_limit"],
@@ -183,21 +180,29 @@ def run_daemon(session):
         next_schedule = min(schedules, key=lambda s: s.next_run)
         gap = max(next_schedule.next_run - now, 0)
 
-        # ── Fill gap with enrichments ──
+        # ── Fill gap with enrichments + qualifications ──
         to_enrich = count_pending_scrape(session)
-        if to_enrich > 0 and gap > min_enrich_interval:
-            enrich_wait = max(gap / to_enrich, min_enrich_interval)
+        to_qualify = count_enriched_profiles(session)
+        total_work = to_enrich + to_qualify
+
+        if total_work > 0 and gap > min_enrich_interval:
+            enrich_wait = max(gap / total_work, min_enrich_interval)
             enrich_wait *= random.uniform(0.8, 1.2)
             enrich_wait = min(enrich_wait, gap)  # don't overshoot
             logger.debug(
-                "enrich in %.0fs (gap %.0fs, %d to enrich)",
-                enrich_wait, gap, to_enrich,
+                "gap-fill in %.0fs (gap %.0fs, %d to enrich, %d to qualify)",
+                enrich_wait, gap, to_enrich, to_qualify,
             )
             time.sleep(enrich_wait)
+
             if enrich_lane.can_execute():
+                # Prefer enrich (feeds qualify pipeline)
                 logger.debug("▶ enrich")
                 enrich_lane.execute()
-            continue  # re-evaluate gap + to_enrich
+            elif qualify_lane.can_execute():
+                logger.info(colored("▶ qualify", "blue", attrs=["bold"]))
+                qualify_lane.execute()
+            continue  # re-evaluate gap
 
         # ── Wait for major action ──
         if gap > 0:

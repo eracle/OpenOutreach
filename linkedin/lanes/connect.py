@@ -5,32 +5,32 @@ import logging
 
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import (
-    count_enriched_profiles,
-    get_enriched_profiles,
+    count_qualified_profiles,
+    get_qualified_profiles,
     set_profile_state,
 )
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.rate_limiter import RateLimiter
-from linkedin.ml.scorer import ProfileScorer
+from linkedin.ml.qualifier import QualificationScorer
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectLane:
-    def __init__(self, session, rate_limiter: RateLimiter, scorer: ProfileScorer):
+    def __init__(self, session, rate_limiter: RateLimiter, scorer: QualificationScorer):
         self.session = session
         self.rate_limiter = rate_limiter
         self.scorer = scorer
 
     def can_execute(self) -> bool:
-        return self.rate_limiter.can_execute() and count_enriched_profiles(self.session) > 0
+        return self.rate_limiter.can_execute() and count_qualified_profiles(self.session) > 0
 
     def execute(self):
         from linkedin.actions.connect import send_connection_request
         from linkedin.actions.connection_status import get_connection_status
 
-        profiles = get_enriched_profiles(self.session)
+        profiles = get_qualified_profiles(self.session)
         if not profiles:
             return
 

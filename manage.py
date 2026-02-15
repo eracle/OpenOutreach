@@ -89,10 +89,10 @@ def _run_daemon():
     from linkedin.conf import COOKIES_DIR, get_first_active_account
     from linkedin.daemon import run_daemon
     from linkedin.gdpr import apply_gdpr_newsletter_override
-    from linkedin.onboarding import ensure_keywords
+    from linkedin.onboarding import ensure_onboarding
     from linkedin.sessions.registry import get_session
 
-    ensure_keywords()
+    ensure_onboarding()
 
     handle = get_first_active_account()
     if handle is None:
