@@ -21,7 +21,7 @@ def _get_model():
         from fastembed import TextEmbedding
 
         model_name = CAMPAIGN_CONFIG["embedding_model"]
-        logger.info("Loading embedding model: %s", model_name)
+        logger.debug("Loading embedding model: %s", model_name)
         _model = TextEmbedding(model_name=model_name)
     return _model
 
@@ -50,14 +50,7 @@ def _connect(read_only: bool = False):
 def ensure_embeddings_table():
     """Create the profile_embeddings table + HNSW index if not exists."""
     con = _connect()
-    try:
-        con.execute("INSTALL vss; LOAD vss;")
-    except Exception:
-        # Already installed/loaded
-        try:
-            con.execute("LOAD vss;")
-        except Exception:
-            pass
+    con.execute("INSTALL vss; LOAD vss;")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS profile_embeddings (
@@ -73,16 +66,12 @@ def ensure_embeddings_table():
     """)
 
     # Create HNSW index for cosine similarity search
-    try:
-        con.execute("""
-            CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
-            ON profile_embeddings
-            USING HNSW (embedding)
-            WITH (metric = 'cosine')
-        """)
-    except Exception:
-        # Index may already exist or vss extension may not support it
-        pass
+    con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
+        ON profile_embeddings
+        USING HNSW (embedding)
+        WITH (metric = 'cosine')
+    """)
 
     con.close()
     logger.debug("Embeddings table ensured at %s", EMBEDDINGS_DB)
@@ -217,25 +206,21 @@ def embed_profile(lead_id: int, public_id: str, profile_data: dict) -> bool:
     from linkedin.db.crm_profiles import _parse_next_step
     from linkedin.ml.profile_text import build_profile_text
 
-    try:
-        text = build_profile_text({"profile": profile_data})
-        emb = embed_text(text)
+    text = build_profile_text({"profile": profile_data})
+    emb = embed_text(text)
 
-        lead = Lead.objects.filter(pk=lead_id).first()
-        if not lead:
-            return False
-
-        deal = Deal.objects.filter(lead=lead).first()
-        is_seed = _parse_next_step(deal).get("seed", False) if deal else False
-        store_embedding(
-            lead_id, public_id, emb,
-            is_seed=is_seed,
-            label=1 if is_seed else None,
-        )
-        return True
-    except Exception:
-        logger.warning("Failed to embed %s (non-fatal)", public_id, exc_info=True)
+    lead = Lead.objects.filter(pk=lead_id).first()
+    if not lead:
         return False
+
+    deal = Deal.objects.filter(lead=lead).first()
+    is_seed = _parse_next_step(deal).get("seed", False) if deal else False
+    store_embedding(
+        lead_id, public_id, emb,
+        is_seed=is_seed,
+        label=1 if is_seed else None,
+    )
+    return True
 
 
 def get_embedded_lead_ids() -> set[int]:

@@ -51,32 +51,24 @@ class EnrichLane:
         api = PlaywrightLinkedinAPI(session=self.session)
 
         url = urls[0]
-        try:
-            profile, data = api.get_profile(profile_url=url)
-            public_id = url_to_public_id(url)
+        profile, data = api.get_profile(profile_url=url)
+        public_id = url_to_public_id(url)
 
-            if not profile:
-                set_profile_state(self.session, public_id, ProfileState.FAILED.value)
-                return
+        if not profile:
+            set_profile_state(self.session, public_id, ProfileState.FAILED.value)
+            return
 
-            with transaction.atomic():
-                save_scraped_profile(self.session, url, profile, data)
+        with transaction.atomic():
+            save_scraped_profile(self.session, url, profile, data)
 
-                if is_preexisting_connection(profile):
-                    set_profile_state(
-                        self.session, public_id, ProfileState.IGNORED.value,
-                        reason="Pre-existing connection (not initiated by automation)",
-                    )
-                else:
-                    set_profile_state(self.session, public_id, ProfileState.ENRICHED.value)
-                    self._embed_profile(public_id, profile)
-        except Exception:
-            logger.exception("Failed to enrich %s", url)
-            try:
-                public_id = url_to_public_id(url)
-                set_profile_state(self.session, public_id, ProfileState.FAILED.value)
-            except Exception:
-                pass
+            if is_preexisting_connection(profile):
+                set_profile_state(
+                    self.session, public_id, ProfileState.IGNORED.value,
+                    reason="Pre-existing connection (not initiated by automation)",
+                )
+            else:
+                set_profile_state(self.session, public_id, ProfileState.ENRICHED.value)
+                self._embed_profile(public_id, profile)
 
     def _embed_profile(self, public_id: str, profile: dict):
         """Compute and store embedding for a freshly enriched profile."""

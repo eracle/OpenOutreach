@@ -37,11 +37,8 @@ def goto_page(session: "AccountSession",
         raise RuntimeError(f"{error_message} → expected '{expected_url_pattern}' | got '{current}'")
 
     logger.debug("Navigated to %s", page.url)
-    try:
-        urls = _extract_in_urls(session)
-        add_profile_urls(session, list(urls))
-    except Exception as e:
-        logger.error(f"Failed to extract/save profile URLs after navigation: {e}", exc_info=True)
+    urls = _extract_in_urls(session)
+    add_profile_urls(session, list(urls))
 
 
 def _extract_in_urls(session):

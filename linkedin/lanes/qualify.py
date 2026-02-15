@@ -117,12 +117,7 @@ class QualifyLane:
             logger.warning("No profile text for lead %d — skipping", lead_id)
             return
 
-        try:
-            label, reason = qualify_profile_llm(profile_text)
-        except Exception:
-            logger.exception("LLM qualification failed for %s", public_id)
-            return
-
+        label, reason = qualify_profile_llm(profile_text)
         self._record_decision(lead_id, public_id, label, reason)
 
     def _record_decision(self, lead_id: int, public_id: str, label: int, reason: str):
