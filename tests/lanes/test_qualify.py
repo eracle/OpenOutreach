@@ -1,5 +1,5 @@
 # tests/lanes/test_qualify.py
-"""Tests for the qualification lane."""
+"""Tests for the qualification lane with BALD-based active learning."""
 from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
@@ -7,14 +7,14 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import pytest
 
-from linkedin.ml.qualifier import QualificationScorer
+from linkedin.ml.qualifier import BayesianQualifier
 
 
 class TestQualifyLaneCanExecute:
     def test_can_execute_with_unembedded_profiles(self):
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
+        qualifier = BayesianQualifier(seed=42)
         session = MagicMock()
 
         profiles = [{"public_identifier": "alice"}]
@@ -23,26 +23,26 @@ class TestQualifyLaneCanExecute:
             patch("linkedin.ml.embeddings.get_embedded_lead_ids", return_value=set()),
             patch.object(QualifyLane, "_lead_id_for", return_value=1),
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             assert lane.can_execute() is True
 
     def test_cannot_execute_no_unlabeled(self):
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
+        qualifier = BayesianQualifier(seed=42)
         session = MagicMock()
 
         with (
             patch("linkedin.db.crm_profiles.get_enriched_profiles", return_value=[]),
             patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[]),
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             assert lane.can_execute() is False
 
     def test_can_execute_with_unlabeled(self):
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
+        qualifier = BayesianQualifier(seed=42)
         session = MagicMock()
 
         unlabeled = [{"lead_id": 1, "public_identifier": "alice", "embedding": np.ones(384)}]
@@ -50,7 +50,7 @@ class TestQualifyLaneCanExecute:
             patch("linkedin.db.crm_profiles.get_enriched_profiles", return_value=[]),
             patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=unlabeled),
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             assert lane.can_execute() is True
 
 
@@ -59,14 +59,14 @@ class TestQualifyLaneEmbedding:
         """When unembedded profiles exist, execute embeds one and returns."""
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
+        qualifier = BayesianQualifier(seed=42)
         session = MagicMock()
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=True) as mock_embed,
             patch.object(QualifyLane, "_qualify_next_profile") as mock_qualify,
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             lane.execute()
 
             mock_embed.assert_called_once()
@@ -76,14 +76,14 @@ class TestQualifyLaneEmbedding:
         """When all profiles are embedded, execute qualifies instead."""
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
+        qualifier = BayesianQualifier(seed=42)
         session = MagicMock()
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False) as mock_embed,
             patch.object(QualifyLane, "_qualify_next_profile") as mock_qualify,
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             lane.execute()
 
             mock_embed.assert_called_once()
@@ -91,11 +91,12 @@ class TestQualifyLaneEmbedding:
 
 
 class TestQualifyLaneAutoDecisions:
-    def test_auto_accept_high_confidence(self):
+    def test_auto_accept_low_entropy(self):
+        """Low entropy + prob > 0.5 → auto-accept."""
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
-        scorer._trained = True
+        qualifier = BayesianQualifier(seed=42)
+        qualifier.n_obs = 10  # not cold start
         session = MagicMock()
 
         candidate = {
@@ -106,26 +107,28 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
-            patch.object(scorer, "predict", return_value=(0.95, 0.05)),
+            patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
+            patch.object(qualifier, "predict", return_value=(0.95, 0.01)),
+            patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.lanes.qualify.set_profile_state") as mock_set_state,
-            patch.object(scorer, "needs_retrain", return_value=False),
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             lane.execute()
 
             mock_store.assert_called_once()
             call_args = mock_store.call_args
-            assert call_args[1]["label"] == 1  # auto-accept
+            assert call_args[1]["label"] == 1
             assert "auto-accept" in call_args[1]["reason"]
             mock_set_state.assert_called_once_with(session, "alice", "qualified")
+            mock_update.assert_called_once()
 
-    def test_auto_reject_low_confidence(self):
+    def test_auto_reject_low_entropy(self):
+        """Low entropy + prob < 0.5 → auto-reject."""
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
-        scorer._trained = True
+        qualifier = BayesianQualifier(seed=42)
+        qualifier.n_obs = 10
         session = MagicMock()
 
         candidate = {
@@ -136,26 +139,28 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
-            patch.object(scorer, "predict", return_value=(0.10, 0.05)),
+            patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
+            patch.object(qualifier, "predict", return_value=(0.05, 0.01)),
+            patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.lanes.qualify.set_profile_state") as mock_set_state,
-            patch.object(scorer, "needs_retrain", return_value=False),
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             lane.execute()
 
             mock_store.assert_called_once()
             call_args = mock_store.call_args
-            assert call_args[1]["label"] == 0  # auto-reject
+            assert call_args[1]["label"] == 0
             assert "auto-reject" in call_args[1]["reason"]
             mock_set_state.assert_called_once_with(session, "alice", "disqualified")
+            mock_update.assert_called_once()
 
-    def test_llm_query_on_uncertainty(self):
+    def test_llm_query_on_high_entropy(self):
+        """High entropy → query LLM."""
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
-        scorer._trained = True
+        qualifier = BayesianQualifier(seed=42)
+        qualifier.n_obs = 10
         session = MagicMock()
 
         candidate = {
@@ -166,25 +171,29 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
-            patch.object(scorer, "predict", return_value=(0.50, 0.20)),
+            patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
+            # prob=0.50, bald=0.30 → entropy ≈ 0.693 (max), well above threshold
+            patch.object(qualifier, "predict", return_value=(0.50, 0.30)),
             patch.object(QualifyLane, "_get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_profile_llm", return_value=(1, "Good fit")) as mock_llm,
+            patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.lanes.qualify.set_profile_state") as mock_set_state,
-            patch.object(scorer, "needs_retrain", return_value=False),
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             lane.execute()
 
             mock_llm.assert_called_once()
             mock_store.assert_called_once()
             mock_set_state.assert_called_once_with(session, "alice", "qualified")
+            mock_update.assert_called_once()
 
-    def test_llm_query_when_no_classifier(self):
+    def test_llm_query_on_cold_start(self):
+        """Cold start (n_obs=0) → always query LLM."""
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
+        qualifier = BayesianQualifier(seed=42)
+        assert qualifier.n_obs == 0
         session = MagicMock()
 
         candidate = {
@@ -195,42 +204,47 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
+            patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
             patch.object(QualifyLane, "_get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_profile_llm", return_value=(0, "Bad fit")) as mock_llm,
+            patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.lanes.qualify.set_profile_state") as mock_set_state,
-            patch.object(scorer, "needs_retrain", return_value=False),
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             lane.execute()
 
             mock_llm.assert_called_once()
             mock_set_state.assert_called_once_with(session, "alice", "disqualified")
+            mock_update.assert_called_once()
 
-    def test_retrain_triggered_when_needed(self):
+    def test_record_decision_calls_update(self):
+        """After recording a decision, qualifier.update() is called with the correct args."""
         from linkedin.lanes.qualify import QualifyLane
 
-        scorer = QualificationScorer(seed=42)
-        scorer._trained = True
+        qualifier = BayesianQualifier(seed=42)
+        qualifier.n_obs = 10
         session = MagicMock()
 
+        emb = np.ones(384, dtype=np.float32)
         candidate = {
             "lead_id": 1,
             "public_identifier": "alice",
-            "embedding": np.ones(384, dtype=np.float32),
+            "embedding": emb,
         }
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
-            patch.object(scorer, "predict", return_value=(0.95, 0.05)),
+            patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
+            patch.object(qualifier, "predict", return_value=(0.95, 0.01)),
+            patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label"),
             patch("linkedin.lanes.qualify.set_profile_state"),
-            patch.object(scorer, "needs_retrain", return_value=True),
-            patch.object(scorer, "train") as mock_train,
         ):
-            lane = QualifyLane(session, scorer)
+            lane = QualifyLane(session, qualifier)
             lane.execute()
 
-            mock_train.assert_called_once()
+            mock_update.assert_called_once()
+            call_args = mock_update.call_args[0]
+            np.testing.assert_array_equal(call_args[0], emb)
+            assert call_args[1] == 1  # label

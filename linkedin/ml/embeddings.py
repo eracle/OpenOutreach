@@ -1,5 +1,5 @@
 # linkedin/ml/embeddings.py
-"""Embedding + DuckDB vector store for profile qualification."""
+"""Embedding + DuckDB store for profile qualification."""
 from __future__ import annotations
 
 import logging
@@ -45,35 +45,23 @@ def _connect(read_only: bool = False):
     import duckdb
 
     con = duckdb.connect(str(EMBEDDINGS_DB), read_only=read_only)
-    con.execute("LOAD vss;")
     return con
 
 
 def ensure_embeddings_table():
-    """Create the profile_embeddings table + HNSW index if not exists."""
+    """Create the profile_embeddings table if not exists."""
     con = _connect()
-    con.execute("INSTALL vss;")
-    con.execute("SET hnsw_enable_experimental_persistence = true;")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS profile_embeddings (
             lead_id INTEGER PRIMARY KEY,
             public_identifier VARCHAR NOT NULL,
             embedding FLOAT[384] NOT NULL,
-            is_seed BOOLEAN DEFAULT FALSE,
             label INTEGER,
             llm_reason VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             labeled_at TIMESTAMP
         )
-    """)
-
-    # Create HNSW index for cosine similarity search
-    con.execute("""
-        CREATE INDEX IF NOT EXISTS idx_embeddings_hnsw
-        ON profile_embeddings
-        USING HNSW (embedding)
-        WITH (metric = 'cosine')
     """)
 
     con.close()
@@ -84,8 +72,6 @@ def store_embedding(
     lead_id: int,
     public_id: str,
     embedding: np.ndarray,
-    is_seed: bool = False,
-    label: int | None = None,
 ):
     """Upsert a profile embedding into DuckDB."""
     con = _connect()
@@ -100,25 +86,16 @@ def store_embedding(
     if existing:
         con.execute(
             """UPDATE profile_embeddings
-               SET embedding = ?, is_seed = ?, public_identifier = ?
+               SET embedding = ?, public_identifier = ?
                WHERE lead_id = ?""",
-            [emb_list, is_seed, public_id, lead_id],
+            [emb_list, public_id, lead_id],
         )
-        # Update label only if provided (don't overwrite existing label)
-        if label is not None:
-            con.execute(
-                """UPDATE profile_embeddings
-                   SET label = ?, labeled_at = ?
-                   WHERE lead_id = ? AND label IS NULL""",
-                [label, datetime.now(), lead_id],
-            )
     else:
         con.execute(
             """INSERT INTO profile_embeddings
-               (lead_id, public_identifier, embedding, is_seed, label, labeled_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            [lead_id, public_id, emb_list, is_seed, label,
-             datetime.now() if label is not None else None],
+               (lead_id, public_identifier, embedding)
+               VALUES (?, ?, ?)""",
+            [lead_id, public_id, emb_list],
         )
 
     con.close()
@@ -136,48 +113,38 @@ def store_label(lead_id: int, label: int, reason: str = ""):
     con.close()
 
 
-def get_positive_centroid() -> np.ndarray | None:
-    """Average embedding of all positive profiles (seeds + LLM-accepted).
-
-    Returns None if no positive profiles exist or DB doesn't exist yet.
-    """
+def get_unlabeled_profiles(limit: int = 10) -> list[dict]:
+    """Unlabeled profiles, ordered by creation time (FIFO)."""
     con = _connect(read_only=True)
     rows = con.execute(
-        "SELECT embedding FROM profile_embeddings WHERE label = 1"
+        """SELECT lead_id, public_identifier, embedding
+           FROM profile_embeddings
+           WHERE label IS NULL
+           ORDER BY created_at ASC
+           LIMIT ?""",
+        [limit],
     ).fetchall()
     con.close()
 
-    if not rows:
-        return None
+    return [
+        {
+            "lead_id": row[0],
+            "public_identifier": row[1],
+            "embedding": np.array(row[2], dtype=np.float32),
+        }
+        for row in rows
+    ]
 
-    embeddings = np.array([row[0] for row in rows], dtype=np.float32)
-    return embeddings.mean(axis=0)
 
-
-def get_unlabeled_profiles(limit: int = 10) -> list[dict]:
-    """Unlabeled non-seed profiles, ranked by similarity to positive centroid (or FIFO)."""
-    centroid = get_positive_centroid()
-
+def get_all_unlabeled_embeddings() -> list[dict]:
+    """All unlabeled profiles with embeddings, for BALD ranking."""
     con = _connect(read_only=True)
-    if centroid is not None:
-        rows = con.execute(
-            """SELECT lead_id, public_identifier, embedding
-               FROM profile_embeddings
-               WHERE is_seed = FALSE AND label IS NULL
-               ORDER BY array_cosine_similarity(embedding, ?::FLOAT[384]) DESC
-               LIMIT ?""",
-            [centroid.tolist(), limit],
-        ).fetchall()
-    else:
-        # FIFO fallback — oldest first
-        rows = con.execute(
-            """SELECT lead_id, public_identifier, embedding
-               FROM profile_embeddings
-               WHERE is_seed = FALSE AND label IS NULL
-               ORDER BY created_at ASC
-               LIMIT ?""",
-            [limit],
-        ).fetchall()
+    rows = con.execute(
+        """SELECT lead_id, public_identifier, embedding
+           FROM profile_embeddings
+           WHERE label IS NULL
+           ORDER BY created_at ASC"""
+    ).fetchall()
     con.close()
 
     return [
@@ -191,12 +158,13 @@ def get_unlabeled_profiles(limit: int = 10) -> list[dict]:
 
 
 def get_labeled_data() -> tuple[np.ndarray, np.ndarray]:
-    """All labeled embeddings for training. Returns (X, y)."""
+    """All labeled embeddings for warm start. Returns (X, y)."""
     con = _connect(read_only=True)
     rows = con.execute(
         """SELECT embedding, label
            FROM profile_embeddings
-           WHERE label IS NOT NULL"""
+           WHERE label IS NOT NULL
+           ORDER BY labeled_at ASC"""
     ).fetchall()
     con.close()
 
@@ -213,25 +181,11 @@ def embed_profile(lead_id: int, public_id: str, profile_data: dict) -> bool:
 
     Returns True if embedding was stored, False on failure.
     """
-    from crm.models import Deal, Lead
-
-    from linkedin.db.crm_profiles import _parse_next_step
     from linkedin.ml.profile_text import build_profile_text
 
     text = build_profile_text({"profile": profile_data})
     emb = embed_text(text)
-
-    lead = Lead.objects.filter(pk=lead_id).first()
-    if not lead:
-        return False
-
-    deal = Deal.objects.filter(lead=lead).first()
-    is_seed = _parse_next_step(deal).get("seed", False) if deal else False
-    store_embedding(
-        lead_id, public_id, emb,
-        is_seed=is_seed,
-        label=1 if is_seed else None,
-    )
+    store_embedding(lead_id, public_id, emb)
     return True
 
 

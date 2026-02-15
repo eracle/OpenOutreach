@@ -1,5 +1,5 @@
 # tests/ml/test_qualifier.py
-"""Tests for QualificationScorer and LLM qualification."""
+"""Tests for BayesianQualifier and LLM qualification."""
 from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
@@ -7,116 +7,143 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import pytest
 
-from linkedin.ml.qualifier import QualificationScorer
+from linkedin.ml.qualifier import BayesianQualifier, _binary_entropy
 
 
-class TestQualificationScorerTrain:
-    def _store_samples(self, n, label_fn):
+class TestBayesianQualifierUpdate:
+    def test_update_increments_n_obs(self):
+        qualifier = BayesianQualifier(seed=42)
+        emb = np.random.randn(384).astype(np.float32)
+        qualifier.update(emb, 1)
+        assert qualifier.n_obs == 1
+
+    def test_update_shifts_mu(self):
+        qualifier = BayesianQualifier(seed=42)
+        emb = np.ones(384, dtype=np.float32)
+        mu_before = qualifier.mu.copy()
+        qualifier.update(emb, 1)
+        assert not np.allclose(qualifier.mu, mu_before)
+
+    def test_update_reduces_sigma_trace(self):
+        qualifier = BayesianQualifier(seed=42)
+        emb = np.random.randn(384).astype(np.float32)
+        trace_before = np.trace(qualifier.Sigma)
+        qualifier.update(emb, 1)
+        trace_after = np.trace(qualifier.Sigma)
+        assert trace_after < trace_before
+
+    def test_multiple_updates_numerically_stable(self):
+        qualifier = BayesianQualifier(seed=42)
+        rng = np.random.RandomState(42)
+        for _ in range(100):
+            emb = rng.randn(384).astype(np.float32)
+            label = rng.randint(0, 2)
+            qualifier.update(emb, label)
+        assert qualifier.n_obs == 100
+        assert np.all(np.isfinite(qualifier.mu))
+        assert np.all(np.isfinite(qualifier.Sigma))
+
+
+class TestBayesianQualifierPredict:
+    def test_predict_returns_prob_and_bald(self):
+        qualifier = BayesianQualifier(seed=42)
+        emb = np.random.randn(384).astype(np.float32)
+        prob, bald = qualifier.predict(emb)
+        assert 0 <= prob <= 1
+        assert bald >= -1e-10  # allow tiny numerical noise
+
+    def test_cold_start_prediction_near_half(self):
+        qualifier = BayesianQualifier(seed=42)
+        emb = np.random.randn(384).astype(np.float32)
+        prob, bald = qualifier.predict(emb)
+        assert abs(prob - 0.5) < 0.2
+
+    def test_predict_shifts_after_training(self):
+        qualifier = BayesianQualifier(seed=42)
+        positive_emb = np.ones(384, dtype=np.float32)
+        for _ in range(20):
+            qualifier.update(positive_emb, 1)
+        prob, _ = qualifier.predict(positive_emb)
+        assert prob > 0.7
+
+
+class TestBaldScores:
+    def test_bald_shape(self):
+        qualifier = BayesianQualifier(seed=42)
+        embeddings = np.random.randn(5, 384).astype(np.float32)
+        scores = qualifier.bald_scores(embeddings)
+        assert scores.shape == (5,)
+
+    def test_bald_nonnegative(self):
+        qualifier = BayesianQualifier(seed=42)
+        embeddings = np.random.randn(5, 384).astype(np.float32)
+        scores = qualifier.bald_scores(embeddings)
+        assert np.all(scores >= -1e-10)
+
+    def test_bald_upper_bound(self):
+        """BALD cannot exceed ln(2) ~ 0.693."""
+        qualifier = BayesianQualifier(seed=42)
+        embeddings = np.random.randn(5, 384).astype(np.float32)
+        scores = qualifier.bald_scores(embeddings)
+        assert np.all(scores <= np.log(2) + 0.01)
+
+
+class TestRankProfiles:
+    def test_rank_profiles_empty(self):
+        qualifier = BayesianQualifier(seed=42)
+        assert qualifier.rank_profiles([]) == []
+
+    def test_rank_profiles_orders_by_posterior(self, embeddings_db):
+        qualifier = BayesianQualifier(seed=42)
+        pos_emb = np.ones(384, dtype=np.float32)
+        for _ in range(10):
+            qualifier.update(pos_emb, 1)
+
         from linkedin.ml.embeddings import store_embedding
-        for i in range(n):
-            emb = np.random.randn(384).astype(np.float32)
-            store_embedding(i, f"user{i}", emb, label=label_fn(i))
+        store_embedding(1, "positive", pos_emb)
+        store_embedding(2, "negative", -pos_emb)
 
-    def test_train_returns_false_insufficient_data(self, embeddings_db):
-        self._store_samples(5, lambda i: i % 2)
-        scorer = QualificationScorer(seed=42)
-        assert scorer.train() is False
-
-    def test_train_returns_false_imbalanced(self, embeddings_db):
-        self._store_samples(50, lambda i: 1 if i >= 2 else 0)
-        scorer = QualificationScorer(seed=42)
-        assert scorer.train() is False
-
-    def test_train_succeeds_with_balanced_data(self, embeddings_db):
-        self._store_samples(50, lambda i: i % 2)
-        scorer = QualificationScorer(seed=42)
-        scorer._cfg = {**scorer._cfg, "qualification_n_estimators": 2}
-        with patch("sklearn.model_selection.cross_val_score", return_value=np.array([0.9])):
-            assert scorer.train() is True
-        assert scorer._trained is True
-        assert scorer._ensemble is not None
-
-
-class TestQualificationScorerScoring:
-    def test_fifo_when_no_seeds(self, embeddings_db):
-        scorer = QualificationScorer(seed=42)
         profiles = [
-            {"public_identifier": "a", "meta": {}},
-            {"public_identifier": "b", "meta": {}},
+            {"public_identifier": "negative"},
+            {"public_identifier": "positive"},
         ]
-        result = scorer.score_profiles(profiles)
-        assert result == profiles
-
-    def test_seeds_ranked_first(self, embeddings_db):
-        scorer = QualificationScorer(seed=42)
-        profiles = [
-            {"public_identifier": "non-seed", "meta": {}},
-            {"public_identifier": "seed1", "meta": {"seed": True}},
-        ]
-        result = scorer.score_profiles(profiles)
-        assert result[0]["public_identifier"] == "seed1"
-
-    def test_empty_profiles_returns_empty(self, embeddings_db):
-        scorer = QualificationScorer(seed=42)
-        assert scorer.score_profiles([]) == []
+        ranked = qualifier.rank_profiles(profiles)
+        assert ranked[0]["public_identifier"] == "positive"
 
 
-class TestQualificationScorerPredict:
-    def test_predict_distribution_untrained(self):
-        scorer = QualificationScorer(seed=42)
-        emb = np.random.randn(384).astype(np.float32)
-        probs = scorer.predict_distribution(emb)
-        assert len(probs) == 0
+class TestWarmStart:
+    def test_warm_start_matches_sequential(self):
+        qualifier1 = BayesianQualifier(seed=42)
+        qualifier2 = BayesianQualifier(seed=42)
 
-    def test_predict_untrained_raises(self):
-        scorer = QualificationScorer(seed=42)
-        emb = np.random.randn(384).astype(np.float32)
-        with pytest.raises(RuntimeError, match="untrained"):
-            scorer.predict(emb)
+        rng = np.random.RandomState(99)
+        X = rng.randn(20, 384).astype(np.float32)
+        y = rng.randint(0, 2, size=20)
 
-    def test_predict_with_trained_model(self):
-        scorer = QualificationScorer(seed=42)
-        scorer._trained = True
+        for i in range(20):
+            qualifier1.update(X[i], int(y[i]))
 
-        # Mock ensemble with 3 estimators
-        mock_est = MagicMock()
-        mock_est.predict_proba.return_value = np.array([[0.3, 0.7]])
-        scorer._ensemble = MagicMock()
-        scorer._ensemble.estimators_ = [mock_est, mock_est, mock_est]
+        qualifier2.warm_start(X, y)
 
-        test_emb = np.random.randn(384).astype(np.float32)
-        probs = scorer.predict_distribution(test_emb)
-        assert len(probs) == 3
-        assert all(0 <= p <= 1 for p in probs)
-
-        mean, std = scorer.predict(test_emb)
-        assert 0 <= mean <= 1
-        assert std >= 0
+        np.testing.assert_allclose(qualifier1.mu, qualifier2.mu, atol=1e-8)
+        np.testing.assert_allclose(qualifier1.Sigma, qualifier2.Sigma, atol=1e-8)
 
 
 class TestExplainProfile:
-    def test_explain_untrained(self, embeddings_db):
-        scorer = QualificationScorer(seed=42)
-        profile = {"public_identifier": "test"}
-        explanation = scorer.explain_profile(profile)
-        assert "not trained" in explanation.lower()
-
     def test_explain_no_embedding(self, embeddings_db):
-        scorer = QualificationScorer(seed=42)
-        scorer._trained = True
-
-        mock_est = MagicMock()
-        mock_est.predict_proba.return_value = np.array([[0.3, 0.7]])
-        scorer._ensemble = MagicMock()
-        scorer._ensemble.estimators_ = [mock_est] * 3
-
+        qualifier = BayesianQualifier(seed=42)
         profile = {"public_identifier": "nonexistent"}
-        explanation = scorer.explain_profile(profile)
+        explanation = qualifier.explain_profile(profile)
         assert "no embedding" in explanation.lower()
 
+    def test_explain_with_embedding(self, embeddings_db):
+        from linkedin.ml.embeddings import store_embedding
 
-class TestNeedsRetrain:
-    def test_needs_retrain_false_when_no_new_labels(self, embeddings_db):
-        scorer = QualificationScorer(seed=42)
-        scorer._labels_at_last_train = 0
-        assert scorer.needs_retrain() is False
+        qualifier = BayesianQualifier(seed=42)
+        emb = np.ones(384, dtype=np.float32)
+        store_embedding(1, "alice", emb)
+
+        profile = {"public_identifier": "alice"}
+        explanation = qualifier.explain_profile(profile)
+        assert "posterior predictive" in explanation.lower()
+        assert "bald" in explanation.lower()

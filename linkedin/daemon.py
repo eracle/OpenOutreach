@@ -14,7 +14,7 @@ from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.enrich import EnrichLane
 from linkedin.lanes.follow_up import FollowUpLane
-from linkedin.ml.qualifier import QualificationScorer
+from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
@@ -104,19 +104,28 @@ def _rebuild_analytics():
 
 def run_daemon(session):
     from linkedin.lanes.qualify import QualifyLane
-    from linkedin.ml.embeddings import ensure_embeddings_table
-    from linkedin.seeds import ensure_seeds
+    from linkedin.ml.embeddings import ensure_embeddings_table, get_labeled_data
 
     cfg = CAMPAIGN_CONFIG
 
-    # Initialize qualification scorer
+    # Initialize embeddings table and Bayesian qualifier
     ensure_embeddings_table()
-    ensure_seeds(session)
 
-    scorer = QualificationScorer(seed=42)
-    scorer.train()  # returns False initially — degrades to similarity or FIFO
+    qualifier = BayesianQualifier(
+        prior_precision=cfg["qualification_prior_precision"],
+        n_mc_samples=cfg["qualification_n_mc_samples"],
+        seed=42,
+    )
+    X, y = get_labeled_data()
+    if len(X) > 0:
+        qualifier.warm_start(X, y)
+        logger.info(
+            colored("Bayesian qualifier warm-started", "cyan")
+            + " on %d labelled samples (%d positive, %d negative)",
+            len(y), int((y == 1).sum()), int((y == 0).sum()),
+        )
 
-    qualify_lane = QualifyLane(session, scorer)
+    qualify_lane = QualifyLane(session, qualifier)
 
     connect_limiter = RateLimiter(
         daily_limit=cfg["connect_daily_limit"],
@@ -127,8 +136,8 @@ def run_daemon(session):
     )
 
     enrich_lane = EnrichLane(session)
-    connect_lane = ConnectLane(session, connect_limiter, scorer)
-    check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"], scorer)
+    connect_lane = ConnectLane(session, connect_limiter, qualifier)
+    check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
     follow_up_lane = FollowUpLane(session, follow_up_limiter)
 
     # Working hours

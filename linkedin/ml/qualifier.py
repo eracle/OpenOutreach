@@ -1,5 +1,5 @@
 # linkedin/ml/qualifier.py
-"""QualificationScorer: embedding-based profile qualification with Bootstrap Ensemble."""
+"""BayesianQualifier: online Bayesian logistic regression with BALD acquisition."""
 from __future__ import annotations
 
 import logging
@@ -57,219 +57,169 @@ def qualify_profile_llm(profile_text: str) -> tuple[int, str]:
     return (label, decision.reason)
 
 
-class QualificationScorer:
-    """Embedding-based profile scorer with Bootstrap Ensemble.
+# ---------------------------------------------------------------------------
+# Numerics
+# ---------------------------------------------------------------------------
 
-    Replaces ProfileScorer. Same public interface: train(), score_profiles(), explain_profile().
+def _sigmoid(x):
+    """Numerically stable sigmoid, works for scalars and arrays."""
+    x = np.asarray(x, dtype=np.float64)
+    return np.where(x >= 0, 1.0 / (1.0 + np.exp(-x)), np.exp(x) / (1.0 + np.exp(x)))
+
+
+def _binary_entropy(p):
+    """H(p) = -p log p - (1-p) log(1-p), safe for edge values."""
+    p = np.asarray(p, dtype=np.float64)
+    p = np.clip(p, 1e-12, 1.0 - 1e-12)
+    return -p * np.log(p) - (1.0 - p) * np.log(1.0 - p)
+
+
+# ---------------------------------------------------------------------------
+# BayesianQualifier
+# ---------------------------------------------------------------------------
+
+class BayesianQualifier:
+    """Online Bayesian Logistic Regression with Laplace approximation.
+
+    Maintains a Gaussian posterior N(mu, Sigma) over weights w in R^d
+    where d = embedding_dim + 1 (bias).  Updated incrementally on each
+    new label via rank-1 Sherman-Morrison.
+
+    Acquisition: BALD (Bayesian Active Learning by Disagreement).
+    Gating: predictive entropy for auto-decide vs LLM query.
     """
 
-    def __init__(self, seed: int = 42):
+    def __init__(
+        self,
+        prior_precision: float = 1.0,
+        n_mc_samples: int = 100,
+        seed: int = 42,
+        embedding_dim: int = 384,
+    ):
+        self.d = embedding_dim + 1  # +1 bias
+        self.prior_precision = prior_precision
+        self.n_mc_samples = n_mc_samples
+        self.mu = np.zeros(self.d, dtype=np.float64)
+        self.Sigma = np.eye(self.d, dtype=np.float64) / prior_precision
+        self.n_obs = 0
         self._rng = np.random.RandomState(seed)
-        self._ensemble = None
-        self._trained = False
-        self._labels_at_last_train = 0
-        self._cfg = CAMPAIGN_CONFIG
 
-    def train(self) -> bool:
-        """Train Bootstrap Ensemble of HistGradientBoosting classifiers.
+    # ------------------------------------------------------------------
+    # Online posterior update  (O(d^2) per observation)
+    # ------------------------------------------------------------------
 
-        Returns False if insufficient or imbalanced data.
-        """
-        from sklearn.ensemble import BaggingClassifier, HistGradientBoostingClassifier
-        from sklearn.model_selection import StratifiedKFold, cross_val_score
+    def update(self, embedding: np.ndarray, label: int):
+        """Rank-1 Sherman-Morrison update of the Gaussian posterior."""
+        x = np.append(embedding.astype(np.float64), 1.0)  # bias
+        p = float(_sigmoid(self.mu @ x))
+        lam = p * (1.0 - p) + 1e-12  # Hessian of log-likelihood
+        Sx = self.Sigma @ x
+        xSx = float(x @ Sx)
+        denom = 1.0 + lam * xSx
+        self.Sigma -= lam * np.outer(Sx, Sx) / denom
+        self.mu += (label - p) * Sx / denom
+        self.n_obs += 1
 
-        from linkedin.ml.embeddings import count_labeled, get_labeled_data
-
-        counts = count_labeled()
-        min_samples = self._cfg["qualification_min_training_samples"]
-        min_ratio = self._cfg["qualification_min_class_ratio"]
-        n_estimators = self._cfg["qualification_n_estimators"]
-
-        if counts["total"] < min_samples:
-            logger.debug(
-                "Only %d labeled samples — need at least %d for training",
-                counts["total"], min_samples,
-            )
-            return False
-
-        # Check class balance
-        if counts["total"] > 0:
-            minority = min(counts["positive"], counts["negative"])
-            ratio = minority / counts["total"]
-            if ratio < min_ratio:
-                logger.debug(
-                    "Class ratio %.2f below minimum %.2f — skipping training",
-                    ratio, min_ratio,
-                )
-                return False
-
-        X, y = get_labeled_data()
-        if len(X) < min_samples or len(np.unique(y)) < 2:
-            return False
-
-        # Compute sample weights inversely proportional to class frequency
-        classes, class_counts = np.unique(y, return_counts=True)
-        total = len(y)
-        weight_map = {c: total / (len(classes) * cnt) for c, cnt in zip(classes, class_counts)}
-        sample_weight = np.array([weight_map[yi] for yi in y])
-
-        base_clf = HistGradientBoostingClassifier(
-            max_iter=200,
-            max_depth=4,
-            min_samples_leaf=5,
-            l2_regularization=1.0,
-            random_state=42,
-        )
-
-        ensemble = BaggingClassifier(
-            estimator=base_clf,
-            n_estimators=n_estimators,
-            max_samples=0.8,
-            bootstrap=True,
-            random_state=42,
-        )
-
-        # Cross-validation
-        n_splits = min(5, max(2, len(X) // 10))
-        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
-        scores = cross_val_score(ensemble, X, y, cv=cv, scoring="roc_auc")
-        logger.info(
-            "Qualification CV ROC-AUC (%d-fold): %.3f +/- %.3f",
-            n_splits, scores.mean(), scores.std(),
-        )
-
-        # Fit on full data with sample weights
-        ensemble.fit(X, y, sample_weight=sample_weight)
-
-        self._ensemble = ensemble
-        self._trained = True
-        self._labels_at_last_train = counts["total"]
-        logger.info(
-            "Qualification classifier trained on %d samples (%d positive, %d negative), %d estimators",
-            counts["total"], counts["positive"], counts["negative"], n_estimators,
-        )
-        return True
-
-    def predict_distribution(self, embedding: np.ndarray) -> np.ndarray:
-        """Return array of probabilities from each estimator (posterior samples)."""
-        if not self._trained:
-            return np.array([])
-
-        X = embedding.reshape(1, -1)
-        probs = np.array([
-            est.predict_proba(X)[0, 1]
-            for est in self._ensemble.estimators_
-        ])
-        return probs
+    # ------------------------------------------------------------------
+    # Prediction
+    # ------------------------------------------------------------------
 
     def predict(self, embedding: np.ndarray) -> tuple[float, float]:
-        """Return (mean_probability, std_probability) from ensemble."""
-        probs = self.predict_distribution(embedding)
-        if len(probs) == 0:
-            raise RuntimeError("predict() called on untrained scorer")
-        return (float(probs.mean()), float(probs.std()))
+        """Return (predictive_prob, bald_score) for a single embedding."""
+        x = np.append(embedding.astype(np.float64), 1.0).reshape(1, -1)
+        probs = self._mc_probs(x)  # (M, 1)
+        col = probs[:, 0]
+        p_pred = float(col.mean())
+        bald = float(_binary_entropy(p_pred) - _binary_entropy(col).mean())
+        return p_pred, bald
 
-    def score_profiles(self, profiles: list) -> list:
-        """Score and rank profiles for the connect lane.
+    # ------------------------------------------------------------------
+    # BALD acquisition  (vectorised over N candidates)
+    # ------------------------------------------------------------------
 
-        Scoring chain:
-        1. Seeds (meta.seed=true) always ranked first
-        2. If classifier trained → sample a random estimator (natural Thompson Sampling)
-        3. If seeds exist but no classifier → cosine similarity + Thompson Sampling
-        4. No seeds, no classifier → FIFO
-        """
+    def bald_scores(self, embeddings: np.ndarray) -> np.ndarray:
+        """BALD scores for (N, embedding_dim) matrix. Returns shape (N,)."""
+        X = np.hstack([
+            embeddings.astype(np.float64),
+            np.ones((len(embeddings), 1), dtype=np.float64),
+        ])  # (N, d)
+        probs = self._mc_probs(X)  # (M, N)
+        p_pred = probs.mean(axis=0)  # (N,)
+        H_pred = _binary_entropy(p_pred)
+        H_individual = _binary_entropy(probs).mean(axis=0)
+        return H_pred - H_individual
+
+    # ------------------------------------------------------------------
+    # Ranking for connect lane
+    # ------------------------------------------------------------------
+
+    def rank_profiles(self, profiles: list) -> list:
+        """Rank QUALIFIED profiles by posterior predictive probability (descending)."""
         if not profiles:
-            return list(profiles)
+            return []
 
-        seeds = []
-        non_seeds = []
+        scored = []
         for p in profiles:
-            meta = p.get("meta", {}) or {}
-            if meta.get("seed"):
-                seeds.append(p)
+            emb = self._get_embedding(p)
+            if emb is not None:
+                x = np.append(emb.astype(np.float64), 1.0)
+                prob = float(_sigmoid(self.mu @ x))
             else:
-                non_seeds.append(p)
+                prob = 0.5
+            scored.append((prob, p))
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return [p for _, p in scored]
 
-        if not non_seeds:
-            return seeds
-
-        # Trained classifier: sample a random estimator for Thompson Sampling
-        if self._trained:
-            estimator_idx = self._rng.randint(0, len(self._ensemble.estimators_))
-            estimator = self._ensemble.estimators_[estimator_idx]
-
-            scored = []
-            for p in non_seeds:
-                embedding = self._get_embedding(p)
-                if embedding is not None:
-                    X = embedding.reshape(1, -1)
-                    prob = estimator.predict_proba(X)[0, 1]
-                else:
-                    prob = 0.5
-                scored.append((prob, p))
-
-            scored.sort(key=lambda x: x[0], reverse=True)
-            return seeds + [p for _, p in scored]
-
-        # No classifier but positive centroid exists → cosine similarity + Thompson Sampling
-        from linkedin.ml.embeddings import get_positive_centroid
-
-        centroid = get_positive_centroid()
-        if centroid is not None:
-            scored = []
-            for p in non_seeds:
-                embedding = self._get_embedding(p)
-                if embedding is not None:
-                    sim = self._cosine_similarity(embedding, centroid)
-                    # Thompson Sampling with k=5
-                    prob = max(0.0, min(1.0, (sim + 1) / 2))  # normalize [-1,1] → [0,1]
-                    alpha = prob * 5
-                    beta_param = (1 - prob) * 5
-                    sampled = self._rng.beta(max(alpha, 0.01), max(beta_param, 0.01))
-                else:
-                    sampled = self._rng.uniform()
-                scored.append((sampled, p))
-
-            scored.sort(key=lambda x: x[0], reverse=True)
-            return seeds + [p for _, p in scored]
-
-        # FIFO
-        return seeds + non_seeds
+    # ------------------------------------------------------------------
+    # Explain
+    # ------------------------------------------------------------------
 
     def explain_profile(self, profile: dict) -> str:
-        """Human-readable explanation of scoring for a profile."""
-        if not self._trained:
-            return "Classifier not trained — using similarity or FIFO ordering"
-
-        embedding = self._get_embedding(profile)
-        if embedding is None:
+        """Human-readable scoring explanation."""
+        emb = self._get_embedding(profile)
+        if emb is None:
             return "No embedding found for profile"
+        prob, bald = self.predict(emb)
+        entropy = float(_binary_entropy(prob))
+        return (
+            f"Posterior predictive p(qualified): {prob:.3f}\n"
+            f"Predictive entropy: {entropy:.4f}\n"
+            f"BALD score: {bald:.4f}\n"
+            f"Observations seen: {self.n_obs}"
+        )
 
-        probs = self.predict_distribution(embedding)
-        mean_prob = probs.mean()
-        std_prob = probs.std()
+    # ------------------------------------------------------------------
+    # Warm start
+    # ------------------------------------------------------------------
 
-        lines = [
-            f"Mean probability: {mean_prob:.3f}",
-            f"Std (uncertainty): {std_prob:.3f}",
-            f"Estimator range: [{probs.min():.3f}, {probs.max():.3f}]",
-        ]
+    def warm_start(self, X: np.ndarray, y: np.ndarray):
+        """Replay historical labelled data to restore posterior on restart."""
+        for i in range(len(X)):
+            self.update(X[i], int(y[i]))
 
-        # Show a few individual estimator predictions
-        sorted_probs = np.sort(probs)
-        n = len(sorted_probs)
-        lines.append(f"Estimator quartiles: p25={sorted_probs[n//4]:.3f}, "
-                      f"p50={sorted_probs[n//2]:.3f}, p75={sorted_probs[3*n//4]:.3f}")
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
 
-        return "\n".join(lines)
+    def _mc_probs(self, X: np.ndarray) -> np.ndarray:
+        """Draw M posterior weight samples, return sigmoid probs.
 
-    def needs_retrain(self) -> bool:
-        """Check if enough new labels have accumulated since last training."""
-        from linkedin.ml.embeddings import count_labeled
+        X : (N, d)
+        Returns : (M, N)
+        """
+        jitter = 1e-6 * np.eye(self.d, dtype=np.float64)
+        try:
+            L = np.linalg.cholesky(self.Sigma + jitter)
+        except np.linalg.LinAlgError:
+            # Eigenvalue clamp fallback
+            eigvals, eigvecs = np.linalg.eigh(self.Sigma)
+            eigvals = np.maximum(eigvals, 1e-8)
+            L = eigvecs * np.sqrt(eigvals)
 
-        counts = count_labeled()
-        new_labels = counts["total"] - self._labels_at_last_train
-        return new_labels >= self._cfg["qualification_retrain_every"]
+        Z = self._rng.randn(self.n_mc_samples, self.d)
+        W = self.mu + Z @ L.T  # (M, d)
+        logits = W @ X.T  # (M, N)
+        return _sigmoid(logits)
 
     def _get_embedding(self, profile: dict) -> np.ndarray | None:
         """Look up profile embedding from DuckDB."""
@@ -289,12 +239,3 @@ class QualificationScorer:
         if row:
             return np.array(row[0], dtype=np.float32)
         return None
-
-    @staticmethod
-    def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-        """Compute cosine similarity between two vectors."""
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
-        if norm_a == 0 or norm_b == 0:
-            return 0.0
-        return float(np.dot(a, b) / (norm_a * norm_b))

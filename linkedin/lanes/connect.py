@@ -12,17 +12,17 @@ from linkedin.db.crm_profiles import (
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.rate_limiter import RateLimiter
-from linkedin.ml.qualifier import QualificationScorer
+from linkedin.ml.qualifier import BayesianQualifier
 from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectLane:
-    def __init__(self, session, rate_limiter: RateLimiter, scorer: QualificationScorer):
+    def __init__(self, session, rate_limiter: RateLimiter, qualifier: BayesianQualifier):
         self.session = session
         self.rate_limiter = rate_limiter
-        self.scorer = scorer
+        self.qualifier = qualifier
 
     def can_execute(self) -> bool:
         return self.rate_limiter.can_execute() and count_qualified_profiles(self.session) > 0
@@ -36,13 +36,13 @@ class ConnectLane:
         if not profiles:
             return
 
-        ranked = self.scorer.score_profiles(profiles)
+        ranked = self.qualifier.rank_profiles(profiles)
         candidate = ranked[0]
 
         public_id = candidate["public_identifier"]
         profile = candidate.get("profile") or candidate
 
-        explanation = self.scorer.explain_profile(candidate)
+        explanation = self.qualifier.explain_profile(candidate)
         logger.debug("ML explanation for %s:\n%s", public_id, explanation)
 
         try:

@@ -26,7 +26,7 @@ OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** designed
 It automates the entire outreach process in a **stealthy, human-like way**:
 
 - Discovers and enriches target profiles
-- Qualifies and ranks profiles using embedding-based ML (Bootstrap Ensemble + Thompson Sampling) with active learning
+- Qualifies and ranks profiles using online Bayesian active learning (BALD acquisition + entropy-gated auto-decisions)
 - Sends personalized connection requests
 - Follows up with custom messages after acceptance
 - Tracks everything in a built-in CRM with web UI (full data ownership, resumable workflows)
@@ -88,13 +88,6 @@ You need to provide your LinkedIn credentials and target profiles.
    ```
    Edit `assets/accounts.secrets.yaml` with your credentials and add your LLM API key under `env:` (required for profile qualification).
 
-2. **Provide seed URLs**
-   ```bash
-   # Create a CSV with LinkedIn profile URLs to target
-   echo 'url' > assets/inputs/urls.csv
-   echo 'https://www.linkedin.com/in/example-profile/' >> assets/inputs/urls.csv
-   ```
-
 ### 5. Run the Daemon
 
 ```bash
@@ -131,7 +124,7 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 | 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
 | 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
 | 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
-| 🧠 **ML-Driven Qualification**    | Embedding-based Bootstrap Ensemble + Thompson Sampling qualifies and ranks profiles with active learning -- auto-retrains as data grows. |
+| 🧠 **ML-Driven Qualification**    | Online Bayesian Logistic Regression with BALD active learning qualifies and ranks profiles -- updates incrementally on every label, no batch retraining. |
 | 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
 | ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically. |
 | 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI -- browse Leads, Contacts, Companies, and Deals in your browser. |
@@ -191,8 +184,8 @@ The daemon (`linkedin/daemon.py`) priority-schedules five action lanes across co
 | Lane | What it does | Rate limited? |
 |------|-------------|---------------|
 | **Enrich** | Scrapes DISCOVERED profiles via LinkedIn's Voyager API, computes embeddings | Throttled by batch size |
-| **Qualify** | Qualifies ENRICHED profiles via ML classifier + LLM active learning | Gap-filling |
-| **Connect** | ML-ranks QUALIFIED profiles, sends connection requests | Daily + weekly limits |
+| **Qualify** | Qualifies ENRICHED profiles via Bayesian active learning (BALD selects, entropy gates LLM calls) | Gap-filling |
+| **Connect** | Ranks QUALIFIED profiles by posterior probability, sends connection requests | Daily + weekly limits |
 | **Check Pending** | Checks if PENDING requests were accepted | Age-gated |
 | **Follow Up** | Sends personalized messages to CONNECTED profiles | Daily limit |
 
@@ -212,7 +205,7 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   └── models/marts/                # ML training set (ml_connection_accepted)
 ├── assets/
 │   ├── accounts.secrets.yaml        # Credentials + campaign + LLM config (gitignored)
-│   ├── inputs/urls.csv              # Seed URLs CSV (required)
+│   ├── inputs/                      # Optional input files
 │   ├── campaign/                    # Onboarding files (product_docs.txt, campaign_objective.txt)
 │   └── data/                        # crm.db (SQLite), analytics.duckdb (embeddings + analytics)
 ├── docs/
@@ -230,10 +223,10 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   ├── django_settings.py           # Django/CRM settings (SQLite at assets/data/crm.db)
 │   ├── lanes/                       # Action lanes (enrich, qualify, connect, check_pending, follow_up)
 │   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Users)
-│   ├── ml/                          # ML qualification (qualifier.py, embeddings.py, profile_text.py)
+│   ├── ml/                          # Bayesian qualifier, DuckDB embeddings, profile text builder
 │   ├── navigation/                  # Login, throttling, browser utilities, enums
 │   ├── onboarding.py                # Interactive onboarding (product docs + campaign objective)
-│   ├── seeds.py                     # Seed URL loading from CSV
+│   ├── gdpr.py                      # GDPR location detection for newsletter
 │   ├── rate_limiter.py              # Daily/weekly rate limiting
 │   ├── sessions/                    # Session management (AccountSession)
 │   └── templates/                   # Message rendering (Jinja2 / AI-prompt)

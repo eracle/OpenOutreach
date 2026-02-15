@@ -12,6 +12,5 @@ termcolor
 Django>=5.2,<7.0
 tendo
 pyyaml
-scikit-learn
 duckdb
 fastembed

@@ -1,23 +1,24 @@
 # linkedin/lanes/qualify.py
-"""Qualification lane: embedding + LLM-based lead qualification with active learning."""
+"""Qualification lane: BALD-based active learning with online Bayesian model."""
 from __future__ import annotations
 
 import logging
 
+import numpy as np
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import set_profile_state
-from linkedin.ml.qualifier import QualificationScorer
+from linkedin.ml.qualifier import BayesianQualifier, _binary_entropy
 from linkedin.navigation.enums import ProfileState
 
 logger = logging.getLogger(__name__)
 
 
 class QualifyLane:
-    def __init__(self, session, scorer: QualificationScorer):
+    def __init__(self, session, qualifier: BayesianQualifier):
         self.session = session
-        self.scorer = scorer
+        self.qualifier = qualifier
         self._cfg = CAMPAIGN_CONFIG
 
     def can_execute(self) -> bool:
@@ -42,7 +43,7 @@ class QualifyLane:
         if self._embed_next_profile():
             return
 
-        # Phase 2: qualify embedded profiles using active learning
+        # Phase 2: qualify embedded profiles using BALD-based active learning
         self._qualify_next_profile()
 
     def _embed_next_profile(self) -> bool:
@@ -71,56 +72,59 @@ class QualifyLane:
         return False
 
     def _qualify_next_profile(self):
-        """Qualify one embedded profile using active learning."""
-        from linkedin.ml.embeddings import get_unlabeled_profiles
+        """Select the most informative profile via BALD, then auto-decide or query LLM."""
+        from linkedin.ml.embeddings import get_all_unlabeled_embeddings
         from linkedin.ml.qualifier import qualify_profile_llm
 
-        candidates = get_unlabeled_profiles(limit=1)
+        candidates = get_all_unlabeled_embeddings()
         if not candidates:
             return
 
-        candidate = candidates[0]
+        entropy_threshold = self._cfg["qualification_entropy_threshold"]
+
+        # Select candidate with highest BALD (most informative for the model)
+        if len(candidates) == 1:
+            candidate = candidates[0]
+        else:
+            embeddings = np.array([c["embedding"] for c in candidates], dtype=np.float32)
+            bald_scores = self.qualifier.bald_scores(embeddings)
+            best_idx = int(np.argmax(bald_scores))
+            candidate = candidates[best_idx]
+
         lead_id = candidate["lead_id"]
         public_id = candidate["public_identifier"]
         embedding = candidate["embedding"]
 
-        high_threshold = self._cfg["qualification_high_threshold"]
-        low_threshold = self._cfg["qualification_low_threshold"]
-        uncertainty_threshold = self._cfg["qualification_uncertainty_threshold"]
+        pred_prob, bald = self.qualifier.predict(embedding)
+        entropy = float(_binary_entropy(pred_prob))
 
-        # Determine whether to use classifier auto-decision or LLM
-        if self.scorer._trained:
-            mean_prob, std_prob = self.scorer.predict(embedding)
+        # Auto-decide if predictive entropy is below threshold (model is confident)
+        if self.qualifier.n_obs > 0 and entropy < entropy_threshold:
+            label = 1 if pred_prob >= 0.5 else 0
+            decision = "auto-accept" if label == 1 else "auto-reject"
+            reason = f"{decision} (prob={pred_prob:.3f}, entropy={entropy:.4f}, bald={bald:.4f})"
+            self._record_decision(lead_id, public_id, embedding, label, reason)
+            return
 
-            if mean_prob >= high_threshold and std_prob < uncertainty_threshold:
-                self._record_decision(lead_id, public_id, label=1,
-                                      reason=f"auto-accept (mean={mean_prob:.3f}, std={std_prob:.3f})")
-                return
-
-            if mean_prob <= low_threshold and std_prob < uncertainty_threshold:
-                self._record_decision(lead_id, public_id, label=0,
-                                      reason=f"auto-reject (mean={mean_prob:.3f}, std={std_prob:.3f})")
-                return
-
-            logger.debug(
-                "%s uncertain (mean=%.3f, std=%.3f) — querying LLM",
-                public_id, mean_prob, std_prob,
-            )
-
-        # LLM qualification (bootstrap phase or uncertain)
+        # LLM qualification (cold start or uncertain)
+        logger.debug(
+            "%s uncertain (prob=%.3f, entropy=%.4f, bald=%.4f) — querying LLM",
+            public_id, pred_prob, entropy, bald,
+        )
         profile_text = self._get_profile_text(lead_id)
         if not profile_text:
             logger.warning("No profile text for lead %d — skipping", lead_id)
             return
 
         label, reason = qualify_profile_llm(profile_text)
-        self._record_decision(lead_id, public_id, label, reason)
+        self._record_decision(lead_id, public_id, embedding, label, reason)
 
-    def _record_decision(self, lead_id: int, public_id: str, label: int, reason: str):
-        """Store label, transition CRM state, log, and retrain if needed."""
+    def _record_decision(self, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
+        """Store label, update Bayesian posterior online, transition CRM state."""
         from linkedin.ml.embeddings import store_label
 
         store_label(lead_id, label=label, reason=reason)
+        self.qualifier.update(embedding, label)
 
         new_state = ProfileState.QUALIFIED if label == 1 else ProfileState.DISQUALIFIED
         set_profile_state(self.session, public_id, new_state.value)
@@ -128,10 +132,6 @@ class QualifyLane:
         decision = "QUALIFIED" if label == 1 else "REJECTED"
         color = "green" if label == 1 else "red"
         logger.info("%s %s: %s", public_id, colored(decision, color, attrs=["bold"]), reason)
-
-        if self.scorer.needs_retrain():
-            logger.info(colored("Retraining qualification classifier...", "cyan", attrs=["bold"]))
-            self.scorer.train()
 
     def _get_profile_text(self, lead_id: int) -> str | None:
         """Load profile JSON from CRM Lead and build text."""

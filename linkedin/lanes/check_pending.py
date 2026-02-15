@@ -7,17 +7,15 @@ import logging
 from linkedin.db.crm_profiles import get_pending_profiles, set_profile_state
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile
-from linkedin.ml.qualifier import QualificationScorer
 from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
 
 class CheckPendingLane:
-    def __init__(self, session, recheck_after_hours: float, scorer: QualificationScorer):
+    def __init__(self, session, recheck_after_hours: float):
         self.session = session
         self.recheck_after_hours = recheck_after_hours
-        self.scorer = scorer
 
     def can_execute(self) -> bool:
         return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0

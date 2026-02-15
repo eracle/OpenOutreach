@@ -14,7 +14,7 @@ from linkedin.lanes.enrich import EnrichLane, is_preexisting_connection
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.follow_up import FollowUpLane
-from linkedin.ml.qualifier import QualificationScorer
+from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.rate_limiter import RateLimiter
@@ -77,20 +77,20 @@ class TestConnectLaneCanExecute:
     def test_can_execute_with_qualified_and_rate_ok(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.QUALIFIED.value)
         rl = RateLimiter(daily_limit=10)
-        scorer = QualificationScorer(seed=42)
+        scorer = BayesianQualifier(seed=42)
         lane = ConnectLane(fake_session, rl, scorer)
         assert lane.can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.QUALIFIED.value)
         rl = RateLimiter(daily_limit=0)
-        scorer = QualificationScorer(seed=42)
+        scorer = BayesianQualifier(seed=42)
         lane = ConnectLane(fake_session, rl, scorer)
         assert lane.can_execute() is False
 
     def test_cannot_execute_no_qualified(self, fake_session):
         rl = RateLimiter(daily_limit=10)
-        scorer = QualificationScorer(seed=42)
+        scorer = BayesianQualifier(seed=42)
         lane = ConnectLane(fake_session, rl, scorer)
         assert lane.can_execute() is False
 
@@ -98,7 +98,7 @@ class TestConnectLaneCanExecute:
         """ENRICHED profiles should NOT be picked up by connect lane."""
         set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)
         rl = RateLimiter(daily_limit=10)
-        scorer = QualificationScorer(seed=42)
+        scorer = BayesianQualifier(seed=42)
         lane = ConnectLane(fake_session, rl, scorer)
         assert lane.can_execute() is False
 
@@ -113,15 +113,13 @@ class TestCheckPendingLaneCanExecute:
             update_date=timezone.now() - timedelta(days=5)
         )
 
-        scorer = QualificationScorer(seed=42)
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
         assert lane.can_execute() is True
 
     def test_cannot_execute_too_recent(self, fake_session):
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         # update_date is already now() from set_profile_state's deal.save()
-        scorer = QualificationScorer(seed=42)
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
         assert lane.can_execute() is False
 
     def test_cannot_execute_with_high_backoff(self, fake_session):
@@ -135,13 +133,11 @@ class TestCheckPendingLaneCanExecute:
             next_step=json.dumps({"backoff_hours": 100}),
         )
 
-        scorer = QualificationScorer(seed=42)
-        lane = CheckPendingLane(fake_session, recheck_after_hours=1, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=1)
         assert lane.can_execute() is False
 
     def test_cannot_execute_empty(self, fake_session):
-        scorer = QualificationScorer(seed=42)
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
         assert lane.can_execute() is False
 
 
@@ -178,7 +174,10 @@ class TestEnrichLaneExecute:
         """Create a DISCOVERED profile, mock the API, and run execute()."""
         set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
 
-        with patch("linkedin.lanes.enrich.PlaywrightLinkedinAPI") as MockAPI:
+        with (
+            patch("linkedin.lanes.enrich.PlaywrightLinkedinAPI") as MockAPI,
+            patch("linkedin.ml.embeddings.embed_profile", return_value=True),
+        ):
             mock_api = MockAPI.return_value
             mock_api.get_profile.return_value = get_profile_rv
             lane = EnrichLane(fake_session)
@@ -271,7 +270,7 @@ class TestConnectLaneExecute:
     def _setup(self, fake_session):
         _make_qualified(fake_session)
         rl = RateLimiter(daily_limit=10)
-        scorer = QualificationScorer(seed=42)
+        scorer = BayesianQualifier(seed=42)
         return ConnectLane(fake_session, rl, scorer)
 
     @patch("linkedin.actions.connect.send_connection_request")
@@ -371,8 +370,7 @@ class TestCheckPendingLaneExecute:
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         _make_old_deal(fake_session, days=5)
 
-        scorer = QualificationScorer(seed=42)
-        return CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        return CheckPendingLane(fake_session, recheck_after_hours=72)
 
     @patch("linkedin.actions.connection_status.get_connection_status")
     def test_execute_updates_state_from_connection_status(
@@ -429,8 +427,7 @@ class TestCheckPendingLaneExecute:
             next_step=json.dumps({"backoff_hours": 10}),
         )
 
-        scorer = QualificationScorer(seed=42)
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
         lane.execute()
 
         deal = Deal.objects.get(lead__website=public_id_to_url("bob"))
@@ -442,8 +439,7 @@ class TestCheckPendingLaneExecute:
         self, mock_status, fake_session
     ):
         # No pending profiles → execute returns immediately
-        scorer = QualificationScorer(seed=42)
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72, scorer=scorer)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
         lane.execute()
 
         mock_status.assert_not_called()

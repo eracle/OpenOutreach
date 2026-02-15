@@ -55,7 +55,6 @@ def embeddings_db(tmp_path):
             lead_id INTEGER PRIMARY KEY,
             public_identifier VARCHAR NOT NULL,
             embedding FLOAT[384] NOT NULL,
-            is_seed BOOLEAN DEFAULT FALSE,
             label INTEGER,
             llm_reason VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
