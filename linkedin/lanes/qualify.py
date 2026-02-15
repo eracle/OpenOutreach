@@ -23,7 +23,7 @@ class QualifyLane:
     def can_execute(self) -> bool:
         """True if there are unembedded ENRICHED profiles or unlabeled profiles to qualify."""
         from linkedin.db.crm_profiles import get_enriched_profiles
-        from linkedin.ml.embeddings import get_embedded_lead_ids, get_positive_centroid, get_unlabeled_profiles_by_similarity
+        from linkedin.ml.embeddings import get_embedded_lead_ids, get_unlabeled_profiles
 
         # Legacy: ENRICHED profiles not yet in DuckDB need embedding first
         profiles = get_enriched_profiles(self.session)
@@ -32,11 +32,7 @@ class QualifyLane:
             if any(self._lead_id_for(p) not in embedded_ids for p in profiles):
                 return True
 
-        centroid = get_positive_centroid()
-        if centroid is None:
-            return False
-
-        unlabeled = get_unlabeled_profiles_by_similarity(limit=1)
+        unlabeled = get_unlabeled_profiles(limit=1)
         return len(unlabeled) > 0
 
     def execute(self):
@@ -76,10 +72,10 @@ class QualifyLane:
 
     def _qualify_next_profile(self):
         """Qualify one embedded profile using active learning."""
-        from linkedin.ml.embeddings import get_unlabeled_profiles_by_similarity
+        from linkedin.ml.embeddings import get_unlabeled_profiles
         from linkedin.ml.qualifier import qualify_profile_llm
 
-        candidates = get_unlabeled_profiles_by_similarity(limit=1)
+        candidates = get_unlabeled_profiles(limit=1)
         if not candidates:
             return
 
@@ -131,7 +127,7 @@ class QualifyLane:
 
         decision = "QUALIFIED" if label == 1 else "REJECTED"
         color = "green" if label == 1 else "red"
-        logger.info("%s %s: %s", public_id, colored(decision, color, attrs=["bold"]), reason[:80])
+        logger.info("%s %s: %s", public_id, colored(decision, color, attrs=["bold"]), reason)
 
         if self.scorer.needs_retrain():
             logger.info(colored("Retraining qualification classifier...", "cyan", attrs=["bold"]))

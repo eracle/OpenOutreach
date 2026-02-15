@@ -192,9 +192,11 @@ def run_daemon(session):
                 # Fresh check after sleep — counts may have changed
                 if enrich_lane.can_execute():
                     enrich_lane.execute()
+                    continue  # re-evaluate gap
                 elif qualify_lane.can_execute():
                     qualify_lane.execute()
-                continue  # re-evaluate gap
+                    continue  # re-evaluate gap
+                # Neither lane can execute — fall through to wait for major action
 
         # ── Wait for major action ──
         if gap > 0:

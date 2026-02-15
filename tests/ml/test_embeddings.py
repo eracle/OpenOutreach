@@ -104,7 +104,7 @@ class TestDuckDBOps:
 
     def test_unlabeled_profiles_by_similarity(self, embeddings_db):
         from linkedin.ml.embeddings import (
-            get_unlabeled_profiles_by_similarity,
+            get_unlabeled_profiles,
             store_embedding,
         )
 
@@ -118,7 +118,7 @@ class TestDuckDBOps:
         store_embedding(2, "similar", similar, is_seed=False, label=None)
         store_embedding(3, "dissimilar", dissimilar, is_seed=False, label=None)
 
-        results = get_unlabeled_profiles_by_similarity(limit=10)
+        results = get_unlabeled_profiles(limit=10)
         assert len(results) == 2
         # Similar should be ranked first
         assert results[0]["public_identifier"] == "similar"

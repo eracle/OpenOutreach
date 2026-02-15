@@ -44,13 +44,16 @@ def _connect(read_only: bool = False):
     """Open a DuckDB connection to the embeddings database."""
     import duckdb
 
-    return duckdb.connect(str(EMBEDDINGS_DB), read_only=read_only)
+    con = duckdb.connect(str(EMBEDDINGS_DB), read_only=read_only)
+    con.execute("LOAD vss;")
+    return con
 
 
 def ensure_embeddings_table():
     """Create the profile_embeddings table + HNSW index if not exists."""
     con = _connect()
-    con.execute("INSTALL vss; LOAD vss;")
+    con.execute("INSTALL vss;")
+    con.execute("SET hnsw_enable_experimental_persistence = true;")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS profile_embeddings (
@@ -151,21 +154,30 @@ def get_positive_centroid() -> np.ndarray | None:
     return embeddings.mean(axis=0)
 
 
-def get_unlabeled_profiles_by_similarity(limit: int = 10) -> list[dict]:
-    """Unlabeled non-seed profiles ranked by cosine similarity to positive centroid."""
+def get_unlabeled_profiles(limit: int = 10) -> list[dict]:
+    """Unlabeled non-seed profiles, ranked by similarity to positive centroid (or FIFO)."""
     centroid = get_positive_centroid()
-    if centroid is None:
-        return []
 
     con = _connect(read_only=True)
-    rows = con.execute(
-        """SELECT lead_id, public_identifier, embedding
-           FROM profile_embeddings
-           WHERE is_seed = FALSE AND label IS NULL
-           ORDER BY array_cosine_similarity(embedding, ?::FLOAT[384]) DESC
-           LIMIT ?""",
-        [centroid.tolist(), limit],
-    ).fetchall()
+    if centroid is not None:
+        rows = con.execute(
+            """SELECT lead_id, public_identifier, embedding
+               FROM profile_embeddings
+               WHERE is_seed = FALSE AND label IS NULL
+               ORDER BY array_cosine_similarity(embedding, ?::FLOAT[384]) DESC
+               LIMIT ?""",
+            [centroid.tolist(), limit],
+        ).fetchall()
+    else:
+        # FIFO fallback — oldest first
+        rows = con.execute(
+            """SELECT lead_id, public_identifier, embedding
+               FROM profile_embeddings
+               WHERE is_seed = FALSE AND label IS NULL
+               ORDER BY created_at ASC
+               LIMIT ?""",
+            [limit],
+        ).fetchall()
     con.close()
 
     return [

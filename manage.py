@@ -26,8 +26,8 @@ logging.basicConfig(
 )
 
 # Suppress noisy third-party loggers
-for _name in ("urllib3", "httpx", "langchain", "dbt", "playwright", "httpcore",
-              "fastembed", "huggingface_hub"):
+for _name in ("urllib3", "httpx", "langchain", "openai", "dbt", "playwright",
+              "httpcore", "fastembed", "huggingface_hub"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)

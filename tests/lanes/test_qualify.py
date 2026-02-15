@@ -26,46 +26,29 @@ class TestQualifyLaneCanExecute:
             lane = QualifyLane(session, scorer)
             assert lane.can_execute() is True
 
-    def test_cannot_execute_no_centroid_no_unembedded(self):
-        from linkedin.lanes.qualify import QualifyLane
-
-        scorer = QualificationScorer(seed=42)
-        session = MagicMock()
-
-        with (
-            patch("linkedin.db.crm_profiles.get_enriched_profiles", return_value=[]),
-            patch("linkedin.ml.embeddings.get_positive_centroid", return_value=None),
-        ):
-            lane = QualifyLane(session, scorer)
-            assert lane.can_execute() is False
-
     def test_cannot_execute_no_unlabeled(self):
         from linkedin.lanes.qualify import QualifyLane
 
         scorer = QualificationScorer(seed=42)
         session = MagicMock()
 
-        centroid = np.ones(384, dtype=np.float32)
         with (
             patch("linkedin.db.crm_profiles.get_enriched_profiles", return_value=[]),
-            patch("linkedin.ml.embeddings.get_positive_centroid", return_value=centroid),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles_by_similarity", return_value=[]),
+            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[]),
         ):
             lane = QualifyLane(session, scorer)
             assert lane.can_execute() is False
 
-    def test_can_execute_with_centroid_and_unlabeled(self):
+    def test_can_execute_with_unlabeled(self):
         from linkedin.lanes.qualify import QualifyLane
 
         scorer = QualificationScorer(seed=42)
         session = MagicMock()
 
-        centroid = np.ones(384, dtype=np.float32)
         unlabeled = [{"lead_id": 1, "public_identifier": "alice", "embedding": np.ones(384)}]
         with (
             patch("linkedin.db.crm_profiles.get_enriched_profiles", return_value=[]),
-            patch("linkedin.ml.embeddings.get_positive_centroid", return_value=centroid),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles_by_similarity", return_value=unlabeled),
+            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=unlabeled),
         ):
             lane = QualifyLane(session, scorer)
             assert lane.can_execute() is True
@@ -123,7 +106,7 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles_by_similarity", return_value=[candidate]),
+            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
             patch.object(scorer, "predict", return_value=(0.95, 0.05)),
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.lanes.qualify.set_profile_state") as mock_set_state,
@@ -153,7 +136,7 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles_by_similarity", return_value=[candidate]),
+            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
             patch.object(scorer, "predict", return_value=(0.10, 0.05)),
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.lanes.qualify.set_profile_state") as mock_set_state,
@@ -183,7 +166,7 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles_by_similarity", return_value=[candidate]),
+            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
             patch.object(scorer, "predict", return_value=(0.50, 0.20)),
             patch.object(QualifyLane, "_get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_profile_llm", return_value=(1, "Good fit")) as mock_llm,
@@ -212,7 +195,7 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles_by_similarity", return_value=[candidate]),
+            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
             patch.object(QualifyLane, "_get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_profile_llm", return_value=(0, "Bad fit")) as mock_llm,
             patch("linkedin.ml.embeddings.store_label") as mock_store,
@@ -240,7 +223,7 @@ class TestQualifyLaneAutoDecisions:
 
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
-            patch("linkedin.ml.embeddings.get_unlabeled_profiles_by_similarity", return_value=[candidate]),
+            patch("linkedin.ml.embeddings.get_unlabeled_profiles", return_value=[candidate]),
             patch.object(scorer, "predict", return_value=(0.95, 0.05)),
             patch("linkedin.ml.embeddings.store_label"),
             patch("linkedin.lanes.qualify.set_profile_state"),
