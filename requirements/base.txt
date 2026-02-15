@@ -14,4 +14,4 @@ tendo
 pyyaml
 scikit-learn
 duckdb
-fastembed
+fastembed==0.7.0
