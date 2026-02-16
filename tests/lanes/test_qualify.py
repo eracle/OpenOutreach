@@ -1,5 +1,5 @@
 # tests/lanes/test_qualify.py
-"""Tests for the qualification lane with BALD-based active learning."""
+"""Tests for the qualification lane with entropy-based active learning."""
 from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
@@ -8,6 +8,16 @@ import numpy as np
 import pytest
 
 from linkedin.ml.qualifier import BayesianQualifier
+
+
+def _make_trained_qualifier(seed=42):
+    """Create a qualifier with both classes so n_obs > 0 and GPC can fit."""
+    qualifier = BayesianQualifier(seed=seed)
+    rng = np.random.RandomState(seed)
+    for _ in range(5):
+        qualifier.update(rng.randn(384).astype(np.float32) + 1.0, 1)
+        qualifier.update(rng.randn(384).astype(np.float32) - 1.0, 0)
+    return qualifier
 
 
 class TestQualifyLaneCanExecute:
@@ -95,8 +105,7 @@ class TestQualifyLaneAutoDecisions:
         """Low entropy + prob > 0.5 → auto-accept."""
         from linkedin.lanes.qualify import QualifyLane
 
-        qualifier = BayesianQualifier(seed=42)
-        qualifier.n_obs = 10  # not cold start
+        qualifier = _make_trained_qualifier()
         session = MagicMock()
 
         candidate = {
@@ -127,8 +136,7 @@ class TestQualifyLaneAutoDecisions:
         """Low entropy + prob < 0.5 → auto-reject."""
         from linkedin.lanes.qualify import QualifyLane
 
-        qualifier = BayesianQualifier(seed=42)
-        qualifier.n_obs = 10
+        qualifier = _make_trained_qualifier()
         session = MagicMock()
 
         candidate = {
@@ -159,8 +167,7 @@ class TestQualifyLaneAutoDecisions:
         """High entropy → query LLM."""
         from linkedin.lanes.qualify import QualifyLane
 
-        qualifier = BayesianQualifier(seed=42)
-        qualifier.n_obs = 10
+        qualifier = _make_trained_qualifier()
         session = MagicMock()
 
         candidate = {
@@ -172,8 +179,8 @@ class TestQualifyLaneAutoDecisions:
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
             patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
-            # prob=0.50, bald=0.30 → entropy ≈ 0.693 (max), well above threshold
-            patch.object(qualifier, "predict", return_value=(0.50, 0.30)),
+            # prob=0.50, entropy=0.693 (max), well above threshold
+            patch.object(qualifier, "predict", return_value=(0.50, 0.693)),
             patch.object(QualifyLane, "_get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_profile_llm", return_value=(1, "Good fit")) as mock_llm,
             patch.object(qualifier, "update") as mock_update,
@@ -189,7 +196,7 @@ class TestQualifyLaneAutoDecisions:
             mock_update.assert_called_once()
 
     def test_llm_query_on_cold_start(self):
-        """Cold start (n_obs=0) → always query LLM."""
+        """Cold start (predict returns None) → always query LLM."""
         from linkedin.lanes.qualify import QualifyLane
 
         qualifier = BayesianQualifier(seed=42)
@@ -222,8 +229,7 @@ class TestQualifyLaneAutoDecisions:
         """After recording a decision, qualifier.update() is called with the correct args."""
         from linkedin.lanes.qualify import QualifyLane
 
-        qualifier = BayesianQualifier(seed=42)
-        qualifier.n_obs = 10
+        qualifier = _make_trained_qualifier()
         session = MagicMock()
 
         emb = np.ones(384, dtype=np.float32)

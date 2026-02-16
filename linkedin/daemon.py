@@ -109,19 +109,18 @@ def run_daemon(session):
 
     cfg = CAMPAIGN_CONFIG
 
-    # Initialize embeddings table and Bayesian qualifier
+    # Initialize embeddings table and GPC qualifier
     ensure_embeddings_table()
 
     qualifier = BayesianQualifier(
-        prior_precision=cfg["qualification_prior_precision"],
-        n_mc_samples=cfg["qualification_n_mc_samples"],
         seed=42,
+        n_mc_samples=cfg["qualification_n_mc_samples"],
     )
     X, y = get_labeled_data()
     if len(X) > 0:
         qualifier.warm_start(X, y)
         logger.info(
-            colored("Bayesian qualifier warm-started", "cyan")
+            colored("GPC qualifier warm-started", "cyan")
             + " on %d labelled samples (%d positive, %d negative)",
             len(y), int((y == 1).sum()), int((y == 0).sum()),
         )

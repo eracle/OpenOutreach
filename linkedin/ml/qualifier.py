@@ -1,5 +1,5 @@
 # linkedin/ml/qualifier.py
-"""BayesianQualifier: online Bayesian logistic regression with BALD acquisition."""
+"""GPC-based qualifier: BALD active learning via GP latent posterior."""
 from __future__ import annotations
 
 import logging
@@ -75,78 +75,155 @@ def _binary_entropy(p):
 
 
 # ---------------------------------------------------------------------------
-# BayesianQualifier
+# BayesianQualifier  (GPC backend)
 # ---------------------------------------------------------------------------
 
 class BayesianQualifier:
-    """Online Bayesian Logistic Regression with Laplace approximation.
+    """Gaussian Process Classifier for active learning qualification.
 
-    Maintains a Gaussian posterior N(mu, Sigma) over weights w in R^d
-    where d = embedding_dim + 1 (bias).  Updated incrementally on each
-    new label via rank-1 Sherman-Morrison.
+    Uses sklearn GaussianProcessClassifier with RBF kernel for non-linear
+    probabilistic classification of profile embeddings.  BALD (Bayesian
+    Active Learning by Disagreement) scores are computed via MC sampling
+    from the GP latent posterior for candidate selection; predictive entropy
+    gates auto-decisions vs LLM queries.
 
-    Acquisition: BALD (Bayesian Active Learning by Disagreement).
-    Gating: predictive entropy for auto-decide vs LLM query.
+    Training data is accumulated incrementally; the GPC is lazily re-fitted
+    (on ALL accumulated data) whenever predictions are requested after new
+    labels arrive.  This is identical in accuracy to refitting after every
+    label — "lazy" just avoids redundant fits between prediction calls.
     """
 
-    def __init__(
-        self,
-        prior_precision: float = 1.0,
-        n_mc_samples: int = 100,
-        seed: int = 42,
-        embedding_dim: int = 384,
-    ):
-        self.d = embedding_dim + 1  # +1 bias
-        self.prior_precision = prior_precision
-        self.n_mc_samples = n_mc_samples
-        self.mu = np.zeros(self.d, dtype=np.float64)
-        self.Sigma = np.eye(self.d, dtype=np.float64) / prior_precision
-        self.n_obs = 0
+    def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100):
+        from sklearn.gaussian_process import GaussianProcessClassifier
+        from sklearn.gaussian_process.kernels import ConstantKernel, RBF
+
+        self.embedding_dim = embedding_dim
+        self._seed = seed
+        self._n_mc_samples = n_mc_samples
+        self._base_kernel = ConstantKernel(1.0) * RBF(length_scale=1.0)
+        self._gpc = GaussianProcessClassifier(
+            kernel=self._base_kernel,
+            n_restarts_optimizer=2,
+            random_state=seed,
+        )
+        self._X: list[np.ndarray] = []
+        self._y: list[int] = []
+        self._fitted = False
         self._rng = np.random.RandomState(seed)
 
+    @property
+    def n_obs(self) -> int:
+        return len(self._y)
+
     # ------------------------------------------------------------------
-    # Online posterior update  (O(d^2) per observation)
+    # Update  (append + invalidate)
     # ------------------------------------------------------------------
 
     def update(self, embedding: np.ndarray, label: int):
-        """Rank-1 Sherman-Morrison update of the Gaussian posterior."""
-        x = np.append(embedding.astype(np.float64), 1.0)  # bias
-        p = float(_sigmoid(self.mu @ x))
-        lam = p * (1.0 - p) + 1e-12  # Hessian of log-likelihood
-        Sx = self.Sigma @ x
-        xSx = float(x @ Sx)
-        denom = 1.0 + lam * xSx
-        self.Sigma -= lam * np.outer(Sx, Sx) / denom
-        self.mu += (label - p) * Sx / denom
-        self.n_obs += 1
+        """Record a new labelled observation.  Model is lazily re-fitted."""
+        self._X.append(embedding.astype(np.float64).ravel())
+        self._y.append(int(label))
+        self._fitted = False
+
+    # ------------------------------------------------------------------
+    # Lazy refit
+    # ------------------------------------------------------------------
+
+    def _ensure_fitted(self) -> bool:
+        """Fit GPC if dirty and feasible.  Returns True when model is usable."""
+        if self._fitted:
+            return True
+        if len(self._y) < 2:
+            return False
+        y_arr = np.array(self._y)
+        if len(np.unique(y_arr)) < 2:
+            return False  # GPC needs both classes
+
+        from sklearn.gaussian_process import GaussianProcessClassifier
+
+        X_arr = np.array(self._X, dtype=np.float64)
+
+        # Reuse previously-fitted kernel params as starting point
+        kernel = (
+            self._gpc.kernel_
+            if hasattr(self._gpc, "kernel_") and self._gpc.kernel_ is not None
+            else self._base_kernel
+        )
+        self._gpc = GaussianProcessClassifier(
+            kernel=kernel,
+            n_restarts_optimizer=0,  # fast refit from previous params
+            random_state=self._seed,
+        )
+        self._gpc.fit(X_arr, y_arr)
+        self._fitted = True
+        logger.debug("GPC fitted on %d observations", len(y_arr))
+        return True
 
     # ------------------------------------------------------------------
     # Prediction
     # ------------------------------------------------------------------
 
-    def predict(self, embedding: np.ndarray) -> tuple[float, float]:
-        """Return (predictive_prob, bald_score) for a single embedding."""
-        x = np.append(embedding.astype(np.float64), 1.0).reshape(1, -1)
-        probs = self._mc_probs(x)  # (M, 1)
-        col = probs[:, 0]
-        p_pred = float(col.mean())
-        bald = float(_binary_entropy(p_pred) - _binary_entropy(col).mean())
-        return p_pred, bald
+    def predict(self, embedding: np.ndarray) -> tuple[float, float] | None:
+        """Return (predictive_prob, predictive_entropy) for a single embedding.
+
+        Returns None when the model cannot be fitted yet (cold start:
+        fewer than 2 labels or only one class present).
+        """
+        if not self._ensure_fitted():
+            return None
+
+        x = embedding.astype(np.float64).reshape(1, -1)
+        proba = self._gpc.predict_proba(x)[0]
+        p = float(proba[1])
+        entropy = float(_binary_entropy(p))
+        return p, entropy
 
     # ------------------------------------------------------------------
-    # BALD acquisition  (vectorised over N candidates)
+    # BALD acquisition via GP latent posterior
     # ------------------------------------------------------------------
 
-    def bald_scores(self, embeddings: np.ndarray) -> np.ndarray:
-        """BALD scores for (N, embedding_dim) matrix. Returns shape (N,)."""
-        X = np.hstack([
-            embeddings.astype(np.float64),
-            np.ones((len(embeddings), 1), dtype=np.float64),
-        ])  # (N, d)
-        probs = self._mc_probs(X)  # (M, N)
-        p_pred = probs.mean(axis=0)  # (N,)
+    def _latent_f(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Extract GP posterior mean and variance of latent f(x) at test points.
+
+        Uses the fitted GPC's internal Laplace approximation attributes.
+        Returns (f_mean, f_var) each of shape (N,).
+        """
+        from scipy.linalg import solve_triangular
+
+        base = self._gpc.base_estimator_
+        K_star = base.kernel_(X, base.X_train_)
+        f_mean = K_star.dot(base.y_train_ - base.pi_)
+        v = solve_triangular(base.L_, base.W_sr_[:, np.newaxis] * K_star.T, lower=True)
+        f_var = base.kernel_.diag(X) - np.einsum("ij,ij->j", v, v)
+        f_var = np.maximum(f_var, 1e-10)
+        return f_mean, f_var
+
+    def bald_scores(self, embeddings: np.ndarray) -> np.ndarray | None:
+        """BALD scores for (N, embedding_dim) candidates.
+
+        BALD = H(E[p]) - E[H(p)], computed by MC-sampling from the GP
+        latent posterior f ~ N(f_mean, f_var) and pushing through sigmoid.
+        Higher BALD = model disagrees with itself most = most informative.
+
+        Returns None when the model cannot be fitted yet (caller should
+        fall back to FIFO ordering).
+        """
+        if not self._ensure_fitted():
+            return None
+
+        X = embeddings.astype(np.float64)
+        f_mean, f_var = self._latent_f(X)
+
+        # MC sample: (M, N) latent function draws
+        f_samples = (
+            f_mean[np.newaxis, :]
+            + np.sqrt(f_var)[np.newaxis, :] * self._rng.randn(self._n_mc_samples, len(X))
+        )
+        p_samples = _sigmoid(f_samples)  # (M, N)
+
+        p_pred = p_samples.mean(axis=0)  # (N,)
         H_pred = _binary_entropy(p_pred)
-        H_individual = _binary_entropy(probs).mean(axis=0)
+        H_individual = _binary_entropy(p_samples).mean(axis=0)
         return H_pred - H_individual
 
     # ------------------------------------------------------------------
@@ -154,16 +231,18 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def rank_profiles(self, profiles: list) -> list:
-        """Rank QUALIFIED profiles by posterior predictive probability (descending)."""
+        """Rank QUALIFIED profiles by predicted acceptance probability (descending)."""
         if not profiles:
             return []
 
+        fitted = self._ensure_fitted()
         scored = []
         for p in profiles:
             emb = self._get_embedding(p)
-            if emb is not None:
-                x = np.append(emb.astype(np.float64), 1.0)
-                prob = float(_sigmoid(self.mu @ x))
+            if emb is not None and fitted:
+                x = emb.astype(np.float64).reshape(1, -1)
+                proba = self._gpc.predict_proba(x)[0]
+                prob = float(proba[1])
             else:
                 prob = 0.5
             scored.append((prob, p))
@@ -179,12 +258,13 @@ class BayesianQualifier:
         emb = self._get_embedding(profile)
         if emb is None:
             return "No embedding found for profile"
-        prob, bald = self.predict(emb)
-        entropy = float(_binary_entropy(prob))
+        result = self.predict(emb)
+        if result is None:
+            return f"Model not fitted yet ({self.n_obs} observations, need both classes)"
+        prob, entropy = result
         return (
-            f"Posterior predictive p(qualified): {prob:.3f}\n"
+            f"GP predictive p(qualified): {prob:.3f}\n"
             f"Predictive entropy: {entropy:.4f}\n"
-            f"BALD score: {bald:.4f}\n"
             f"Observations seen: {self.n_obs}"
         )
 
@@ -193,33 +273,20 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def warm_start(self, X: np.ndarray, y: np.ndarray):
-        """Replay historical labelled data to restore posterior on restart."""
-        for i in range(len(X)):
-            self.update(X[i], int(y[i]))
+        """Bulk-load historical labels and fit.
+
+        Unlike the previous linear model's sequential replay, GPC fits
+        all data at once — so warm_start is faster than incremental updates.
+        """
+        self._X = [X[i].astype(np.float64).ravel() for i in range(len(X))]
+        self._y = [int(y[i]) for i in range(len(y))]
+        self._fitted = False
+        if len(self._X) >= 2:
+            self._ensure_fitted()
 
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
-
-    def _mc_probs(self, X: np.ndarray) -> np.ndarray:
-        """Draw M posterior weight samples, return sigmoid probs.
-
-        X : (N, d)
-        Returns : (M, N)
-        """
-        jitter = 1e-6 * np.eye(self.d, dtype=np.float64)
-        try:
-            L = np.linalg.cholesky(self.Sigma + jitter)
-        except np.linalg.LinAlgError:
-            # Eigenvalue clamp fallback
-            eigvals, eigvecs = np.linalg.eigh(self.Sigma)
-            eigvals = np.maximum(eigvals, 1e-8)
-            L = eigvecs * np.sqrt(eigvals)
-
-        Z = self._rng.randn(self.n_mc_samples, self.d)
-        W = self.mu + Z @ L.T  # (M, d)
-        logits = W @ X.T  # (M, N)
-        return _sigmoid(logits)
 
     def _get_embedding(self, profile: dict) -> np.ndarray | None:
         """Look up profile embedding from DuckDB."""
