@@ -93,19 +93,22 @@ class BayesianQualifier:
     label — "lazy" just avoids redundant fits between prediction calls.
     """
 
-    def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100):
+    def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100,
+                 pca_variance_threshold: float = 0.95):
         from sklearn.gaussian_process import GaussianProcessClassifier
         from sklearn.gaussian_process.kernels import ConstantKernel, RBF
 
         self.embedding_dim = embedding_dim
         self._seed = seed
         self._n_mc_samples = n_mc_samples
+        self._pca_variance_threshold = pca_variance_threshold
         self._base_kernel = ConstantKernel(1.0) * RBF(length_scale=1.0)
         self._gpc = GaussianProcessClassifier(
             kernel=self._base_kernel,
             n_restarts_optimizer=2,
             random_state=seed,
         )
+        self._pca = None  # fitted in _ensure_fitted()
         self._X: list[np.ndarray] = []
         self._y: list[int] = []
         self._fitted = False
@@ -130,7 +133,7 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def _ensure_fitted(self) -> bool:
-        """Fit GPC if dirty and feasible.  Returns True when model is usable."""
+        """Fit PCA + GPC if dirty and feasible.  Returns True when model is usable."""
         if self._fitted:
             return True
         if len(self._y) < 2:
@@ -139,9 +142,16 @@ class BayesianQualifier:
         if len(np.unique(y_arr)) < 2:
             return False  # GPC needs both classes
 
+        from sklearn.decomposition import PCA
         from sklearn.gaussian_process import GaussianProcessClassifier
 
         X_arr = np.array(self._X, dtype=np.float64)
+
+        # Fit PCA: keep enough components to explain pca_variance_threshold of variance
+        max_components = min(X_arr.shape[0], X_arr.shape[1])
+        self._pca = PCA(n_components=min(self._pca_variance_threshold, max_components),
+                        random_state=self._seed)
+        X_reduced = self._pca.fit_transform(X_arr)
 
         # Reuse previously-fitted kernel params as starting point
         kernel = (
@@ -154,10 +164,19 @@ class BayesianQualifier:
             n_restarts_optimizer=0,  # fast refit from previous params
             random_state=self._seed,
         )
-        self._gpc.fit(X_arr, y_arr)
+        self._gpc.fit(X_reduced, y_arr)
         self._fitted = True
-        logger.debug("GPC fitted on %d observations", len(y_arr))
+        logger.debug("GPC fitted on %d observations (%d PCA dims, %.1f%% variance)",
+                     len(y_arr), self._pca.n_components_,
+                     100 * self._pca.explained_variance_ratio_.sum())
         return True
+
+    def _transform(self, X: np.ndarray) -> np.ndarray:
+        """Apply fitted PCA to input(s). Handles both 1D and 2D arrays."""
+        X = np.asarray(X, dtype=np.float64)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        return self._pca.transform(X)
 
     # ------------------------------------------------------------------
     # Prediction
@@ -172,7 +191,7 @@ class BayesianQualifier:
         if not self._ensure_fitted():
             return None
 
-        x = embedding.astype(np.float64).reshape(1, -1)
+        x = self._transform(embedding)
         proba = self._gpc.predict_proba(x)[0]
         p = float(proba[1])
         entropy = float(_binary_entropy(p))
@@ -186,6 +205,7 @@ class BayesianQualifier:
         """Extract GP posterior mean and variance of latent f(x) at test points.
 
         Uses the fitted GPC's internal Laplace approximation attributes.
+        X should already be PCA-transformed.
         Returns (f_mean, f_var) each of shape (N,).
         """
         from scipy.linalg import solve_triangular
@@ -211,7 +231,7 @@ class BayesianQualifier:
         if not self._ensure_fitted():
             return None
 
-        X = embeddings.astype(np.float64)
+        X = self._transform(embeddings)
         f_mean, f_var = self._latent_f(X)
 
         # MC sample: (M, N) latent function draws
@@ -240,7 +260,7 @@ class BayesianQualifier:
         for p in profiles:
             emb = self._get_embedding(p)
             if emb is not None and fitted:
-                x = emb.astype(np.float64).reshape(1, -1)
+                x = self._transform(emb)
                 proba = self._gpc.predict_proba(x)[0]
                 prob = float(proba[1])
             else:
