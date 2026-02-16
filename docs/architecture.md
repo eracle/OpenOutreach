@@ -7,11 +7,11 @@ workflow engine.
 
 The system automates LinkedIn outreach through a daemon that schedules actions across configurable working hours:
 
-1. **Input**: A seed profile is loaded on startup, and new profiles are auto-discovered as the daemon navigates LinkedIn pages.
-2. **Enrichment**: The daemon scrapes detailed profile data via LinkedIn's internal Voyager API and stores it in the CRM.
-3. **ML Ranking**: Profiles are scored using a gradient boosted trees model (+ Thompson Sampling) trained on historical connection acceptance data.
-4. **Outreach**: Connection requests are sent to the highest-ranked profiles, and follow-up messages are sent after acceptance.
-5. **State Tracking**: Each profile progresses through a state machine (`DISCOVERED` → `ENRICHED` → `PENDING` → `CONNECTED` → `COMPLETED`), tracked as Deal stages in the CRM.
+1. **Input**: A seed profile is loaded on startup, and new profiles are auto-discovered as the daemon navigates LinkedIn pages. When the pipeline has nothing left to process, LLM-generated search keywords are used to discover new profiles.
+2. **Enrichment**: The daemon scrapes detailed profile data via LinkedIn's internal Voyager API, stores it in the CRM, and computes embeddings.
+3. **Qualification**: Profiles are qualified using a Gaussian Process Classifier with BALD active learning — the model selects the most informative profiles to query via LLM, and auto-decides on confident ones.
+4. **Outreach**: Connection requests are sent to the highest-ranked qualified profiles, and follow-up messages are sent after acceptance.
+5. **State Tracking**: Each profile progresses through a state machine (`DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED`), tracked as Deal stages in the CRM.
 
 ## Core Data Model (DjangoCRM)
 
@@ -28,11 +28,12 @@ The system uses DjangoCRM with a single SQLite database at `assets/data/crm.db`.
 Defined in `linkedin/navigation/enums.py:ProfileState`:
 
 ```
-DISCOVERED → ENRICHED → PENDING → CONNECTED → COMPLETED
-                                                (or FAILED / IGNORED)
+DISCOVERED → ENRICHED → QUALIFIED → PENDING → CONNECTED → COMPLETED
+                            ↓                               (or FAILED / IGNORED)
+                       DISQUALIFIED
 ```
 
-States map to DjangoCRM Deal Stages via `db/crm_profiles.py:STATE_TO_STAGE`. The `IGNORED` state is terminal, used for pre-existing connections (controlled by the `follow_up.existing_connections` config flag).
+States map to DjangoCRM Deal Stages via `db/crm_profiles.py:STATE_TO_STAGE`. The `IGNORED` state is terminal, used for pre-existing connections (controlled by the `follow_up.existing_connections` config flag). The `DISQUALIFIED` state is terminal, for profiles rejected by the qualification pipeline.
 
 ## Daemon (`linkedin/daemon.py`)
 
@@ -54,14 +55,12 @@ Each major lane is tracked by a `LaneSchedule` object with a `next_run` timestam
 `reschedule()` sets the next run to `time.time() + interval * jitter` (jitter = uniform 0.8-1.2).
 Daily and weekly rate limiters independently cap totals (e.g. 20 connects/day, 100/week).
 
-**Enrichment** is a gap-filling lane: between major actions, the daemon fills idle time by scraping DISCOVERED
-profiles. The enrichment interval is `gap_to_next_major / profiles_to_enrich`, floored at `enrich_min_interval`
-(default 1 second).
+**Enrichment** and **qualification** are gap-filling lanes: between major actions, the daemon fills idle time by
+scraping DISCOVERED profiles and qualifying ENRICHED ones. The gap-filler interval is
+`gap_to_next_major / total_work`, floored at `enrich_min_interval` (default 1 second).
 
-### Analytics Auto-Rebuild
-
-If the ML scorer encounters a schema mismatch (`BinderException`), the daemon automatically runs `dbt run` to
-rebuild the analytics DB, then retries training.
+**Search** is the lowest-priority gap-filler: it only fires when both enrich and qualify have nothing to do.
+It uses LLM-generated LinkedIn People search keywords to discover new profiles.
 
 ## Lanes (`linkedin/lanes/`)
 
@@ -72,8 +71,14 @@ Each lane is a class with `can_execute()` and `execute()` methods:
 - Detects pre-existing connections (`connection_degree == 1`) and marks them IGNORED.
 - Exports `is_preexisting_connection()` as a shared helper used by the connect lane.
 
+### `qualify.py` — QualifyLane
+- Two-phase qualification lane:
+  1. Embeds ENRICHED profiles that lack embeddings (backfill).
+  2. Qualifies embedded profiles via GPC active learning — BALD selects the most informative candidate, predictive entropy gates auto-decisions (low entropy → auto-accept/reject, high entropy or model unfitted → LLM query via `qualify_lead.j2` prompt).
+- Transitions profiles to QUALIFIED or DISQUALIFIED.
+
 ### `connect.py` — ConnectLane
-- ML-ranks all ENRICHED profiles using `ProfileScorer.score_profiles()`.
+- ML-ranks all QUALIFIED profiles using `BayesianQualifier.rank_profiles()` (by GPC predictive probability).
 - Sends a connection request to the top-ranked profile.
 - Catches pre-existing connections missed during enrichment (when `connection_degree` was None at scrape time) via UI-based detection.
 - Respects daily and weekly rate limits via `RateLimiter`.
@@ -87,6 +92,12 @@ Each lane is a class with `can_execute()` and `execute()` methods:
 - Uses the account's configured template (Jinja2 or AI-prompt).
 - Transitions profile to COMPLETED on success.
 - Respects daily rate limit via `RateLimiter`.
+
+### `search.py` — SearchLane
+- Lowest-priority gap-filler — only fires when enrich and qualify both have nothing to do.
+- Uses `generate_search_keywords()` from `ml/search_keywords.py` to get LLM-generated LinkedIn People search keywords from campaign context.
+- Iterates through keywords, popping one per `execute()` call. Refills from the LLM when exhausted.
+- Discovered profile URLs are captured by the auto-discovery mechanism in `navigation/utils.py`.
 
 ## API Client (`linkedin/api/`)
 
@@ -108,7 +119,7 @@ Handles browser automation and state management:
   - `TerminalStateError` — profile is in a terminal state, must be skipped
   - `SkipProfile` — profile should be skipped for other reasons
   - `ReachedConnectionLimit` — weekly connection limit hit
-- **`enums.py`** — `ProfileState` (7 states) and `MessageStatus` (`SENT`, `SKIPPED`).
+- **`enums.py`** — `ProfileState` (9 states: DISCOVERED, ENRICHED, QUALIFIED, PENDING, CONNECTED, COMPLETED, FAILED, IGNORED, DISQUALIFIED) and `MessageStatus` (`SENT`, `SKIPPED`).
 
 ## Actions (`linkedin/actions/`)
 
@@ -118,23 +129,33 @@ Low-level, reusable browser actions composed by the lanes:
 - **`connection_status.py`** — `get_connection_status()`: determines relationship via Voyager API degree + UI fallback (inspects buttons/badges).
 - **`message.py`** — `send_follow_up_message()`: renders message from template, sends via popup or direct messaging window. Includes clipboard fallback if typing fails.
 - **`profile.py`** — Profile page navigation utilities.
-- **`search.py`** — `search_profile()`: navigates to a profile page.
+- **`search.py`** — `search_profile()`: navigates to a profile page. `search_people()`: executes LinkedIn People search by keyword.
 
-## ML Scoring (`linkedin/ml/`)
+## ML Qualification (`linkedin/ml/`)
 
-### `scorer.py` — ProfileScorer
+### `qualifier.py` — BayesianQualifier
 
-- **Model**: `HistGradientBoostingClassifier` (scikit-learn) with Thompson Sampling for explore/exploit balance.
-- **Features**: 24 mechanical features (profile structure, tenure, education) + dynamic boolean keyword presence features from campaign keywords.
-- **Training data**: Reads from `assets/data/analytics.duckdb` mart `ml_connection_accepted`.
-- **Fallbacks**: Cold-start keyword heuristic (positive keyword count - negative keyword count) if keywords exist but no training data. FIFO ordering if neither exists.
+- **Model**: `GaussianProcessClassifier` (scikit-learn, `ConstantKernel * RBF`) with BALD active learning.
+- **Input**: 384-dimensional FastEmbed embeddings (BAAI/bge-small-en-v1.5 by default).
+- **Lazy refit**: `update(embedding, label)` appends training data and invalidates the fit. `_ensure_fitted()` re-fits on ALL accumulated data (O(n³)) when predictions are needed. Previously-fitted kernel params seed the optimizer for fast refits.
+- **`predict(embedding)`** — Returns `(prob, entropy)` or `None` if unfitted (cold start / single class).
+- **`bald_scores(embeddings)`** — Computes BALD via MC sampling from the GP latent posterior (`f_mean`, `f_var` from sklearn internals). Returns array or `None` if unfitted.
+- **`rank_profiles(profiles)`** — Sorts QUALIFIED profiles by predicted probability (descending).
+- **`warm_start(X, y)`** — Bulk-loads historical labels and fits once (used on daemon restart).
+- **Cold start**: GPC needs both positive and negative labels to fit. Until then, `predict`/`bald_scores` return `None` and the qualify lane defers to the LLM.
 
-### `keywords.py`
+### `embeddings.py` — DuckDB Vector Store
 
-- `load_keywords()` — loads `campaign_keywords.yaml` (positive, negative, exploratory lists, all lowercased).
-- `build_profile_text()` — concatenates all text fields from a profile dict (lowercased).
-- `compute_keyword_features()` — boolean 0/1 presence per keyword.
-- `cold_start_score()` — count of distinct positive keywords present minus negative (each contributes at most +1/-1).
+- Uses `fastembed` for embedding generation (model configurable, default BAAI/bge-small-en-v1.5).
+- Functions: `embed_text()`, `embed_texts()`, `embed_profile()`, `store_embedding()`, `store_label()`, `get_all_unlabeled_embeddings()`, `get_unlabeled_profiles()`, `get_labeled_data()`, `count_labeled()`, `get_embedded_lead_ids()`, `ensure_embeddings_table()`.
+
+### `profile_text.py`
+
+- `build_profile_text()` — Concatenates all text fields from a profile dict (headline, summary, positions, educations, etc.), lowercased. Used as input for embedding generation.
+
+### `search_keywords.py`
+
+- `generate_search_keywords()` — Calls LLM via `search_keywords.j2` prompt template with product docs and campaign objective to generate LinkedIn People search queries. Returns a list of search query strings.
 
 ## Analytics Layer (`analytics/`)
 
@@ -177,8 +198,8 @@ If a `booking_link` is configured for the account, it is appended to the rendere
 
 - Department ("LinkedIn Outreach")
 - Django Users (one per active account)
-- 7 Deal Stages (Discovered, Enriched, Pending, Connected, Completed, Failed, Ignored)
-- 3 Closing Reasons (Completed, Failed, Ignored)
+- 9 Deal Stages (Discovered, Enriched, Qualified, Disqualified, Pending, Connected, Completed, Failed, Ignored)
+- 4 Closing Reasons (Completed, Failed, Ignored, Disqualified)
 - LeadSource ("LinkedIn Scraper")
 - Default Site (localhost)
 - "co-workers" Group (required by DjangoCRM)

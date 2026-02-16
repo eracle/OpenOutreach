@@ -42,7 +42,7 @@ make up-view  # run + open VNC viewer
 
 ### Entry Flow
 `manage.py` (Django bootstrap + auto-migrate + CRM setup):
-- No args → runs the daemon: seeds own profile, runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which initializes the `BayesianQualifier` (GPC, warm-started from historical labels) and time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages.
+- No args → runs the daemon: seeds own profile, runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which initializes the `BayesianQualifier` (GPC, warm-started from historical labels) and time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages. When all lanes are idle, LLM-generated search keywords discover new profiles.
 - Any args → delegates to Django's `execute_from_command_line` (e.g. `runserver`, `migrate`, `createsuperuser`).
 
 ### Onboarding (`onboarding.py`)
@@ -69,6 +69,7 @@ The daemon (`daemon.py`) runs within configurable working hours (default 09:00�
 3. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Contacts profiles immediately once discovered as connected. Interval = `min_action_interval`.
 4. **Enrich** (gap-filling) — scrapes 1 DISCOVERED profile per tick via Voyager API → ENRICHED (or IGNORED if pre-existing connection). Computes and stores embedding after enrichment. Paced to fill time between major actions.
 5. **Qualify** (gap-filling) — two-phase: (1) embeds ENRICHED profiles that lack embeddings, (2) qualifies embedded profiles using GPC active learning — BALD (via MC sampling from GP latent posterior) selects the most informative candidate, predictive entropy gates auto-decisions vs LLM queries → QUALIFIED or DISQUALIFIED. Model lazily re-fitted on all accumulated labels when predictions are needed.
+6. **Search** (lowest-priority gap-filler) — fires only when enrich + qualify have nothing to do. Uses LLM-generated LinkedIn People search keywords (from campaign context via `search_keywords.j2`) to discover new profiles. Pops one keyword per execution; refills from LLM when exhausted.
 
 The `IGNORED` state is a terminal state for pre-existing connections (already connected before the automation ran). Controlled by `follow_up_existing_connections` config flag. The `DISQUALIFIED` state is a terminal state for profiles rejected by the qualification pipeline.
 
@@ -94,16 +95,18 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 - **TheFile** — Raw Voyager API JSON attached to Lead via GenericForeignKey.
 
 ### Key Modules
-- **`daemon.py`** — Main daemon loop. Creates `BayesianQualifier` (GPC, warm-started from historical labels), rate limiters, `LaneSchedule` objects for three major lanes, and enrich + qualify lanes for gap-filling. Spreads actions across working hours; enrichments and qualifications dynamically fill gaps between scheduled major actions. Initializes embeddings table at startup.
+- **`daemon.py`** — Main daemon loop. Creates `BayesianQualifier` (GPC, warm-started from historical labels), rate limiters, `LaneSchedule` objects for three major lanes, enrich + qualify lanes for gap-filling, and a search lane as lowest-priority gap-filler. Spreads actions across working hours; enrichments and qualifications dynamically fill gaps between scheduled major actions. Initializes embeddings table at startup.
 - **`lanes/`** — Action lanes executed by the daemon:
   - `enrich.py` — Scrapes 1 DISCOVERED profile per tick via Voyager API. Detects pre-existing connections (IGNORED). Computes and stores embedding after enrichment. Exports `is_preexisting_connection()` shared helper.
   - `qualify.py` — Two-phase qualification lane: (1) embeds ENRICHED profiles that lack embeddings (backfill), (2) qualifies embedded profiles via GPC active learning — BALD selects the most informative candidate, predictive entropy gates auto-decisions (low entropy → auto-accept/reject, high entropy or model unfitted → LLM query via `qualify_lead.j2` prompt) → QUALIFIED or DISQUALIFIED.
   - `connect.py` — Ranks QUALIFIED profiles by GPC predictive probability (via `BayesianQualifier.rank_profiles()`), sends connection requests. Catches pre-existing connections missed by enrich (when `connection_degree` was None at scrape time).
   - `check_pending.py` — Checks PENDING profiles for acceptance. Uses exponential backoff: doubles `backoff_hours` in `deal.next_step` each time a profile is still pending.
   - `follow_up.py` — Sends follow-up messages to CONNECTED profiles.
+  - `search.py` — Lowest-priority gap-filler. Fires only when enrich + qualify have nothing to do. Uses LLM-generated LinkedIn People search keywords (via `ml/search_keywords.py`) to discover new profiles.
 - **`ml/embeddings.py`** — DuckDB store for profile embeddings. Uses `fastembed` (BAAI/bge-small-en-v1.5 by default) for 384-dim embeddings. Functions: `embed_text()`, `embed_texts()`, `embed_profile()`, `store_embedding()`, `store_label()`, `get_all_unlabeled_embeddings()`, `get_unlabeled_profiles()`, `get_labeled_data()`, `count_labeled()`, `get_embedded_lead_ids()`, `ensure_embeddings_table()`.
 - **`ml/qualifier.py:BayesianQualifier`** — GaussianProcessClassifier (sklearn, ConstantKernel * RBF) with lazy refit. `update(embedding, label)` appends to training data and invalidates fit. `predict(embedding)` returns `(prob, entropy)` or `None` if unfitted. `bald_scores(embeddings)` computes BALD via MC sampling from GP latent posterior, returns array or `None` if unfitted. `rank_profiles(profiles)` sorts by predicted probability (descending). `warm_start(X, y)` bulk-loads historical labels and fits once. Also exports `qualify_profile_llm()` for LLM-based lead qualification with structured output.
 - **`ml/profile_text.py`** — `build_profile_text()`: concatenates all text fields from profile dict (headline, summary, positions, educations, etc.), lowercased. Used for embedding input.
+- **`ml/search_keywords.py`** — `generate_search_keywords()`: calls LLM via `search_keywords.j2` prompt with product docs and campaign objective to generate LinkedIn People search queries.
 - **`rate_limiter.py:RateLimiter`** — Daily/weekly rate limits with auto-reset. Supports external exhaustion (LinkedIn-side limits).
 - **`sessions/account.py:AccountSession`** — Central session object holding Playwright browser, Django User, and account config. Passed throughout the codebase.
 - **`db/crm_profiles.py`** — Profile CRUD backed by DjangoCRM models. `get_profile()` returns a plain dict with `state` and `profile` keys. Includes `get_enriched_profiles()`, `get_qualified_profiles()`, `get_pending_profiles()` (per-profile exponential backoff via `deal.next_step`), `get_connected_profiles()` for lane queries. `_deal_to_profile_dict()` includes a `meta` key with parsed `next_step` JSON. `set_profile_state()` clears `next_step` on any transition to/from PENDING.
@@ -122,9 +125,10 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 - **`env:` section** — `LLM_API_KEY` (required), `LLM_API_BASE` (optional), `AI_MODEL` (default `gpt-5.3-codex`).
 - **`campaign:` section** — `connect.daily_limit`, `connect.weekly_limit`, `check_pending.recheck_after_hours` (base interval, doubles per profile via exponential backoff), `follow_up.daily_limit`, `follow_up.existing_connections` (false = ignore pre-existing connections), `enrich_min_interval` (floor seconds between enrichment API calls, default 1), `working_hours.start` / `working_hours.end` (HH:MM, default 09:00–18:00, OS local timezone).
 - **`campaign.qualification:` section** — `entropy_threshold` (default 0.3, predictive entropy below which model auto-decides without LLM), `n_mc_samples` (default 100, Monte Carlo samples for BALD computation), `embedding_model` (default `BAAI/bge-small-en-v1.5`).
-- **`assets/campaign/product_docs.txt`** — Persisted product/service description from onboarding. Used by the LLM qualification prompt.
-- **`assets/campaign/campaign_objective.txt`** — Persisted campaign objective from onboarding. Used by the LLM qualification prompt.
+- **`assets/campaign/product_docs.txt`** — Persisted product/service description from onboarding. Used by the LLM qualification prompt and search keyword generation.
+- **`assets/campaign/campaign_objective.txt`** — Persisted campaign objective from onboarding. Used by the LLM qualification prompt and search keyword generation.
 - **`assets/templates/prompts/qualify_lead.j2`** — Jinja2 prompt template for LLM-based lead qualification. Receives `product_docs`, `campaign_objective`, and `profile_text` variables.
+- **`assets/templates/prompts/search_keywords.j2`** — Jinja2 prompt template for LLM-based search keyword generation. Receives `product_docs`, `campaign_objective`, and `n_keywords` variables.
 - **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`.
 
 ### Analytics Layer (dbt + DuckDB)
