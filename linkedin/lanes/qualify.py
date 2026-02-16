@@ -111,7 +111,8 @@ class QualifyLane:
             else:
                 best_idx = int(np.argmax(scores))
                 candidate = candidates[best_idx]
-                logger.debug("Strategy: %s (neg=%d, pos=%d)", strategy, n_neg, n_pos)
+                logger.info("Strategy: %s (neg=%d, pos=%d)",
+                            colored(strategy, "cyan", attrs=["bold"]), n_neg, n_pos)
 
         lead_id = candidate["lead_id"]
         public_id = candidate["public_identifier"]
