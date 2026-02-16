@@ -72,7 +72,14 @@ class QualifyLane:
         return False
 
     def _qualify_next_profile(self):
-        """Select the most uncertain profile via predictive entropy, then auto-decide or query LLM."""
+        """Select candidate via balance-driven explore/exploit, then auto-decide or query LLM.
+
+        When negatives outnumber positives, exploit by selecting the candidate
+        with highest predicted probability (seek a likely positive label).
+        Otherwise, explore by selecting the candidate with highest BALD score
+        (seek the most informative label).  This keeps the training set balanced
+        and ensures promising profiles get qualified sooner.
+        """
         from linkedin.ml.embeddings import get_all_unlabeled_embeddings
         from linkedin.ml.qualifier import qualify_profile_llm
 
@@ -82,18 +89,29 @@ class QualifyLane:
 
         entropy_threshold = self._cfg["qualification_entropy_threshold"]
 
-        # Select candidate with highest uncertainty (most informative for the model)
+        # Balance-driven candidate selection: explore vs exploit
         if len(candidates) == 1:
             candidate = candidates[0]
         else:
             embeddings = np.array([c["embedding"] for c in candidates], dtype=np.float32)
-            bald_scores = self.qualifier.bald_scores(embeddings)
-            if bald_scores is None:
+            n_neg, n_pos = self.qualifier.class_counts
+
+            if n_neg > n_pos:
+                # Seek a likely positive — exploit by highest predicted prob
+                scores = self.qualifier.predicted_probs(embeddings)
+                strategy = "exploit (p)"
+            else:
+                # Seek a likely negative — explore via BALD
+                scores = self.qualifier.bald_scores(embeddings)
+                strategy = "explore (BALD)"
+
+            if scores is None:
                 logger.debug("GPC not fitted yet — selecting first candidate (FIFO)")
                 candidate = candidates[0]
             else:
-                best_idx = int(np.argmax(bald_scores))
+                best_idx = int(np.argmax(scores))
                 candidate = candidates[best_idx]
+                logger.debug("Strategy: %s (neg=%d, pos=%d)", strategy, n_neg, n_pos)
 
         lead_id = candidate["lead_id"]
         public_id = candidate["public_identifier"]

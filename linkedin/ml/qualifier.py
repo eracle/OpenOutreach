@@ -118,6 +118,12 @@ class BayesianQualifier:
     def n_obs(self) -> int:
         return len(self._y)
 
+    @property
+    def class_counts(self) -> tuple[int, int]:
+        """Return (n_negatives, n_positives)."""
+        n_pos = sum(self._y)
+        return len(self._y) - n_pos, n_pos
+
     # ------------------------------------------------------------------
     # Update  (append + invalidate)
     # ------------------------------------------------------------------
@@ -245,6 +251,20 @@ class BayesianQualifier:
         H_pred = _binary_entropy(p_pred)
         H_individual = _binary_entropy(p_samples).mean(axis=0)
         return H_pred - H_individual
+
+    # ------------------------------------------------------------------
+    # Predicted probabilities (exploitation)
+    # ------------------------------------------------------------------
+
+    def predicted_probs(self, embeddings: np.ndarray) -> np.ndarray | None:
+        """Predicted probability p(qualified) for each candidate.
+
+        Returns None when the model cannot be fitted yet.
+        """
+        if not self._ensure_fitted():
+            return None
+        X = self._transform(embeddings)
+        return self._gpc.predict_proba(X)[:, 1]
 
     # ------------------------------------------------------------------
     # Ranking for connect lane
