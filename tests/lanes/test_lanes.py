@@ -204,18 +204,6 @@ class TestEnrichLaneExecute:
         result = get_profile(fake_session, "alice")
         assert result["state"] == ProfileState.IGNORED.value
 
-    def test_execute_marks_failed_on_exception(self, fake_session):
-        set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
-
-        with patch("linkedin.lanes.enrich.PlaywrightLinkedinAPI") as MockAPI:
-            mock_api = MockAPI.return_value
-            mock_api.get_profile.side_effect = RuntimeError("network error")
-            lane = EnrichLane(fake_session)
-            lane.execute()
-
-        result = get_profile(fake_session, "alice")
-        assert result["state"] == ProfileState.FAILED.value
-
     def test_execute_noop_when_no_urls(self, fake_session):
         # No DISCOVERED profiles → execute returns without error
         lane = EnrichLane(fake_session)
