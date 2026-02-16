@@ -521,6 +521,7 @@ def get_pending_profiles(session, recheck_after_hours: float) -> list:
     )
 
     ready = []
+    waiting = []
     for d in all_deals:
         meta = _parse_next_step(d)
         backoff = meta.get("backoff_hours", recheck_after_hours)
@@ -528,15 +529,34 @@ def get_pending_profiles(session, recheck_after_hours: float) -> list:
         if now >= cutoff:
             ready.append(d)
         else:
-            logger.debug(
-                "  ↳ %s not ready (backoff=%.1fh, next check at %s)",
-                d.name, backoff, cutoff,
-            )
+            waiting.append((d, backoff, cutoff))
 
-    logger.debug(
-        "get_pending_profiles: %d/%d PENDING deals ready (base=%.1fh)",
-        len(ready), len(all_deals), recheck_after_hours,
-    )
+    # Sort waiting profiles by soonest next check.
+    waiting.sort(key=lambda t: t[2])
+
+    for d, backoff, cutoff in waiting:
+        remaining = cutoff - now
+        total_min = int(remaining.total_seconds() // 60)
+        h, m = divmod(total_min, 60)
+        slug = d.name.removeprefix("LinkedIn: ")
+        logger.debug(
+            "  ↳ %-30s  %3dh %02dm  (backoff %.0fh)",
+            slug, h, m, backoff,
+        )
+
+    if waiting:
+        soonest = waiting[0][2] - now
+        soonest_min = int(soonest.total_seconds() // 60)
+        sh, sm = divmod(soonest_min, 60)
+        logger.debug(
+            "check_pending: %d/%d ready — next in %dh %02dm",
+            len(ready), len(all_deals), sh, sm,
+        )
+    else:
+        logger.debug(
+            "check_pending: %d/%d ready",
+            len(ready), len(all_deals),
+        )
 
     return [_deal_to_profile_dict(d) for d in ready if d.lead and d.lead.website]
 
