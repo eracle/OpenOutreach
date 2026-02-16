@@ -59,14 +59,24 @@ Tests live in `tests/` and mirror the source layout:
 ```
 tests/
 ├── conftest.py              # Shared fixtures (autouse setup_crm)
+├── factories.py             # Factory-boy factories for CRM models
 ├── api/
 │   └── test_voyager.py      # Voyager API response parsing
 ├── db/
 │   └── test_profiles.py     # CRM profile CRUD operations
 ├── lanes/
-│   └── test_lanes.py        # Daemon lane logic
+│   ├── test_lanes.py        # Daemon lane logic
+│   └── test_qualify.py      # Qualification lane logic
 ├── ml/
-│   └── test_scorer.py       # ML scorer and keywords
+│   ├── test_qualifier.py    # Bayesian qualifier (GPC + BALD)
+│   ├── test_embeddings.py   # DuckDB embedding store
+│   └── test_profile_text.py # Profile text builder
+├── test_conf.py             # Configuration loading
+├── test_emails.py           # Newsletter subscription
+├── test_gdpr.py             # GDPR location detection
+├── test_onboarding.py       # Interactive onboarding
+├── test_rate_limiter.py     # Rate limiter
+├── test_templates.py        # Message template rendering
 └── fixtures/
     └── profiles/            # Sample Voyager API JSON responses
 ```

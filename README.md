@@ -124,7 +124,7 @@ For full instructions, please see the **[Docker Installation Guide](./docs/docke
 | 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
 | 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
 | 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
-| 🧠 **ML-Driven Qualification**    | Online Bayesian Logistic Regression with BALD active learning qualifies and ranks profiles -- updates incrementally on every label, no batch retraining. |
+| 🧠 **ML-Driven Qualification**    | Gaussian Process Classifier with BALD active learning qualifies and ranks profiles -- lazily re-fitted on all accumulated labels when predictions are needed. |
 | 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
 | ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically. |
 | 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI -- browse Leads, Contacts, Companies, and Deals in your browser. |
@@ -183,11 +183,12 @@ The daemon (`linkedin/daemon.py`) priority-schedules five action lanes across co
 
 | Lane | What it does | Rate limited? |
 |------|-------------|---------------|
-| **Enrich** | Scrapes DISCOVERED profiles via LinkedIn's Voyager API, computes embeddings | Throttled by batch size |
-| **Qualify** | Qualifies ENRICHED profiles via Bayesian active learning (BALD selects, entropy gates LLM calls) | Gap-filling |
-| **Connect** | Ranks QUALIFIED profiles by posterior probability, sends connection requests | Daily + weekly limits |
-| **Check Pending** | Checks if PENDING requests were accepted | Age-gated |
+| **Connect** | Ranks QUALIFIED profiles by GPC posterior probability, sends connection requests | Daily + weekly limits |
+| **Check Pending** | Checks if PENDING requests were accepted | Exponential backoff |
 | **Follow Up** | Sends personalized messages to CONNECTED profiles | Daily limit |
+| **Enrich** | Scrapes DISCOVERED profiles via LinkedIn's Voyager API, computes embeddings | Gap-filling |
+| **Qualify** | Qualifies ENRICHED profiles via Bayesian active learning (BALD selects, entropy gates LLM calls) | Gap-filling |
+| **Search** | Discovers new profiles via LLM-generated LinkedIn People search keywords | Lowest-priority gap-filler |
 
 **Profile states:** `DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED` (or `FAILED` / `IGNORED` / `DISQUALIFIED`)
 
@@ -221,9 +222,9 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   ├── daemon.py                    # Main daemon loop (priority-scheduled lanes)
 │   ├── db/crm_profiles.py           # CRM-backed profile CRUD (Lead, Contact, Company, Deal)
 │   ├── django_settings.py           # Django/CRM settings (SQLite at assets/data/crm.db)
-│   ├── lanes/                       # Action lanes (enrich, qualify, connect, check_pending, follow_up)
+│   ├── lanes/                       # Action lanes (enrich, qualify, connect, check_pending, follow_up, search)
 │   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Users)
-│   ├── ml/                          # Bayesian qualifier, DuckDB embeddings, profile text builder
+│   ├── ml/                          # Bayesian qualifier, DuckDB embeddings, profile text, search keywords
 │   ├── navigation/                  # Login, throttling, browser utilities, enums
 │   ├── onboarding.py                # Interactive onboarding (product docs + campaign objective)
 │   ├── gdpr.py                      # GDPR location detection for newsletter

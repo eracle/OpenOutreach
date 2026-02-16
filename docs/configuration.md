@@ -13,7 +13,7 @@ The file has three top-level sections: `env`, `campaign`, and `accounts`.
 
 ## LLM Configuration (`env:`)
 
-Used for AI-powered follow-up messages and keyword generation. Any OpenAI-compatible provider works.
+Used for AI-powered follow-up messages, profile qualification, and search keyword generation. Any OpenAI-compatible provider works.
 
 ```yaml
 env:
@@ -26,7 +26,7 @@ env:
 |:------|:------------|:--------|
 | `LLM_API_KEY` | API key for an OpenAI-compatible provider. | (required) |
 | `LLM_API_BASE` | Base URL for the API endpoint. | (none) |
-| `AI_MODEL` | Model identifier for message generation and keyword generation. | `gpt-5.3-codex` |
+| `AI_MODEL` | Model identifier for message generation, profile qualification, and search keyword generation. | `gpt-5.3-codex` |
 
 These can also be set via `.env` file or environment variables (the YAML file takes precedence).
 
@@ -63,6 +63,24 @@ campaign:
 | `working_hours.start` | string | Start of working window (`HH:MM`, OS local timezone). | `"09:00"` |
 | `working_hours.end` | string | End of working window (`HH:MM`, OS local timezone). | `"18:00"` |
 
+### Qualification Settings (`campaign.qualification:`)
+
+Controls the Bayesian active learning pipeline for profile qualification.
+
+```yaml
+campaign:
+  qualification:
+    entropy_threshold: 0.3
+    n_mc_samples: 100
+    embedding_model: BAAI/bge-small-en-v1.5
+```
+
+| Field | Type | Description | Default |
+|:------|:-----|:------------|:--------|
+| `entropy_threshold` | float | Predictive entropy below which the GPC model auto-decides without querying the LLM. Lower values = fewer auto-decisions, more LLM queries. | `0.3` |
+| `n_mc_samples` | integer | Monte Carlo samples drawn from the GP latent posterior for BALD computation. | `100` |
+| `embedding_model` | string | FastEmbed model identifier for profile embeddings (384-dim). | `BAAI/bge-small-en-v1.5` |
+
 ### How scheduling works
 
 Major actions (connect, follow-up) fire at a fixed pace set by `min_action_interval` (default 120 seconds),
@@ -97,9 +115,9 @@ accounts:
 
 ### GDPR Location Detection
 
-On the first run, the daemon checks the logged-in user's LinkedIn location against a keyword list of
-jurisdictions with opt-in email marketing laws (EU/EEA, UK, Switzerland, Canada, Brazil, Australia, Japan,
-South Korea, New Zealand). If no keyword matches, an LLM call determines whether the location is protected.
+On the first run, the daemon checks the logged-in user's LinkedIn country code against a static set of
+ISO-2 codes for jurisdictions with opt-in email marketing laws (EU/EEA, UK, Switzerland, Canada, Brazil,
+Australia, Japan, South Korea, New Zealand).
 
 - **Non-GDPR location**: `subscribe_newsletter` is auto-set to `true` for that account.
 - **GDPR-protected location**: the existing config value is preserved (no override).
@@ -115,21 +133,17 @@ The system automatically generates these paths per account:
 
 - **Cookie file**: `assets/cookies/<handle>.json` (session persistence)
 
-## Campaign Keywords
+## Campaign Files
 
-Campaign keywords are stored at `assets/campaign/campaign_keywords.yaml` and generated via interactive
-onboarding on first run. They contain three lists used by the ML scorer:
+Campaign context is stored in `assets/campaign/` and created via interactive onboarding on first run
+(see [Architecture — Onboarding](./architecture.md#onboarding)):
 
-```yaml
-positive:
-  - "machine learning"
-  - "data science"
-negative:
-  - "recruiter"
-  - "intern"
-exploratory:
-  - "startup"
-  - "consulting"
-```
+| File | Description |
+|:-----|:------------|
+| `product_docs.txt` | Product/service description. Used by the LLM qualification prompt and search keyword generation. |
+| `campaign_objective.txt` | Campaign objective. Used by the LLM qualification prompt and search keyword generation. |
+
+These files are created automatically during onboarding if they don't exist. They can also be edited
+manually at any time.
 
 See [Templating](./templating.md) for template configuration details.
