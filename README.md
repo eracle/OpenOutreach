@@ -93,7 +93,7 @@ You need to provide your LinkedIn credentials and target profiles.
 ```bash
 make run
 ```
-The daemon priority-schedules five action lanes (connect, check pending, follow up, + enrich and qualify as gap-fillers) across configurable working hours with rate limits. Fully resumable — stop/restart anytime without losing progress.
+The daemon priority-schedules five action lanes (connect, check pending, follow up, + enrich and qualify as gap-fillers) at a fixed pace within configurable working hours, with daily/weekly rate limits. Fully resumable — stop/restart anytime without losing progress.
 
 ### 6. View Your Data (CRM Admin)
 

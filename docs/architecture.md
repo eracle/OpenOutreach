@@ -36,7 +36,7 @@ States map to DjangoCRM Deal Stages via `db/crm_profiles.py:STATE_TO_STAGE`. The
 
 ## Daemon (`linkedin/daemon.py`)
 
-The daemon is the central orchestrator. It spreads actions across configurable working hours (default 09:00-18:00,
+The daemon is the central orchestrator. It runs within configurable working hours (default 09:00-18:00,
 OS local timezone) and sleeps outside the window.
 
 ### Scheduling
@@ -46,12 +46,13 @@ time is soonest:
 
 | Priority | Lane | Interval | Description |
 |----------|------|----------|-------------|
-| 1 (highest) | **Connect** | `remaining_minutes / connect_daily_limit` | ML-ranks and sends connection requests |
+| 1 (highest) | **Connect** | `min_action_interval` (default 120s) | ML-ranks and sends connection requests |
 | 2 | **Check Pending** | `recheck_after_hours` (default 24h) | Polls PENDING profiles for acceptance |
-| 3 | **Follow Up** | `remaining_minutes / follow_up_daily_limit` | Sends messages to CONNECTED profiles |
+| 3 | **Follow Up** | `min_action_interval` (default 120s) | Sends messages to CONNECTED profiles |
 
 Each major lane is tracked by a `LaneSchedule` object with a `next_run` timestamp. After execution,
 `reschedule()` sets the next run to `time.time() + interval * jitter` (jitter = uniform 0.8-1.2).
+Daily and weekly rate limiters independently cap totals (e.g. 20 connects/day, 100/week).
 
 **Enrichment** is a gap-filling lane: between major actions, the daemon fills idle time by scraping DISCOVERED
 profiles. The enrichment interval is `gap_to_next_major / profiles_to_enrich`, floored at `enrich_min_interval`

@@ -42,7 +42,7 @@ make up-view  # run + open VNC viewer
 
 ### Entry Flow
 `manage.py` (Django bootstrap + auto-migrate + CRM setup):
-- No args → runs the daemon: seeds own profile, runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which initializes the GPC qualifier (warm-started from historical labels) and time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages.
+- No args → runs the daemon: seeds own profile, runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which initializes the `BayesianQualifier` (GPC, warm-started from historical labels) and time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages.
 - Any args → delegates to Django's `execute_from_command_line` (e.g. `runserver`, `migrate`, `createsuperuser`).
 
 ### Onboarding (`onboarding.py`)
@@ -62,11 +62,11 @@ Each profile progresses through states defined in `navigation/enums.py:ProfileSt
 
 States map to DjangoCRM Deal Stages (defined in `db/crm_profiles.py:STATE_TO_STAGE`).
 
-The daemon (`daemon.py`) spreads actions across configurable working hours (default 09:00–18:00, OS local timezone). Three **major lanes** are scheduled at fixed intervals derived from `active_hours / daily_limit` (±20% random jitter). **Enrichment** and **qualification** dynamically fill the gaps between major actions (`gap / total_work`, floored at `enrich_min_interval`). Outside working hours the daemon sleeps until the next window starts.
+The daemon (`daemon.py`) runs within configurable working hours (default 09:00–18:00, OS local timezone). Three **major lanes** fire at a fixed pace set by `min_action_interval` (default 120s, ±20% random jitter). Daily/weekly rate limiters independently cap totals. **Enrichment** and **qualification** dynamically fill the gaps between major actions (`gap / total_work`, floored at `enrich_min_interval`). Outside working hours the daemon sleeps until the next window starts.
 
-1. **Connect** (scheduled, highest priority) — ML-ranks QUALIFIED profiles, sends connection request → PENDING. Interval = active_minutes / connect_daily_limit.
+1. **Connect** (scheduled, highest priority) — ML-ranks QUALIFIED profiles, sends connection request → PENDING. Interval = `min_action_interval`.
 2. **Check Pending** (scheduled) — checks PENDING profiles for acceptance → CONNECTED. Uses exponential backoff per profile: initial interval = `check_pending_recheck_after_hours` (default 24h), doubles each time a profile is still pending.
-3. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Contacts profiles immediately once discovered as connected. Interval = active_minutes / follow_up_daily_limit.
+3. **Follow Up** (scheduled) — sends follow-up message to CONNECTED profiles → COMPLETED. Contacts profiles immediately once discovered as connected. Interval = `min_action_interval`.
 4. **Enrich** (gap-filling) — scrapes 1 DISCOVERED profile per tick via Voyager API → ENRICHED (or IGNORED if pre-existing connection). Computes and stores embedding after enrichment. Paced to fill time between major actions.
 5. **Qualify** (gap-filling) — two-phase: (1) embeds ENRICHED profiles that lack embeddings, (2) qualifies embedded profiles using GPC active learning — BALD (via MC sampling from GP latent posterior) selects the most informative candidate, predictive entropy gates auto-decisions vs LLM queries → QUALIFIED or DISQUALIFIED. Model lazily re-fitted on all accumulated labels when predictions are needed.
 
@@ -94,7 +94,7 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 - **TheFile** — Raw Voyager API JSON attached to Lead via GenericForeignKey.
 
 ### Key Modules
-- **`daemon.py`** — Main daemon loop. Creates GPC qualifier (warm-started from historical labels), rate limiters, `LaneSchedule` objects for three major lanes, and enrich + qualify lanes for gap-filling. Spreads actions across working hours; enrichments and qualifications dynamically fill gaps between scheduled major actions. Initializes embeddings table at startup.
+- **`daemon.py`** — Main daemon loop. Creates `BayesianQualifier` (GPC, warm-started from historical labels), rate limiters, `LaneSchedule` objects for three major lanes, and enrich + qualify lanes for gap-filling. Spreads actions across working hours; enrichments and qualifications dynamically fill gaps between scheduled major actions. Initializes embeddings table at startup.
 - **`lanes/`** — Action lanes executed by the daemon:
   - `enrich.py` — Scrapes 1 DISCOVERED profile per tick via Voyager API. Detects pre-existing connections (IGNORED). Computes and stores embedding after enrichment. Exports `is_preexisting_connection()` shared helper.
   - `qualify.py` — Two-phase qualification lane: (1) embeds ENRICHED profiles that lack embeddings (backfill), (2) qualifies embedded profiles via GPC active learning — BALD selects the most informative candidate, predictive entropy gates auto-decisions (low entropy → auto-accept/reject, high entropy or model unfitted → LLM query via `qualify_lead.j2` prompt) → QUALIFIED or DISQUALIFIED.
