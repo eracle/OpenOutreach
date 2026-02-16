@@ -1,5 +1,5 @@
 # linkedin/lanes/qualify.py
-"""Qualification lane: BALD-based active learning with online Bayesian model."""
+"""Qualification lane: entropy-based active learning with GPC model."""
 from __future__ import annotations
 
 import logging
@@ -9,7 +9,7 @@ from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import set_profile_state
-from linkedin.ml.qualifier import BayesianQualifier, _binary_entropy
+from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.navigation.enums import ProfileState
 
 logger = logging.getLogger(__name__)
@@ -72,7 +72,7 @@ class QualifyLane:
         return False
 
     def _qualify_next_profile(self):
-        """Select the most informative profile via BALD, then auto-decide or query LLM."""
+        """Select the most uncertain profile via predictive entropy, then auto-decide or query LLM."""
         from linkedin.ml.embeddings import get_all_unlabeled_embeddings
         from linkedin.ml.qualifier import qualify_profile_llm
 
@@ -82,35 +82,46 @@ class QualifyLane:
 
         entropy_threshold = self._cfg["qualification_entropy_threshold"]
 
-        # Select candidate with highest BALD (most informative for the model)
+        # Select candidate with highest uncertainty (most informative for the model)
         if len(candidates) == 1:
             candidate = candidates[0]
         else:
             embeddings = np.array([c["embedding"] for c in candidates], dtype=np.float32)
             bald_scores = self.qualifier.bald_scores(embeddings)
-            best_idx = int(np.argmax(bald_scores))
-            candidate = candidates[best_idx]
+            if bald_scores is None:
+                logger.debug("GPC not fitted yet — selecting first candidate (FIFO)")
+                candidate = candidates[0]
+            else:
+                best_idx = int(np.argmax(bald_scores))
+                candidate = candidates[best_idx]
 
         lead_id = candidate["lead_id"]
         public_id = candidate["public_identifier"]
         embedding = candidate["embedding"]
 
-        pred_prob, bald = self.qualifier.predict(embedding)
-        entropy = float(_binary_entropy(pred_prob))
+        result = self.qualifier.predict(embedding)
 
-        # Auto-decide if predictive entropy is below threshold (model is confident)
-        if self.qualifier.n_obs > 0 and entropy < entropy_threshold:
-            label = 1 if pred_prob >= 0.5 else 0
-            decision = "auto-accept" if label == 1 else "auto-reject"
-            reason = f"{decision} (prob={pred_prob:.3f}, entropy={entropy:.4f}, bald={bald:.4f})"
-            self._record_decision(lead_id, public_id, embedding, label, reason)
-            return
+        # Auto-decide if model is fitted and predictive entropy is below threshold
+        if result is not None:
+            pred_prob, entropy = result
+            if entropy < entropy_threshold:
+                label = 1 if pred_prob >= 0.5 else 0
+                decision = "auto-accept" if label == 1 else "auto-reject"
+                reason = f"{decision} (prob={pred_prob:.3f}, entropy={entropy:.4f})"
+                self._record_decision(lead_id, public_id, embedding, label, reason)
+                return
+
+            logger.debug(
+                "%s uncertain (prob=%.3f, entropy=%.4f) — querying LLM",
+                public_id, pred_prob, entropy,
+            )
+        else:
+            logger.debug(
+                "%s GPC not fitted (%d obs) — querying LLM",
+                public_id, self.qualifier.n_obs,
+            )
 
         # LLM qualification (cold start or uncertain)
-        logger.debug(
-            "%s uncertain (prob=%.3f, entropy=%.4f, bald=%.4f) — querying LLM",
-            public_id, pred_prob, entropy, bald,
-        )
         profile_text = self._get_profile_text(lead_id)
         if not profile_text:
             logger.warning("No profile text for lead %d — disqualifying", lead_id)
@@ -121,7 +132,7 @@ class QualifyLane:
         self._record_decision(lead_id, public_id, embedding, label, reason)
 
     def _record_decision(self, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
-        """Store label, update Bayesian posterior online, transition CRM state."""
+        """Store label, update model, transition CRM state."""
         from linkedin.ml.embeddings import store_label
 
         store_label(lead_id, label=label, reason=reason)

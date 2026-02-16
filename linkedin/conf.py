@@ -75,7 +75,6 @@ CAMPAIGN_CONFIG = {
     "enrich_min_interval": _campaign_raw.get("enrich_min_interval", 1),
     "min_action_interval": _campaign_raw.get("min_action_interval", 120),
     "qualification_entropy_threshold": _qualification_cfg.get("entropy_threshold", 0.3),
-    "qualification_prior_precision": _qualification_cfg.get("prior_precision", 1.0),
     "qualification_n_mc_samples": _qualification_cfg.get("n_mc_samples", 100),
     "embedding_model": _qualification_cfg.get("embedding_model", "BAAI/bge-small-en-v1.5"),
 }
