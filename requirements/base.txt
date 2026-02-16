@@ -1,7 +1,7 @@
 -r analytics.txt
 playwright
 playwright-stealth
-pydantic
+pydantic==2.12.5
 python-dotenv
 jsonpath-ng
 pandas
