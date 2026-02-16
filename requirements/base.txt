@@ -5,7 +5,7 @@ pydantic
 python-dotenv
 jsonpath-ng
 pandas
-langchain
+langchain==1.1.3
 langchain-openai
 jinja2
 termcolor
