@@ -90,6 +90,7 @@ class QualifyLane:
         entropy_threshold = self._cfg["qualification_entropy_threshold"]
 
         # Balance-driven candidate selection: explore vs exploit
+        selection_score = None  # (strategy_label, score_value)
         if len(candidates) == 1:
             candidate = candidates[0]
         else:
@@ -111,6 +112,7 @@ class QualifyLane:
             else:
                 best_idx = int(np.argmax(scores))
                 candidate = candidates[best_idx]
+                selection_score = (strategy, float(scores[best_idx]))
                 logger.info("Strategy: %s (neg=%d, pos=%d)",
                             colored(strategy, "cyan", attrs=["bold"]), n_neg, n_pos)
 
@@ -130,9 +132,10 @@ class QualifyLane:
                 self._record_decision(lead_id, public_id, embedding, label, reason)
                 return
 
+            sel = f", {selection_score[0]}={selection_score[1]:.4f}" if selection_score else ""
             logger.debug(
-                "%s uncertain (prob=%.3f, entropy=%.4f) — querying LLM",
-                public_id, pred_prob, entropy,
+                "%s uncertain (prob=%.3f, entropy=%.4f%s) — querying LLM",
+                public_id, pred_prob, entropy, sel,
             )
         else:
             logger.debug(
