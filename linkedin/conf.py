@@ -39,16 +39,18 @@ MAX_DELAY = 8
 # ----------------------------------------------------------------------
 SECRETS_PATH = ASSETS_DIR / "accounts.secrets.yaml"
 
-if not SECRETS_PATH.exists():
-    raise FileNotFoundError(
-        f"\nMissing config file: {SECRETS_PATH}\n"
+if SECRETS_PATH.exists():
+    with open(SECRETS_PATH, "r", encoding="utf-8") as f:
+        _raw_config = yaml.safe_load(f) or {}
+else:
+    import warnings
+    warnings.warn(
+        f"Missing config file: {SECRETS_PATH}\n"
         "→ cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml\n"
-        "  and fill in your accounts (public settings + credentials)\n"
+        "  Using defaults — the daemon will not start without a config file.",
+        stacklevel=2,
     )
-
-# Load everything from the single secrets file
-with open(SECRETS_PATH, "r", encoding="utf-8") as f:
-    _raw_config = yaml.safe_load(f) or {}
+    _raw_config = {}
 
 _accounts_config = _raw_config.get("accounts", {})
 
@@ -91,11 +93,13 @@ LLM_API_BASE = env_config.get("LLM_API_BASE") or os.getenv("LLM_API_BASE")
 AI_MODEL = env_config.get("AI_MODEL") or os.getenv("AI_MODEL", "gpt-5.3-codex")  # latest frontier agentic model (Feb 2026 release)
 
 if not LLM_API_KEY:
-    raise ValueError(
-        "LLM_API_KEY is required.\n"
+    import warnings
+    warnings.warn(
+        "LLM_API_KEY is not set. LLM features will not work.\n"
         "Add it under the 'env:' section in accounts.secrets.yaml, e.g.:\n"
         "env:\n  LLM_API_KEY: sk-...\n"
-        "or set it via .env file or environment variable."
+        "or set it via .env file or environment variable.",
+        stacklevel=2,
     )
 
 # ----------------------------------------------------------------------

@@ -11,9 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create test config from template
-        run: cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
-
       - name: Run tests
         run: docker compose -f local.yml run --rm --remove-orphans app pytest -vv
 
@@ -25,9 +22,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Create test config from template
-        run: cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
 
       - name: Install dependencies
         run: |

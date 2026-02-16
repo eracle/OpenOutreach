@@ -37,3 +37,4 @@ assets/data/
 /.coverage
 /assets/campaign/campaign_objective.txt
 /assets/campaign/product_docs.txt
+/venv/
