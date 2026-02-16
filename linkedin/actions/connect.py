@@ -14,10 +14,7 @@ SELECTORS = {
     "error_toast": 'div[data-test-artdeco-toast-item-type="error"]',
     "more_button": 'button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible',
     "connect_option": 'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]',
-    "send_now": 'button:has-text("Send now"), button[aria-label*="Send without"], button[aria-label*="Send invitation"]:not([aria-label*="note"])',
-    "add_note": 'button:has-text("Add a note")',
-    "note_textarea": 'textarea#custom-message, textarea[name="message"]',
-    "send_invitation": 'button:has-text("Send"), button[aria-label*="Send invitation"]',
+    "send_now": 'button:has-text("Send now"), button[aria-label*="Send without"], button[aria-label*="Send invitation"]',
 }
 
 
@@ -98,37 +95,6 @@ def _click_without_note(session):
     send_btn.first.click(force=True)
     session.wait()
     logger.debug("Connection request submitted (no note)")
-
-
-# ===================================================================
-# FUTURE: Send with personalized note (just uncomment when ready)
-# ===================================================================
-def _perform_send_invitation_with_note(session, message: str):
-    """Full flow with custom note – ready to enable anytime."""
-    session.wait()
-    top_card = get_top_card(session)
-
-    direct = top_card.locator(SELECTORS["invite_to_connect"])
-    if direct.count() > 0:
-        direct.first.click()
-    else:
-        more = top_card.locator(SELECTORS["more_button"]).first
-        more.click()
-        session.wait()
-        session.page.locator(SELECTORS["connect_option"]).first.click()
-
-    session.wait()
-    session.page.locator(SELECTORS["add_note"]).first.click()
-    session.wait()
-
-    textarea = session.page.locator(SELECTORS["note_textarea"])
-    textarea.first.fill(message)
-    session.wait()
-    logger.debug("Filled note (%d chars)", len(message))
-
-    session.page.locator(SELECTORS["send_invitation"]).first.click(force=True)
-    session.wait()
-    logger.debug("Connection request with note sent")
 
 
 if __name__ == "__main__":

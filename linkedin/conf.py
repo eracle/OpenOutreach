@@ -111,13 +111,7 @@ def get_account_config(handle: str) -> Dict[str, Any]:
 
     acct = _accounts_config[handle]
 
-    followup_rel  = acct.get("followup_template")
-    template_type = acct.get("followup_template_type")
-
-    if followup_rel is None:
-        raise ValueError(f"Missing 'followup_template' for account '{handle}'")
-    if template_type is None:
-        raise ValueError(f"Missing 'followup_template_type' for account '{handle}'")
+    followup_rel = acct.get("followup_template") or "templates/prompts/followup2.j2"
 
     return {
         "handle": handle,
@@ -130,7 +124,6 @@ def get_account_config(handle: str) -> Dict[str, Any]:
         "cookie_file": COOKIES_DIR / f"{handle}.json",
 
         "followup_template": ASSETS_DIR / followup_rel,
-        "followup_template_type": template_type,
     }
 
 def list_active_accounts() -> List[str]:

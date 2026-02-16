@@ -36,7 +36,6 @@ def send_follow_up_message(
         handle=handle,
     )
     template_file = session.account_cfg["followup_template"]
-    template_type = session.account_cfg["followup_template_type"]
 
     status = get_connection_status(session, profile)
 
@@ -48,7 +47,7 @@ def send_follow_up_message(
         return None
 
     if template_file:
-        message = render_template(session, template_file, template_type, profile)
+        message = render_template(session, template_file, profile)
 
     if _send_msg_pop_up(session, profile, message) or _send_message(session, profile, message):
         logger.debug("Message body: %s", message)
