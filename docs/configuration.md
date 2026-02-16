@@ -44,6 +44,7 @@ campaign:
   follow_up:
     daily_limit: 30
     existing_connections: false
+  min_action_interval: 120
   enrich_min_interval: 1
   working_hours:
     start: "09:00"
@@ -57,15 +58,16 @@ campaign:
 | `check_pending.recheck_after_hours` | float | Base interval (hours) before first check. Doubles per profile via exponential backoff. | `24` |
 | `follow_up.daily_limit` | integer | Max follow-up messages per day (resets at midnight). | `30` |
 | `follow_up.existing_connections` | boolean | `false` = mark pre-existing connections as IGNORED. `true` = send follow-ups to all connections. | `false` |
+| `min_action_interval` | integer | Fixed minimum seconds between major actions (connect, follow-up). Rate limiters still enforce daily/weekly caps independently. | `120` |
 | `enrich_min_interval` | integer | Floor (seconds) between enrichment API calls. | `1` |
 | `working_hours.start` | string | Start of working window (`HH:MM`, OS local timezone). | `"09:00"` |
 | `working_hours.end` | string | End of working window (`HH:MM`, OS local timezone). | `"18:00"` |
 
 ### How scheduling works
 
-Actions are spread across the working hours window. Connect and follow-up intervals are dynamically recalculated
-as `remaining_minutes_in_window / daily_limit`. Each interval gets ±20% random jitter for human-like pacing.
-Outside working hours, the daemon sleeps until the next window starts.
+Major actions (connect, follow-up) fire at a fixed pace set by `min_action_interval` (default 120 seconds),
+with ±20% random jitter for human-like pacing. Daily and weekly rate limiters independently cap totals.
+Working hours act as a gate: the daemon only runs within the configured window and sleeps outside it.
 
 ## Account Configuration (`accounts:`)
 

@@ -9,7 +9,7 @@ is powered by DjangoCRM with Django Admin UI.
 Core functionalities:
 
 * **Browser Automation**: Playwright with stealth plugins for human-like, undetectable interactions.
-* **Daemon-Driven Workflow**: Four action lanes (enrich, connect, check_pending, follow_up) priority-scheduled across configurable working hours.
+* **Daemon-Driven Workflow**: Four action lanes (enrich, connect, check_pending, follow_up) priority-scheduled at a fixed pace within configurable working hours.
 * **ML-Driven Prioritization**: HistGradientBoostingClassifier + Thompson Sampling ranks profiles by predicted connection acceptance.
 * **Built-in CRM**: DjangoCRM with Django Admin UI — Leads, Contacts, Companies, Deals tracked in a local SQLite database.
 * **AI-Powered Messaging**: Jinja2 or LLM-generated templates for personalized follow-up messages (any OpenAI-compatible provider).
