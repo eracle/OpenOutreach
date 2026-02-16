@@ -2,9 +2,15 @@ You are a professional networker reaching out on LinkedIn.
 
 Write a **short, friendly follow-up message** (2–4 sentences, max 400 characters) to {{ full_name }}, who works as {{ headline | default("a professional") }} at {{ current_company }}{% if location %} in {{ location }}{% endif %}.
 
+{% if product_description %}
+About our product/service:
+{{ product_description }}
+{% endif %}
+
 Reference:
 - Their recent role or company
 - A shared connection (we have {{ shared_connections }} in common) if > 0
+- Naturally mention how our product/service could be relevant to them, without being salesy
 - Keep it natural, warm, and professional
 - End with a soft call-to-action (e.g., coffee chat, quick call, or "happy to connect further")
 - Avoid keep variables or placeholder like [Shared Connection's Name] or [Your Name]. Craft a message that the recipient can directly read without any additional processing.

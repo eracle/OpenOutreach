@@ -16,7 +16,6 @@ def _full_account(**overrides):
         "username": "user",
         "password": "pass",
         "followup_template": "templates/followup.j2",
-        "followup_template_type": "jinja",
     }
     base.update(overrides)
     return base
@@ -63,24 +62,18 @@ class TestGetAccountConfig:
             result = get_account_config("alice")
         assert result["handle"] == "alice"
         assert result["username"] == "user"
-        assert result["followup_template_type"] == "jinja"
+        assert "followup_template_type" not in result
 
     def test_missing_account_raises_key_error(self):
         with patch("linkedin.conf._accounts_config", {}):
             with pytest.raises(KeyError):
                 get_account_config("unknown")
 
-    def test_missing_followup_template_raises(self):
+    def test_default_followup_template(self):
         config = {"alice": _full_account(followup_template=None)}
         with patch("linkedin.conf._accounts_config", config):
-            with pytest.raises(ValueError, match="followup_template"):
-                get_account_config("alice")
-
-    def test_missing_followup_template_type_raises(self):
-        config = {"alice": _full_account(followup_template_type=None)}
-        with patch("linkedin.conf._accounts_config", config):
-            with pytest.raises(ValueError, match="followup_template_type"):
-                get_account_config("alice")
+            result = get_account_config("alice")
+        assert "followup2.j2" in str(result["followup_template"])
 
 
 class TestGetFirstAccountConfig:
