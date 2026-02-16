@@ -4,7 +4,7 @@ playwright-stealth
 pydantic
 python-dotenv
 jsonpath-ng
-pandas
+pandas==2.3.3
 langchain
 langchain-openai
 jinja2
