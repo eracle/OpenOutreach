@@ -91,18 +91,18 @@ def ensure_self_profile(session):
 
 def _run_daemon():
     from linkedin.api.emails import ensure_newsletter_subscription
-    from linkedin.conf import COOKIES_DIR, LLM_API_KEY, get_first_active_profile_handle
-
-    if not LLM_API_KEY:
-        logger.error("LLM_API_KEY is required. Set it in .env or environment.")
-        sys.exit(1)
-
     from linkedin.daemon import run_daemon
     from linkedin.gdpr import apply_gdpr_newsletter_override
     from linkedin.onboarding import ensure_onboarding
     from linkedin.sessions.registry import get_session
 
     ensure_onboarding()
+
+    from linkedin.conf import COOKIES_DIR, LLM_API_KEY, get_first_active_profile_handle
+
+    if not LLM_API_KEY:
+        logger.error("LLM_API_KEY is required. Set it in .env or environment.")
+        sys.exit(1)
 
     handle = get_first_active_profile_handle()
     if handle is None:

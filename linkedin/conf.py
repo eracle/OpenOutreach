@@ -53,17 +53,7 @@ CAMPAIGN_CONFIG = {
 # ----------------------------------------------------------------------
 LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_API_BASE = os.getenv("LLM_API_BASE")
-AI_MODEL = os.getenv("AI_MODEL", "gpt-5.3-codex")
-
-if not LLM_API_KEY:
-    import warnings
-    warnings.warn(
-        "LLM_API_KEY is not set. LLM features will not work.\n"
-        "Add it to .env file, e.g.:\n"
-        "  LLM_API_KEY=sk-...\n"
-        "or set it via environment variable.",
-        stacklevel=2,
-    )
+AI_MODEL = os.getenv("AI_MODEL")
 
 # ----------------------------------------------------------------------
 # Public API
