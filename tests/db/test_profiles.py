@@ -405,31 +405,3 @@ class TestGetConnectedProfiles:
         assert len(profiles) == 1
 
 
-# ── Terminal states ──
-
-@pytest.mark.django_db
-class TestIgnoredState:
-    def test_ignored_sets_inactive(self, fake_session):
-        from crm.models import Deal
-        create_enriched_lead(
-            fake_session,
-            "https://www.linkedin.com/in/alice/",
-            SAMPLE_PROFILE,
-        )
-        promote_lead_to_contact(fake_session, "alice")
-        set_profile_state(fake_session, "alice", ProfileState.IGNORED.value)
-        deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        assert deal.active is False
-        assert deal.closing_reason is not None
-        assert deal.closing_reason.name == "Ignored"
-
-    def test_ignored_state_roundtrip(self, fake_session):
-        create_enriched_lead(
-            fake_session,
-            "https://www.linkedin.com/in/alice/",
-            SAMPLE_PROFILE,
-        )
-        promote_lead_to_contact(fake_session, "alice")
-        set_profile_state(fake_session, "alice", ProfileState.IGNORED.value)
-        row = get_profile(fake_session, "alice")
-        assert row["state"] == ProfileState.IGNORED.value

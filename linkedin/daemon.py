@@ -84,6 +84,7 @@ def run_daemon(session):
     from linkedin.ml.embeddings import ensure_embeddings_table, get_labeled_data
 
     cfg = CAMPAIGN_CONFIG
+    lp = session.linkedin_profile
 
     # Initialize embeddings table and GPC qualifier
     ensure_embeddings_table()
@@ -104,11 +105,11 @@ def run_daemon(session):
     qualify_lane = QualifyLane(session, qualifier)
 
     connect_limiter = RateLimiter(
-        daily_limit=cfg["connect_daily_limit"],
-        weekly_limit=cfg["connect_weekly_limit"],
+        daily_limit=lp.connect_daily_limit,
+        weekly_limit=lp.connect_weekly_limit,
     )
     follow_up_limiter = RateLimiter(
-        daily_limit=cfg["follow_up_daily_limit"],
+        daily_limit=lp.follow_up_daily_limit,
     )
 
     connect_lane = ConnectLane(session, connect_limiter, qualifier)

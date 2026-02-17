@@ -118,33 +118,14 @@ class TestConnectLaneExecute:
         assert lane.rate_limiter._daily_count == 1
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_ignores_preexisting_connected(
+    def test_execute_marks_preexisting_connected(
         self, mock_status, fake_session
     ):
+        """Pre-existing connections are always marked CONNECTED."""
         mock_status.return_value = ProfileState.CONNECTED
 
-        with patch.dict(
-            "linkedin.lanes.connect.CAMPAIGN_CONFIG",
-            {"follow_up_existing_connections": False},
-        ):
-            lane = self._setup(fake_session)
-            lane.execute()
-
-        result = get_profile(fake_session, "alice")
-        assert result["state"] == ProfileState.IGNORED.value
-
-    @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_follows_up_preexisting_connected(
-        self, mock_status, fake_session
-    ):
-        mock_status.return_value = ProfileState.CONNECTED
-
-        with patch.dict(
-            "linkedin.lanes.connect.CAMPAIGN_CONFIG",
-            {"follow_up_existing_connections": True},
-        ):
-            lane = self._setup(fake_session)
-            lane.execute()
+        lane = self._setup(fake_session)
+        lane.execute()
 
         result = get_profile(fake_session, "alice")
         assert result["state"] == ProfileState.CONNECTED.value

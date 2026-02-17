@@ -2,12 +2,14 @@
 """
 Bootstrap script for initial CRM data.
 
-Creates the default Department, Django Users for each LinkedIn account,
-Deal Stages mapped to the profile state machine, ClosingReasons, and LeadSource.
+Creates the default Department, Deal Stages mapped to the profile state
+machine, ClosingReasons, LeadSource, and a Campaign (if none exists).
 
 Idempotent — safe to run multiple times.
 """
 import logging
+
+from linkedin.conf import DEFAULT_FOLLOWUP_TEMPLATE_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -21,25 +23,23 @@ STAGES = [
     (3, "Connected", False, False),
     (4, "Completed", False, True),
     (5, "Failed", False, False),
-    (6, "Ignored", False, False),
 ]
 
 CLOSING_REASONS = [
     (1, "Completed", True),   # success
     (2, "Failed", False),     # failure
-    (3, "Ignored", False),    # pre-existing connection
 ]
 
 LEAD_SOURCE_NAME = "LinkedIn Scraper"
 
 
 def setup_crm():
-    from django.contrib.auth.models import User, Group
+    from django.contrib.auth.models import Group
     from django.contrib.sites.models import Site
     from common.models import Department
     from crm.models import Stage, ClosingReason, LeadSource
 
-    from linkedin.conf import list_active_accounts
+    from linkedin.models import Campaign
 
     # Ensure default Site exists
     Site.objects.get_or_create(id=1, defaults={"domain": "localhost", "name": "localhost"})
@@ -54,23 +54,7 @@ def setup_crm():
     else:
         logger.debug("Department already exists: %s", DEPARTMENT_NAME)
 
-    # 2. Create Django Users for each LinkedIn account handle
-    for handle in list_active_accounts():
-        user, created = User.objects.get_or_create(
-            username=handle,
-            defaults={"is_staff": True, "is_active": True},
-        )
-        if created:
-            user.set_unusable_password()
-            user.save()
-            logger.info("Created user: %s", handle)
-
-        # Add user to department group
-        if dept not in user.groups.all():
-            user.groups.add(dept)
-            logger.debug("Added %s to department %s", handle, DEPARTMENT_NAME)
-
-    # 3. Create Deal Stages
+    # 2. Create Deal Stages
     for index, name, is_default, is_success in STAGES:
         stage, created = Stage.objects.update_or_create(
             name=name,
@@ -84,7 +68,7 @@ def setup_crm():
         if created:
             logger.info("Created stage: %s (index=%d)", name, index)
 
-    # 4. Create ClosingReasons
+    # 3. Create ClosingReasons
     for index, name, is_success in CLOSING_REASONS:
         reason, created = ClosingReason.objects.update_or_create(
             name=name,
@@ -97,12 +81,21 @@ def setup_crm():
         if created:
             logger.info("Created closing reason: %s", name)
 
-    # 5. Create LeadSource
+    # 4. Create LeadSource
     source, created = LeadSource.objects.get_or_create(
         name=LEAD_SOURCE_NAME,
         department=dept,
     )
     if created:
         logger.info("Created lead source: %s", LEAD_SOURCE_NAME)
+
+    # 5. Ensure a Campaign exists for the department
+    if not Campaign.objects.filter(department=dept).exists():
+        template = DEFAULT_FOLLOWUP_TEMPLATE_PATH.read_text()
+        Campaign.objects.create(
+            department=dept,
+            followup_template=template,
+        )
+        logger.info("Created default campaign for %s", DEPARTMENT_NAME)
 
     logger.debug("CRM setup complete.")

@@ -82,29 +82,14 @@ def normalize_boolean(value: Any) -> bool | None:
 
 def ensure_newsletter_subscription(session: AccountSession):
     """Subscribe the account to the OpenOutreach newsletter if enabled."""
-    cfg = session.account_cfg
+    lp = session.linkedin_profile
     handle = session.handle
-    subscribe_raw = cfg.get("subscribe_newsletter")
-    subscribe = normalize_boolean(subscribe_raw)
 
-    # Case 1: Not set or invalid
-    if subscribe is None:
-        logger.warning(
-            "'subscribe_newsletter' for '%s' is not set properly (value: %r).\n"
-            "   Set in assets/accounts.secrets.yaml:\n"
-            "     subscribe_newsletter: true   # to join\n"
-            "     subscribe_newsletter: false  # to skip",
-            handle, subscribe_raw,
-        )
-        return
-
-    # Case 2: Explicitly false
-    if not subscribe:
+    if not lp.subscribe_newsletter:
         logger.debug("Newsletter disabled for %s", handle)
         return
 
-    # Case 3: True → subscribe
-    email = cfg.get("username")
+    email = lp.linkedin_username
     if not email or "@" not in str(email):
         logger.warning("No valid email for newsletter: %s", handle)
         return

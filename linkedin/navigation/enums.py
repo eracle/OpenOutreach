@@ -7,4 +7,3 @@ class ProfileState(str, Enum):
     CONNECTED = "connected"
     COMPLETED = "completed"
     FAILED = "failed"
-    IGNORED = "ignored"

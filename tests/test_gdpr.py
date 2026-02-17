@@ -1,5 +1,6 @@
 # tests/test_gdpr.py
 import pytest
+from unittest.mock import MagicMock
 
 from linkedin.gdpr import (
     GDPR_COUNTRY_CODES,
@@ -72,27 +73,29 @@ def test_all_eu_members_present():
 # ── apply_gdpr_newsletter_override ───────────────────────────────────
 
 
-class _FakeSession:
-    def __init__(self, handle="testuser"):
-        self.handle = handle
-        self.account_cfg = {"subscribe_newsletter": None}
+def _make_fake_session(subscribe=None):
+    """Create a fake session with a linkedin_profile mock."""
+    session = MagicMock()
+    session.handle = "testuser"
+    session.linkedin_profile.subscribe_newsletter = subscribe
+    session.account_cfg = {"subscribe_newsletter": subscribe}
+    return session
 
 
 def test_override_non_gdpr_sets_true():
-    session = _FakeSession()
+    session = _make_fake_session(subscribe=None)
     apply_gdpr_newsletter_override(session, "us")
-    assert session.account_cfg["subscribe_newsletter"] is True
+    assert session.linkedin_profile.subscribe_newsletter is True
+    session.linkedin_profile.save.assert_called_once()
 
 
 def test_override_gdpr_respects_existing_config():
-    session = _FakeSession()
-    session.account_cfg["subscribe_newsletter"] = False
+    session = _make_fake_session(subscribe=False)
     apply_gdpr_newsletter_override(session, "de")
-    assert session.account_cfg["subscribe_newsletter"] is False
+    assert session.linkedin_profile.subscribe_newsletter is False
 
 
 def test_override_missing_code_respects_existing_config():
-    session = _FakeSession()
-    session.account_cfg["subscribe_newsletter"] = False
+    session = _make_fake_session(subscribe=False)
     apply_gdpr_newsletter_override(session, None)
-    assert session.account_cfg["subscribe_newsletter"] is False
+    assert session.linkedin_profile.subscribe_newsletter is False

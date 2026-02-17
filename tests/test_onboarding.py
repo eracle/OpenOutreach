@@ -1,120 +1,79 @@
 # tests/test_onboarding.py
-"""Tests for the onboarding module (product docs + campaign objective collection)."""
+"""Tests for the DB-backed onboarding module."""
 from __future__ import annotations
 
-from unittest.mock import patch
+import pytest
+from unittest.mock import patch, MagicMock
 
 from linkedin import onboarding
 from linkedin.onboarding import ensure_onboarding
 
 
-# ---------------------------------------------------------------------------
-# ensure_onboarding — both files already exist (skip)
-# ---------------------------------------------------------------------------
+@pytest.mark.django_db
 class TestEnsureOnboardingAlreadyExist:
-    def test_noop_when_both_files_exist(self, tmp_path):
-        """If product docs and campaign objective files exist → does nothing."""
-        product_docs_file = tmp_path / "product_docs.txt"
-        objective_file = tmp_path / "campaign_objective.txt"
-        product_docs_file.write_text("My product", encoding="utf-8")
-        objective_file.write_text("Sell to CTOs", encoding="utf-8")
-
+    def test_noop_when_campaign_and_profile_exist(self, fake_session):
+        """If Campaign and active LinkedInProfile exist → does nothing."""
         with (
-            patch.object(onboarding, "_interactive_onboarding") as mock_interactive,
-            patch("linkedin.onboarding.PRODUCT_DOCS_FILE", product_docs_file),
-            patch("linkedin.onboarding.CAMPAIGN_OBJECTIVE_FILE", objective_file),
+            patch.object(onboarding, "_onboard_campaign") as mock_campaign,
+            patch.object(onboarding, "_onboard_account") as mock_account,
+            patch.object(onboarding, "_ensure_llm_api_key"),
         ):
             ensure_onboarding()
-            mock_interactive.assert_not_called()
+            mock_campaign.assert_not_called()
+            mock_account.assert_not_called()
 
-    def test_runs_when_product_docs_missing(self, tmp_path):
-        """If product docs file is missing → runs interactive."""
-        product_docs_file = tmp_path / "product_docs.txt"
-        objective_file = tmp_path / "campaign_objective.txt"
-        objective_file.write_text("Sell to CTOs", encoding="utf-8")
+    def test_runs_campaign_onboarding_when_no_campaign(self, db):
+        """If no Campaign exists → runs _onboard_campaign."""
+        from linkedin.models import Campaign
+        Campaign.objects.all().delete()
 
+        mock_campaign_obj = MagicMock()
         with (
-            patch.object(onboarding, "_interactive_onboarding") as mock_interactive,
-            patch("linkedin.onboarding.PRODUCT_DOCS_FILE", product_docs_file),
-            patch("linkedin.onboarding.CAMPAIGN_OBJECTIVE_FILE", objective_file),
+            patch.object(onboarding, "_onboard_campaign", return_value=mock_campaign_obj) as mock_campaign,
+            patch.object(onboarding, "_onboard_account") as mock_account,
+            patch.object(onboarding, "_ensure_llm_api_key"),
         ):
             ensure_onboarding()
-            mock_interactive.assert_called_once()
+            mock_campaign.assert_called_once()
+            mock_account.assert_called_once_with(mock_campaign_obj)
 
-    def test_runs_when_objective_missing(self, tmp_path):
-        """If campaign objective file is missing → runs interactive."""
-        product_docs_file = tmp_path / "product_docs.txt"
-        objective_file = tmp_path / "campaign_objective.txt"
-        product_docs_file.write_text("My product", encoding="utf-8")
+    def test_runs_account_onboarding_when_no_profile(self, db):
+        """If Campaign exists but no active profile → runs _onboard_account."""
+        from linkedin.models import Campaign, LinkedInProfile
+        from common.models import Department
 
-        with (
-            patch.object(onboarding, "_interactive_onboarding") as mock_interactive,
-            patch("linkedin.onboarding.PRODUCT_DOCS_FILE", product_docs_file),
-            patch("linkedin.onboarding.CAMPAIGN_OBJECTIVE_FILE", objective_file),
-        ):
-            ensure_onboarding()
-            mock_interactive.assert_called_once()
-
-
-# ---------------------------------------------------------------------------
-# ensure_onboarding — interactive onboarding
-# ---------------------------------------------------------------------------
-class TestInteractiveOnboarding:
-    def test_interactive_flow(self, tmp_path):
-        """No files → runs interactive onboarding, saves both files."""
-        product_docs_file = tmp_path / "product_docs.txt"
-        objective_file = tmp_path / "campaign_objective.txt"
-
-        # _read_multiline called twice: first for product docs, then for objective
-        read_results = iter([
-            "My awesome product\nIt does great things",
-            "sell analytics to CTOs",
-        ])
+        LinkedInProfile.objects.all().delete()
+        dept = Department.objects.get(name="LinkedIn Outreach")
+        campaign = Campaign.objects.filter(department=dept).first()
 
         with (
-            patch("linkedin.onboarding.CAMPAIGN_DIR", tmp_path),
-            patch("linkedin.onboarding.PRODUCT_DOCS_FILE", product_docs_file),
-            patch("linkedin.onboarding.CAMPAIGN_OBJECTIVE_FILE", objective_file),
-            patch.object(onboarding, "_read_multiline", side_effect=read_results),
+            patch.object(onboarding, "_onboard_campaign") as mock_campaign,
+            patch.object(onboarding, "_onboard_account") as mock_account,
+            patch.object(onboarding, "_ensure_llm_api_key"),
         ):
             ensure_onboarding()
+            mock_campaign.assert_not_called()
+            mock_account.assert_called_once_with(campaign)
 
-        assert product_docs_file.read_text(encoding="utf-8") == "My awesome product\nIt does great things"
-        assert objective_file.read_text(encoding="utf-8") == "sell analytics to CTOs"
 
-    def test_interactive_reprompts_empty_product_docs(self, tmp_path):
-        """Empty product docs → re-prompts, then accepts valid input."""
-        product_docs_file = tmp_path / "product_docs.txt"
-        objective_file = tmp_path / "campaign_objective.txt"
+@pytest.mark.django_db
+class TestEnsureLlmApiKey:
+    def test_noop_when_key_set(self):
+        """If LLM_API_KEY is already set → does nothing."""
+        with patch("linkedin.conf.LLM_API_KEY", "sk-test"):
+            onboarding._ensure_llm_api_key()
+            # Should not prompt for input
 
-        # 1st call: empty (product docs), 2nd: valid (product docs retry),
-        # 3rd: objective
-        read_results = iter(["", "Valid product description", "sell to CTOs"])
+    def test_prompts_and_writes_when_missing(self, tmp_path):
+        """If LLM_API_KEY is missing → prompts and writes to .env."""
+        env_file = tmp_path / ".env"
 
         with (
-            patch("linkedin.onboarding.CAMPAIGN_DIR", tmp_path),
-            patch("linkedin.onboarding.PRODUCT_DOCS_FILE", product_docs_file),
-            patch("linkedin.onboarding.CAMPAIGN_OBJECTIVE_FILE", objective_file),
-            patch.object(onboarding, "_read_multiline", side_effect=read_results),
+            patch("linkedin.conf.LLM_API_KEY", None),
+            patch("linkedin.onboarding.ENV_FILE", env_file),
+            patch("builtins.input", return_value="sk-new-key"),
         ):
-            ensure_onboarding()
+            onboarding._ensure_llm_api_key()
 
-        assert product_docs_file.read_text(encoding="utf-8") == "Valid product description"
-
-    def test_interactive_reprompts_empty_objective(self, tmp_path):
-        """Empty objective → re-prompts, then accepts valid input."""
-        product_docs_file = tmp_path / "product_docs.txt"
-        objective_file = tmp_path / "campaign_objective.txt"
-
-        # 1st call: product docs, 2nd: empty (objective), 3rd: valid (objective retry)
-        read_results = iter(["My product", "", "sell to CTOs"])
-
-        with (
-            patch("linkedin.onboarding.CAMPAIGN_DIR", tmp_path),
-            patch("linkedin.onboarding.PRODUCT_DOCS_FILE", product_docs_file),
-            patch("linkedin.onboarding.CAMPAIGN_OBJECTIVE_FILE", objective_file),
-            patch.object(onboarding, "_read_multiline", side_effect=read_results),
-        ):
-            ensure_onboarding()
-
-        assert objective_file.read_text(encoding="utf-8") == "sell to CTOs"
+        content = env_file.read_text()
+        assert "LLM_API_KEY=sk-new-key" in content

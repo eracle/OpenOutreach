@@ -13,7 +13,7 @@ Pre-Deal states are implicit (derived from Lead attributes):
   Disqualified: Lead.disqualified = True
   Qualified:    Lead.contact is not null
 
-Deal stages (post-qualification): New, Pending, Connected, Completed, Failed, Ignored
+Deal stages (post-qualification): New, Pending, Connected, Completed, Failed
 """
 import json
 import logging
@@ -38,7 +38,6 @@ STATE_TO_STAGE = {
     ProfileState.CONNECTED: "Connected",
     ProfileState.COMPLETED: "Completed",
     ProfileState.FAILED: "Failed",
-    ProfileState.IGNORED: "Ignored",
 }
 
 # Reverse lookup: stage name -> ProfileState value
@@ -279,7 +278,7 @@ def set_profile_state(
 ):
     """
     Move the Deal linked to this Lead to the corresponding Stage.
-    Only handles Deal states (NEW, PENDING, CONNECTED, COMPLETED, FAILED, IGNORED).
+    Only handles Deal states (NEW, PENDING, CONNECTED, COMPLETED, FAILED).
     Raises ValueError if no Deal exists.
     """
     from crm.models import Deal, ClosingReason
@@ -326,14 +325,6 @@ def set_profile_state(
             deal.closing_reason = closing
         deal.win_closing_date = timezone.now()
 
-    if ps == ProfileState.IGNORED:
-        closing = ClosingReason.objects.filter(
-            name="Ignored", department=dept
-        ).first()
-        if closing:
-            deal.closing_reason = closing
-        deal.active = False
-
     deal.save()
 
     _STATE_LOG_STYLE = {
@@ -342,7 +333,6 @@ def set_profile_state(
         ProfileState.CONNECTED: ("CONNECTED", "green", ["bold"]),
         ProfileState.COMPLETED: ("COMPLETED", "green", ["bold"]),
         ProfileState.FAILED: ("FAILED", "red", ["bold"]),
-        ProfileState.IGNORED: ("IGNORED", "blue", ["bold"]),
     }
     label, color, attrs = _STATE_LOG_STYLE.get(ps, ("ERROR", "red", ["bold"]))
     suffix = f" ({reason})" if reason else ""

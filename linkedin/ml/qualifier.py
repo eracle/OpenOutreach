@@ -8,7 +8,7 @@ import jinja2
 import numpy as np
 from pydantic import BaseModel, Field
 
-from linkedin.conf import ASSETS_DIR, CAMPAIGN_CONFIG, CAMPAIGN_OBJECTIVE_FILE, PRODUCT_DOCS_FILE
+from linkedin.conf import CAMPAIGN_CONFIG, PROMPTS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class QualificationDecision(BaseModel):
     reason: str = Field(description="Brief explanation for the decision")
 
 
-def qualify_profile_llm(profile_text: str) -> tuple[int, str]:
+def qualify_profile_llm(profile_text: str, product_docs: str, campaign_objective: str) -> tuple[int, str]:
     """Call LLM to qualify a profile. Returns (label, reason).
 
     label: 1 = accept, 0 = reject.
@@ -31,17 +31,8 @@ def qualify_profile_llm(profile_text: str) -> tuple[int, str]:
     if LLM_API_KEY is None:
         raise ValueError("LLM_API_KEY is not set in the environment or config.")
 
-    template_dir = ASSETS_DIR / "templates" / "prompts"
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_dir)))
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(PROMPTS_DIR)))
     template = env.get_template("qualify_lead.j2")
-
-    if not PRODUCT_DOCS_FILE.exists():
-        raise FileNotFoundError(f"Product docs not found: {PRODUCT_DOCS_FILE}")
-    if not CAMPAIGN_OBJECTIVE_FILE.exists():
-        raise FileNotFoundError(f"Campaign objective not found: {CAMPAIGN_OBJECTIVE_FILE}")
-
-    product_docs = PRODUCT_DOCS_FILE.read_text(encoding="utf-8")
-    campaign_objective = CAMPAIGN_OBJECTIVE_FILE.read_text(encoding="utf-8")
 
     prompt = template.render(
         product_docs=product_docs,

@@ -7,7 +7,7 @@ import random
 import time
 from pathlib import Path
 
-from linkedin.conf import get_account_config, MIN_DELAY, MAX_DELAY
+from linkedin.conf import COOKIES_DIR, MIN_DELAY, MAX_DELAY
 from linkedin.navigation.login import init_playwright_session
 
 logger = logging.getLogger(__name__)
@@ -24,21 +24,25 @@ def human_delay(min_val, max_val):
 
 class AccountSession:
     def __init__(self, handle: str):
-        from django.contrib.auth.models import User
+        from linkedin.models import LinkedInProfile
 
         self.handle = handle.strip().lower()
 
-        self.account_cfg = get_account_config(self.handle)
+        self.linkedin_profile = LinkedInProfile.objects.select_related(
+            "user", "campaign", "campaign__department"
+        ).get(user__username=self.handle)
+        self.django_user = self.linkedin_profile.user
+        self.campaign = self.linkedin_profile.campaign
 
-        # Look up or create the Django User for this handle
-        self.django_user, created = User.objects.get_or_create(
-            username=self.handle,
-            defaults={"is_staff": True, "is_active": True},
-        )
-        if created:
-            self.django_user.set_unusable_password()
-            self.django_user.save()
-            logger.info("Auto-created Django user for %s", self.handle)
+        self.account_cfg = {
+            "handle": self.handle,
+            "username": self.linkedin_profile.linkedin_username,
+            "password": self.linkedin_profile.linkedin_password,
+            "subscribe_newsletter": self.linkedin_profile.subscribe_newsletter,
+            "active": self.linkedin_profile.active,
+            "booking_link": self.campaign.booking_link,
+            "cookie_file": COOKIES_DIR / f"{self.handle}.json",
+        }
 
         # Playwright objects – created on first access or after crash
         self.page = None

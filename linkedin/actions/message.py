@@ -35,7 +35,6 @@ def send_follow_up_message(
     session = get_session(
         handle=handle,
     )
-    template_file = session.account_cfg["followup_template"]
 
     status = get_connection_status(session, profile)
 
@@ -46,8 +45,9 @@ def send_follow_up_message(
         logger.info(f"Message skipped → not connected with {public_identifier}")
         return None
 
-    if template_file:
-        message = render_template(session, template_file, profile)
+    template_content = session.campaign.followup_template
+    if template_content:
+        message = render_template(session, template_content, profile)
 
     if _send_msg_pop_up(session, profile, message) or _send_message(session, profile, message):
         logger.debug("Message body: %s", message)

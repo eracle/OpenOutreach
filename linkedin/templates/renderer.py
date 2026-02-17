@@ -1,12 +1,11 @@
 # linkedin/templates/renderer.py
 import logging
-from pathlib import Path
 
 import jinja2
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from linkedin.conf import AI_MODEL, LLM_API_KEY, LLM_API_BASE, PRODUCT_DOCS_FILE
+from linkedin.conf import AI_MODEL, LLM_API_KEY, LLM_API_BASE
 
 logger = logging.getLogger(__name__)
 
@@ -30,26 +29,21 @@ def call_llm(prompt: str) -> str:
     return response.content.strip()
 
 
-def render_template(session: "AccountSession", template_file: str, profile: dict) -> str:
+def render_template(session: "AccountSession", template_content: str, profile: dict) -> str:
     context = {**profile}
 
-    product_description = ""
-    if PRODUCT_DOCS_FILE.exists():
-        product_description = PRODUCT_DOCS_FILE.read_text(encoding="utf-8").strip()
-    context["product_description"] = product_description
+    context["product_description"] = session.campaign.product_docs or ""
 
     logger.debug("Available template variables: %s", sorted(context.keys()))
 
-    template_path = Path(template_file)
-    folder = template_path.parent
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(folder))
-    template = env.get_template(template_path.name)
+    env = jinja2.Environment(undefined=jinja2.Undefined)
+    template = env.from_string(template_content)
 
     rendered = template.render(**context).strip()
     logger.debug(f"Rendered template: {rendered}")
 
     rendered = call_llm(rendered)
 
-    booking_link = session.account_cfg.get("booking_link", None)
+    booking_link = session.campaign.booking_link or None
     rendered += f"\n{booking_link}" if booking_link else ""
     return rendered

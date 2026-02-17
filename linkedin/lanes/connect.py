@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 
-from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import (
     count_qualified_profiles,
     get_qualified_profiles,
@@ -55,13 +54,7 @@ class ConnectLane:
             connection_status = get_connection_status(self.session, profile)
 
             if connection_status == ProfileState.CONNECTED:
-                if CAMPAIGN_CONFIG["follow_up_existing_connections"]:
-                    set_profile_state(self.session, public_id, ProfileState.CONNECTED.value)
-                else:
-                    set_profile_state(
-                        self.session, public_id, ProfileState.IGNORED.value,
-                        reason="Pre-existing connection detected during connect (degree was unknown at scrape time)",
-                    )
+                set_profile_state(self.session, public_id, ProfileState.CONNECTED.value)
                 return
 
             if connection_status == ProfileState.PENDING:

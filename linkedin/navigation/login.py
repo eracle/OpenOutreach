@@ -6,7 +6,6 @@ from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 from termcolor import colored
 
-from linkedin.conf import get_account_config
 from linkedin.navigation.utils import goto_page, human_type
 from linkedin.sessions.registry import get_session
 
@@ -24,7 +23,7 @@ SELECTORS = {
 
 def playwright_login(session: "AccountSession"):
     page = session.page
-    config = get_account_config(session.handle)
+    config = session.account_cfg
     logger.info(colored("Fresh login sequence starting", "cyan") + f" for @{session.handle}")
 
     goto_page(
@@ -60,7 +59,7 @@ def build_playwright(storage_state=None):
 
 def init_playwright_session(session: "AccountSession", handle: str):
     logger.debug("Configuring browser for @%s", handle)
-    config = get_account_config(handle)
+    config = session.account_cfg
     state_file = Path(config["cookie_file"])
 
     storage_state = str(state_file) if state_file.exists() else None

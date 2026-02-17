@@ -148,7 +148,12 @@ class QualifyLane:
             self._record_decision(lead_id, public_id, embedding, 0, "no profile text available")
             return
 
-        label, reason = qualify_profile_llm(profile_text)
+        campaign = self.session.campaign
+        label, reason = qualify_profile_llm(
+            profile_text,
+            product_docs=campaign.product_docs,
+            campaign_objective=campaign.campaign_objective,
+        )
         self._record_decision(lead_id, public_id, embedding, label, reason)
 
     def _record_decision(self, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):

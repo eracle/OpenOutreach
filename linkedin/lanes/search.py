@@ -46,8 +46,12 @@ class SearchLane:
 
         from linkedin.ml.search_keywords import generate_search_keywords
 
+        campaign = self.session.campaign
         try:
-            fresh = generate_search_keywords()
+            fresh = generate_search_keywords(
+                product_docs=campaign.product_docs,
+                campaign_objective=campaign.campaign_objective,
+            )
         except Exception:
             logger.exception("Failed to generate search keywords")
             return

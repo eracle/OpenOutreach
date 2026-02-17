@@ -21,11 +21,21 @@ def _ensure_crm_data(db):
 
 
 class FakeAccountSession:
-    """Minimal stand-in for AccountSession — exposes django_user."""
+    """Minimal stand-in for AccountSession — exposes django_user + campaign."""
 
-    def __init__(self, django_user):
+    def __init__(self, django_user, linkedin_profile):
         self.django_user = django_user
         self.handle = django_user.username
+        self.linkedin_profile = linkedin_profile
+        self.campaign = linkedin_profile.campaign
+        self.account_cfg = {
+            "handle": self.handle,
+            "username": linkedin_profile.linkedin_username,
+            "password": linkedin_profile.linkedin_password,
+            "subscribe_newsletter": linkedin_profile.subscribe_newsletter,
+            "active": linkedin_profile.active,
+            "booking_link": self.campaign.booking_link,
+        }
 
     def ensure_browser(self):
         pass
@@ -35,12 +45,27 @@ class FakeAccountSession:
 def fake_session(db):
     """An AccountSession-like object backed by the Django test DB."""
     from common.models import Department
+    from linkedin.models import Campaign, LinkedInProfile
 
     user = UserFactory(username="testuser")
     dept = Department.objects.get(name="LinkedIn Outreach")
     if dept not in user.groups.all():
         user.groups.add(dept)
-    return FakeAccountSession(django_user=user)
+
+    campaign = Campaign.objects.filter(department=dept).first()
+    if campaign is None:
+        campaign = Campaign.objects.create(department=dept)
+
+    linkedin_profile, _ = LinkedInProfile.objects.get_or_create(
+        user=user,
+        defaults={
+            "campaign": campaign,
+            "linkedin_username": "testuser@example.com",
+            "linkedin_password": "testpass",
+        },
+    )
+
+    return FakeAccountSession(django_user=user, linkedin_profile=linkedin_profile)
 
 
 @pytest.fixture
