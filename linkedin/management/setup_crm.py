@@ -3,13 +3,11 @@
 Bootstrap script for initial CRM data.
 
 Creates the default Department, Deal Stages mapped to the profile state
-machine, ClosingReasons, LeadSource, and a Campaign (if none exists).
+machine, ClosingReasons, and LeadSource.
 
 Idempotent — safe to run multiple times.
 """
 import logging
-
-from linkedin.conf import DEFAULT_FOLLOWUP_TEMPLATE_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +36,6 @@ def setup_crm():
     from django.contrib.sites.models import Site
     from common.models import Department
     from crm.models import Stage, ClosingReason, LeadSource
-
-    from linkedin.models import Campaign
 
     # Ensure default Site exists
     Site.objects.get_or_create(id=1, defaults={"domain": "localhost", "name": "localhost"})
@@ -88,14 +84,5 @@ def setup_crm():
     )
     if created:
         logger.info("Created lead source: %s", LEAD_SOURCE_NAME)
-
-    # 5. Ensure a Campaign exists for the department
-    if not Campaign.objects.filter(department=dept).exists():
-        template = DEFAULT_FOLLOWUP_TEMPLATE_PATH.read_text()
-        Campaign.objects.create(
-            department=dept,
-            followup_template=template,
-        )
-        logger.info("Created default campaign for %s", DEPARTMENT_NAME)
 
     logger.debug("CRM setup complete.")
