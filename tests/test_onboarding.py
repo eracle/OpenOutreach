@@ -44,7 +44,7 @@ class TestEnsureOnboardingAlreadyExist:
 
         LinkedInProfile.objects.all().delete()
         dept = Department.objects.get(name="LinkedIn Outreach")
-        campaign = Campaign.objects.filter(department=dept).first()
+        campaign, _ = Campaign.objects.get_or_create(department=dept)
 
         with (
             patch.object(onboarding, "_onboard_campaign") as mock_campaign,

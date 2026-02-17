@@ -175,9 +175,9 @@ class QualifyLane:
         else:
             disqualify_lead(self.session, public_id, reason=reason)
 
-        decision = "QUALIFIED" if label == 1 else "REJECTED"
-        color = "green" if label == 1 else "red"
-        logger.info("%s %s: %s", public_id, colored(decision, color, attrs=["bold"]), reason)
+        if label == 1:
+            color_label = colored("QUALIFIED", "green", attrs=["bold"])
+            logger.info("%s %s: %s", public_id, color_label, reason)
 
     def _get_profile_text(self, lead_id: int) -> str | None:
         """Load profile JSON from CRM Lead and build text."""
