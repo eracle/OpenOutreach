@@ -46,9 +46,6 @@ campaign:
     existing_connections: false
   min_action_interval: 120
   enrich_min_interval: 1
-  working_hours:
-    start: "09:00"
-    end: "18:00"
 ```
 
 | Field | Type | Description | Default |
@@ -60,8 +57,6 @@ campaign:
 | `follow_up.existing_connections` | boolean | `false` = mark pre-existing connections as IGNORED. `true` = send follow-ups to all connections. | `false` |
 | `min_action_interval` | integer | Fixed minimum seconds between major actions (connect, follow-up). Rate limiters still enforce daily/weekly caps independently. | `120` |
 | `enrich_min_interval` | integer | Floor (seconds) between enrichment API calls. | `1` |
-| `working_hours.start` | string | Start of working window (`HH:MM`, OS local timezone). | `"09:00"` |
-| `working_hours.end` | string | End of working window (`HH:MM`, OS local timezone). | `"18:00"` |
 
 ### Qualification Settings (`campaign.qualification:`)
 
@@ -85,7 +80,6 @@ campaign:
 
 Major actions (connect, follow-up) fire at a fixed pace set by `min_action_interval` (default 120 seconds),
 with ±20% random jitter for human-like pacing. Daily and weekly rate limiters independently cap totals.
-Working hours act as a gate: the daemon only runs within the configured window and sleeps outside it.
 
 ## Account Configuration (`accounts:`)
 

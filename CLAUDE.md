@@ -42,7 +42,7 @@ make up-view  # run + open VNC viewer
 
 ### Entry Flow
 `manage.py` (Django bootstrap + auto-migrate + CRM setup):
-- No args → runs the daemon: seeds own profile, runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which initializes the `BayesianQualifier` (GPC, warm-started from historical labels) and time-spreads actions across configurable working hours. New profiles are auto-discovered as the daemon navigates LinkedIn pages. When all lanes are idle, LLM-generated search keywords discover new profiles.
+- No args → runs the daemon: seeds own profile, runs GDPR location detection to auto-enable newsletter for non-GDPR jurisdictions, runs onboarding (if needed), then launches `daemon.run_daemon()` which initializes the `BayesianQualifier` (GPC, warm-started from historical labels) and spreads actions at a configurable pace. New profiles are auto-discovered as the daemon navigates LinkedIn pages. When all lanes are idle, LLM-generated search keywords discover new profiles.
 - Any args → delegates to Django's `execute_from_command_line` (e.g. `runserver`, `migrate`, `createsuperuser`).
 
 ### Onboarding (`onboarding.py`)
@@ -58,7 +58,7 @@ Each profile progresses through states defined in `navigation/enums.py:ProfileSt
 
 States map to DjangoCRM Deal Stages (defined in `db/crm_profiles.py:STATE_TO_STAGE`).
 
-The daemon (`daemon.py`) runs within configurable working hours (default 09:00–18:00, OS local timezone). Three **major lanes** fire at a fixed pace set by `min_action_interval` (default 120s, ±20% random jitter). Daily/weekly rate limiters independently cap totals. **Enrichment** and **qualification** dynamically fill the gaps between major actions (`gap / total_work`, floored at `enrich_min_interval`). Outside working hours the daemon sleeps until the next window starts.
+The daemon (`daemon.py`) runs continuously. Three **major lanes** fire at a fixed pace set by `min_action_interval` (default 120s, ±20% random jitter). Daily/weekly rate limiters independently cap totals. **Enrichment** and **qualification** dynamically fill the gaps between major actions (`gap / total_work`, floored at `enrich_min_interval`).
 
 1. **Connect** (scheduled, highest priority) — ML-ranks QUALIFIED profiles, sends connection request → PENDING. Interval = `min_action_interval`. Pre-existing connections detected at connect time are marked CONNECTED (flow through normal pipeline).
 2. **Check Pending** (scheduled) — checks PENDING profiles for acceptance → CONNECTED. Uses exponential backoff per profile: initial interval = `check_pending_recheck_after_hours` (default 24h), doubles each time a profile is still pending.
@@ -94,7 +94,7 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 
 ### Key Modules
 - **`models.py`** — Django models: `Campaign` (1:1 with Department; product_docs, campaign_objective, followup_template, booking_link) and `LinkedInProfile` (1:1 with User; credentials, rate limits, newsletter preference). Registered in `admin.py`.
-- **`daemon.py`** — Main daemon loop. Creates `BayesianQualifier` (GPC, warm-started from historical labels), rate limiters (from `LinkedInProfile` model), `LaneSchedule` objects for three major lanes, qualify lane for gap-filling, and a search lane as lowest-priority gap-filler. Spreads actions across working hours; qualifications dynamically fill gaps between scheduled major actions. Initializes embeddings table at startup.
+- **`daemon.py`** — Main daemon loop. Creates `BayesianQualifier` (GPC, warm-started from historical labels), rate limiters (from `LinkedInProfile` model), `LaneSchedule` objects for three major lanes, qualify lane for gap-filling, and a search lane as lowest-priority gap-filler. Qualifications dynamically fill gaps between scheduled major actions. Initializes embeddings table at startup.
 - **`lanes/`** — Action lanes executed by the daemon:
   - `qualify.py` — Two-phase qualification lane: (1) embeds ENRICHED profiles that lack embeddings (backfill), (2) qualifies embedded profiles via GPC active learning — BALD selects the most informative candidate, predictive entropy gates auto-decisions (low entropy → auto-accept/reject, high entropy or model unfitted → LLM query via `qualify_lead.j2` prompt) → QUALIFIED or DISQUALIFIED. Reads `product_docs`/`campaign_objective` from `session.campaign`.
   - `connect.py` — Ranks QUALIFIED profiles by GPC predictive probability (via `BayesianQualifier.rank_profiles()`), sends connection requests. Pre-existing connections always flow through as CONNECTED.
@@ -121,7 +121,7 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 ### Configuration
 - **`.env`** — `LLM_API_KEY` (required, prompted during onboarding if missing). Optionally `LLM_API_BASE`, `AI_MODEL`.
 - **`conf.py:CAMPAIGN_CONFIG`** — Hardcoded timing/ML defaults:
-  - `check_pending_recheck_after_hours` (24), `working_hours_start` ("09:00"), `working_hours_end` ("18:00")
+  - `check_pending_recheck_after_hours` (24)
   - `enrich_min_interval` (1), `min_action_interval` (120)
   - `qualification_entropy_threshold` (0.3), `qualification_n_mc_samples` (100), `embedding_model` ("BAAI/bge-small-en-v1.5")
 - **Campaign model** — `product_docs`, `campaign_objective`, `followup_template`, `booking_link` — managed via Django Admin or onboarding.
