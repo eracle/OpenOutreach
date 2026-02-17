@@ -9,10 +9,9 @@ from datetime import datetime, timedelta
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
-from linkedin.db.crm_profiles import count_enriched_profiles, count_pending_scrape
+from linkedin.db.crm_profiles import count_leads_for_qualification
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
-from linkedin.lanes.enrich import EnrichLane
 from linkedin.lanes.follow_up import FollowUpLane
 from linkedin.lanes.search import SearchLane
 from linkedin.ml.qualifier import BayesianQualifier
@@ -37,7 +36,7 @@ class LaneSchedule:
 
 
 def _parse_time(s: str) -> tuple[int, int]:
-    """Parse "HH:MM" → (hour, minute)."""
+    """Parse "HH:MM" -> (hour, minute)."""
     h, m = s.split(":")
     return int(h), int(m)
 
@@ -112,7 +111,6 @@ def run_daemon(session):
         daily_limit=cfg["follow_up_daily_limit"],
     )
 
-    enrich_lane = EnrichLane(session)
     connect_lane = ConnectLane(session, connect_limiter, qualifier)
     check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
     follow_up_lane = FollowUpLane(session, follow_up_limiter)
@@ -159,35 +157,28 @@ def run_daemon(session):
         next_schedule = min(schedules, key=lambda s: s.next_run)
         gap = max(next_schedule.next_run - now, 0)
 
-        # ── Fill gap with enrichments + qualifications + search ──
+        # ── Fill gap with qualifications + search ──
         if gap > min_enrich_interval:
-            # Count *before* computing wait, but re-check *after* sleep
-            to_enrich = count_pending_scrape(session)
-            to_qualify = count_enriched_profiles(session)
-            total_work = to_enrich + to_qualify
+            to_qualify = count_leads_for_qualification(session)
 
-            if total_work > 0:
-                enrich_wait = max(gap / total_work, min_enrich_interval)
-                enrich_wait *= random.uniform(0.8, 1.2)
-                enrich_wait = min(enrich_wait, gap)  # don't overshoot
+            if to_qualify > 0:
+                qualify_wait = max(gap / to_qualify, min_enrich_interval)
+                qualify_wait *= random.uniform(0.8, 1.2)
+                qualify_wait = min(qualify_wait, gap)
                 logger.debug(
-                    "gap-fill in %.0fs (gap %.0fs, %d to enrich, %d to qualify)",
-                    enrich_wait, gap, to_enrich, to_qualify,
+                    "gap-fill in %.0fs (gap %.0fs, %d to qualify)",
+                    qualify_wait, gap, to_qualify,
                 )
-                time.sleep(enrich_wait)
+                time.sleep(qualify_wait)
 
-                # Fresh check after sleep — counts may have changed
-                if enrich_lane.can_execute():
-                    enrich_lane.execute()
-                    continue  # re-evaluate gap
-                elif qualify_lane.can_execute():
+                if qualify_lane.can_execute():
                     qualify_lane.execute()
-                    continue  # re-evaluate gap
+                    continue
 
             # Pipeline empty — search for new profiles
             if search_lane.can_execute():
                 search_lane.execute()
-                continue  # re-evaluate gap
+                continue
 
         # ── Wait for major action ──
         if gap > 0:

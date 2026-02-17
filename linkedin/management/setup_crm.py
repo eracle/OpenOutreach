@@ -13,25 +13,21 @@ logger = logging.getLogger(__name__)
 
 DEPARTMENT_NAME = "LinkedIn Outreach"
 
-# Stages map to ProfileState enum values.
+# Stages map to ProfileState enum values (post-qualification pipeline).
 # (index, name, default, success_stage)
 STAGES = [
-    (1, "Discovered", True, False),
-    (2, "Enriched", False, False),
-    (3, "Qualified", False, False),
-    (4, "Disqualified", False, False),
-    (5, "Pending", False, False),
-    (6, "Connected", False, False),
-    (7, "Completed", False, True),
-    (8, "Failed", False, False),
-    (9, "Ignored", False, False),
+    (1, "New", True, False),
+    (2, "Pending", False, False),
+    (3, "Connected", False, False),
+    (4, "Completed", False, True),
+    (5, "Failed", False, False),
+    (6, "Ignored", False, False),
 ]
 
 CLOSING_REASONS = [
-    (1, "Completed", True),      # success
-    (2, "Failed", False),        # failure
-    (3, "Ignored", False),       # skipped by automation
-    (4, "Disqualified", False),  # rejected by qualification
+    (1, "Completed", True),   # success
+    (2, "Failed", False),     # failure
+    (3, "Ignored", False),    # pre-existing connection
 ]
 
 LEAD_SOURCE_NAME = "LinkedIn Scraper"

@@ -2,7 +2,18 @@
 """
 Profile CRUD backed by DjangoCRM models (Lead, Contact, Company, Deal).
 
-Same public API as the old SQLAlchemy-based profiles.py, but using Django ORM.
+Data model:
+- Lead = prospect pool (enriched profiles awaiting qualification + disqualified)
+- Contact = qualified profiles only (promoted from Lead)
+- Deal = per-Contact pipeline entry, created only at qualification time
+
+Pre-Deal states are implicit (derived from Lead attributes):
+  URL-only:     Lead.description is empty/null
+  Enriched:     Lead.description populated AND not disqualified AND no contact
+  Disqualified: Lead.disqualified = True
+  Qualified:    Lead.contact is not null
+
+Deal stages (post-qualification): New, Pending, Connected, Completed, Failed, Ignored
 """
 import json
 import logging
@@ -22,10 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Maps ProfileState enum values to Stage names in the CRM.
 STATE_TO_STAGE = {
-    ProfileState.DISCOVERED: "Discovered",
-    ProfileState.ENRICHED: "Enriched",
-    ProfileState.QUALIFIED: "Qualified",
-    ProfileState.DISQUALIFIED: "Disqualified",
+    ProfileState.NEW: "New",
     ProfileState.PENDING: "Pending",
     ProfileState.CONNECTED: "Connected",
     ProfileState.COMPLETED: "Completed",
@@ -33,7 +41,7 @@ STATE_TO_STAGE = {
     ProfileState.IGNORED: "Ignored",
 }
 
-# Reverse lookup: stage name → ProfileState value
+# Reverse lookup: stage name -> ProfileState value
 _STAGE_TO_STATE = {v: k.value for k, v in STATE_TO_STAGE.items()}
 
 
@@ -60,37 +68,6 @@ def _get_lead_source():
     return LeadSource.objects.get(name="LinkedIn Scraper", department=dept)
 
 
-def _get_or_create_lead_and_deal(session, public_id: str, clean_url: str):
-    """
-    Return (lead, deal) for the given profile URL, creating both if missing.
-    """
-    from crm.models import Lead, Deal
-
-    lead = Lead.objects.filter(website=clean_url).first()
-    if lead is None:
-        lead = Lead.objects.create(
-            website=clean_url,
-            owner=session.django_user,
-            department=_get_department(),
-            lead_source=_get_lead_source(),
-        )
-
-    deal = Deal.objects.filter(lead=lead).first()
-    if deal is None:
-        deal = Deal.objects.create(
-            name=f"LinkedIn: {public_id}",
-            lead=lead,
-            stage=_get_stage(ProfileState.DISCOVERED),
-            owner=session.django_user,
-            department=_get_department(),
-            next_step="",
-            next_step_date=date.today(),
-            ticket=_make_ticket(),
-        )
-
-    return lead, deal
-
-
 def _parse_next_step(deal) -> dict:
     """Parse deal.next_step as JSON, return empty dict on failure or empty string."""
     if not deal.next_step:
@@ -106,13 +83,6 @@ def _set_next_step(deal, data: dict):
     deal.next_step = json.dumps(data)
 
 
-def _lead_state(deal) -> str:
-    """Derive ProfileState value from a Deal's stage name."""
-    if not deal or not deal.stage:
-        return ProfileState.DISCOVERED.value
-    return _STAGE_TO_STATE.get(deal.stage.name, ProfileState.DISCOVERED.value)
-
-
 def _lead_profile(lead) -> Optional[dict]:
     """Return the parsed profile dict stored as description on the Lead."""
     if not lead.description:
@@ -123,108 +93,98 @@ def _lead_profile(lead) -> Optional[dict]:
         return None
 
 
-def add_profile_urls(session: "AccountSession", urls: List[str]):
+# ── Lead-level operations (pre-Deal) ──
+
+
+def lead_exists(url: str) -> bool:
+    """Check if Lead already exists for this LinkedIn URL."""
+    from crm.models import Lead
+
+    pid = url_to_public_id(url)
+    if not pid:
+        return False
+    clean_url = public_id_to_url(pid)
+    return Lead.objects.filter(website=clean_url).exists()
+
+
+@transaction.atomic
+def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optional[Dict[str, Any]] = None) -> Optional[int]:
+    """Create Lead with full profile data + Company. Returns lead PK or None if exists.
+
+    Does NOT create Contact or Deal — those come at qualification.
     """
-    For each URL, create a Lead + Deal in 'Discovered' stage.
-    Skips URLs that already have a Lead.
-    """
-    from crm.models import Lead, Deal
+    from crm.models import Lead
 
-    if not urls:
-        return
+    public_id = url_to_public_id(url)
+    clean_url = public_id_to_url(public_id)
 
-    dept = _get_department()
-    stage = _get_stage(ProfileState.DISCOVERED)
-    lead_source = _get_lead_source()
-    owner = session.django_user
-
-    count = 0
-    for url in urls:
-        try:
-            pid = url_to_public_id(url)
-        except ValueError:
-            continue
-
-        clean_url = public_id_to_url(pid)
-
-        # Check if Lead already exists for this URL
-        if Lead.objects.filter(website=clean_url).exists():
-            continue
-
-        lead = Lead.objects.create(
-            website=clean_url,
-            owner=owner,
-            department=dept,
-            lead_source=lead_source,
-        )
-
-        Deal.objects.create(
-            name=f"LinkedIn: {pid}",
-            lead=lead,
-            stage=stage,
-            owner=owner,
-            department=dept,
-            next_step="",
-            next_step_date=date.today(),
-            ticket=_make_ticket(),
-        )
-        count += 1
-
-    logger.debug("Discovered %d unique LinkedIn profiles", count)
-
-
-def _update_lead_fields(lead, profile: Dict[str, Any]):
-    """Update Lead model fields from parsed LinkedIn profile."""
-    lead.first_name = profile.get("first_name", "") or ""
-    lead.last_name = profile.get("last_name", "") or ""
-    lead.title = profile.get("headline", "") or ""
-    lead.city_name = profile.get("location_name", "") or ""
-
-    if profile.get("email"):
-        lead.email = profile["email"]
-    if profile.get("phone"):
-        lead.phone = profile["phone"]
-
-    positions = profile.get("positions", [])
-    if positions:
-        lead.company_name = positions[0].get("company_name", "") or ""
-
-    lead.description = json.dumps(profile, ensure_ascii=False, default=str)
-    lead.save()
-
-
-def _ensure_company(lead, profile: Dict[str, Any]):
-    """Create or get Company from first position. Returns Company or None."""
-    from crm.models import Company
-
-    positions = profile.get("positions", [])
-    if not positions or not positions[0].get("company_name"):
+    if Lead.objects.filter(website=clean_url).exists():
         return None
 
-    company, _ = Company.objects.get_or_create(
-        full_name=positions[0]["company_name"],
-        defaults={"owner": lead.owner, "department": lead.department},
+    lead = Lead.objects.create(
+        website=clean_url,
+        owner=session.django_user,
+        department=_get_department(),
+        lead_source=_get_lead_source(),
     )
-    lead.company = company
-    return company
+
+    _update_lead_fields(lead, profile)
+    _ensure_company(lead, profile)
+
+    if data:
+        _attach_raw_data(lead, public_id, data)
+
+    logger.debug("Created enriched lead for %s (pk=%d)", public_id, lead.pk)
+    return lead.pk
 
 
-def _ensure_contact(lead, company):
-    """Create Contact if lead has a name and company. Requires company (NOT NULL on crm_contact)."""
-    from crm.models import Contact
+def disqualify_lead(session, public_id: str, reason: str = ""):
+    """Set Lead.disqualified = True."""
+    from crm.models import Lead
 
-    if not lead.first_name or not company:
+    clean_url = public_id_to_url(public_id)
+    lead = Lead.objects.filter(website=clean_url).first()
+    if not lead:
+        logger.warning("disqualify_lead: no Lead for %s", public_id)
         return
 
+    lead.disqualified = True
+    if reason:
+        lead.description = lead.description or ""
+    lead.save()
+
+    color_label = colored("DISQUALIFIED", "red", attrs=["bold"])
+    suffix = f" ({reason})" if reason else ""
+    logger.info("%s %s%s", public_id, color_label, suffix)
+
+
+@transaction.atomic
+def promote_lead_to_contact(session, public_id: str):
+    """Create Contact from Lead + Deal at 'New' stage.
+
+    Returns (contact, deal). Raises ValueError if Lead has no Company.
+    """
+    from crm.models import Lead, Contact, Deal
+
+    clean_url = public_id_to_url(public_id)
+    lead = Lead.objects.filter(website=clean_url).first()
+    if not lead:
+        raise ValueError(f"No Lead for {public_id}")
+
+    company = lead.company
+    if not company:
+        raise ValueError(f"Lead {public_id} has no Company — cannot create Contact")
+
+    # Create or get Contact
     contact = Contact.objects.filter(
-        first_name=lead.first_name,
+        first_name=lead.first_name or "",
         last_name=lead.last_name or "",
         company=company,
     ).first()
 
     if contact is None:
         contact = Contact.objects.create(
-            first_name=lead.first_name,
+            first_name=lead.first_name or "",
             last_name=lead.last_name or "",
             company=company,
             title=lead.title or "",
@@ -235,53 +195,80 @@ def _ensure_contact(lead, company):
     lead.contact = contact
     lead.save()
 
-
-def _attach_raw_data(lead, public_id: str, data: Dict[str, Any]):
-    """Save raw Voyager JSON as TheFile attached to the Lead."""
-    from common.models import TheFile
-    from django.contrib.contenttypes.models import ContentType
-
-    ct = ContentType.objects.get_for_model(lead)
-    raw_json = json.dumps(data, ensure_ascii=False, default=str)
-    the_file = TheFile(content_type=ct, object_id=lead.pk)
-    the_file.file.save(
-        f"{public_id}_voyager.json",
-        ContentFile(raw_json.encode("utf-8")),
-        save=True,
+    # Create Deal at "New" stage
+    deal = Deal.objects.create(
+        name=f"LinkedIn: {public_id}",
+        lead=lead,
+        contact=contact,
+        company=company,
+        stage=_get_stage(ProfileState.NEW),
+        owner=session.django_user,
+        department=_get_department(),
+        next_step="",
+        next_step_date=date.today(),
+        ticket=_make_ticket(),
     )
 
+    logger.info("%s %s", public_id, colored("QUALIFIED", "green", attrs=["bold"]))
+    return contact, deal
 
-@transaction.atomic
-def save_scraped_profile(
-    session: "AccountSession",
-    url: str,
-    profile: Dict[str, Any],
-    data: Optional[Dict[str, Any]] = None,
-):
-    """
-    Update Lead fields from parsed profile, create/update Contact + Company,
-    attach raw data as TheFile.  Does NOT change Deal stage — caller must
-    call set_profile_state() afterwards.
-    """
-    public_id = url_to_public_id(url)
-    clean_url = public_id_to_url(public_id)
 
-    lead, deal = _get_or_create_lead_and_deal(session, public_id, clean_url)
+def get_leads_for_qualification(session) -> list:
+    """Leads with description, not disqualified, no contact FK."""
+    from crm.models import Lead
 
-    _update_lead_fields(lead, profile)
-    company = _ensure_company(lead, profile)
-    _ensure_contact(lead, company)
+    leads = Lead.objects.filter(
+        owner=session.django_user,
+        disqualified=False,
+        contact__isnull=True,
+    ).exclude(
+        description__isnull=True,
+    ).exclude(
+        description="",
+    )
 
-    if company:
-        deal.company = company
-    if lead.contact:
-        deal.contact = lead.contact
-    deal.save()
+    result = []
+    for lead in leads:
+        profile = _lead_profile(lead) or {}
+        public_id = url_to_public_id(lead.website) if lead.website else ""
+        result.append({
+            "public_identifier": public_id,
+            "url": lead.website or "",
+            "profile": profile,
+            "lead_id": lead.pk,
+        })
+    return result
 
-    if data:
-        _attach_raw_data(lead, public_id, data)
 
-    logger.debug("Saved profile data for %s", public_id)
+def count_leads_for_qualification(session) -> int:
+    """Count of leads eligible for qualification."""
+    from crm.models import Lead
+
+    return Lead.objects.filter(
+        owner=session.django_user,
+        disqualified=False,
+        contact__isnull=True,
+    ).exclude(
+        description__isnull=True,
+    ).exclude(
+        description="",
+    ).count()
+
+
+# ── Deal-level operations (post-qualification) ──
+
+
+def _deal_to_profile_dict(deal) -> dict:
+    """Convert a Deal (with select_related lead) to a profile dict for lanes."""
+    lead = deal.lead
+    profile = _lead_profile(lead) or {}
+    public_id = url_to_public_id(lead.website) if lead.website else ""
+    return {
+        "public_identifier": public_id,
+        "url": lead.website or "",
+        "profile": profile,
+        "meta": _parse_next_step(deal),
+    }
 
 
 def set_profile_state(
@@ -292,12 +279,15 @@ def set_profile_state(
 ):
     """
     Move the Deal linked to this Lead to the corresponding Stage.
-    Optional *reason* is stored in deal.description (visible in Django Admin).
+    Only handles Deal states (NEW, PENDING, CONNECTED, COMPLETED, FAILED, IGNORED).
+    Raises ValueError if no Deal exists.
     """
-    from crm.models import ClosingReason
+    from crm.models import Deal, ClosingReason
 
     clean_url = public_id_to_url(public_identifier)
-    _lead, deal = _get_or_create_lead_and_deal(session, public_identifier, clean_url)
+    deal = Deal.objects.filter(lead__website=clean_url, owner=session.django_user).first()
+    if not deal:
+        raise ValueError(f"No Deal for {public_identifier} — cannot set state {new_state}")
 
     ps = ProfileState(new_state)
     old_stage_name = deal.stage.name if deal.stage else None
@@ -344,21 +334,10 @@ def set_profile_state(
             deal.closing_reason = closing
         deal.active = False
 
-    if ps == ProfileState.DISQUALIFIED:
-        closing = ClosingReason.objects.filter(
-            name="Disqualified", department=dept
-        ).first()
-        if closing:
-            deal.closing_reason = closing
-        deal.active = False
-
     deal.save()
 
     _STATE_LOG_STYLE = {
-        ProfileState.DISCOVERED: ("DISCOVERED", "green", []),
-        ProfileState.ENRICHED: ("ENRICHED", "yellow", ["bold"]),
-        ProfileState.QUALIFIED: ("QUALIFIED", "green", ["bold"]),
-        ProfileState.DISQUALIFIED: ("DISQUALIFIED", "red", ["bold"]),
+        ProfileState.NEW: ("NEW", "green", []),
         ProfileState.PENDING: ("PENDING", "cyan", []),
         ProfileState.CONNECTED: ("CONNECTED", "green", ["bold"]),
         ProfileState.COMPLETED: ("COMPLETED", "green", ["bold"]),
@@ -387,102 +366,27 @@ def get_profile(session: "AccountSession", public_identifier: str) -> Optional[d
 
     deal = Deal.objects.filter(lead=lead).first()
 
+    # Derive state from Deal stage if present, otherwise from Lead attributes
+    if deal and deal.stage:
+        state = _STAGE_TO_STATE.get(deal.stage.name, ProfileState.NEW.value)
+    elif getattr(lead, 'disqualified', False):
+        state = "disqualified"
+    elif lead.description:
+        state = "enriched"
+    else:
+        state = "url_only"
+
     return {
-        "state": _lead_state(deal),
+        "state": state,
         "profile": _lead_profile(lead),
     }
 
 
-def get_next_url_to_scrape(session: "AccountSession") -> List[str]:
-    """Query Deals in 'Discovered' stage, return Lead URLs."""
-    from crm.models import Deal
-
-    stage = _get_stage(ProfileState.DISCOVERED)
-    deals = Deal.objects.filter(
-        stage=stage,
-        owner=session.django_user,
-    ).select_related("lead")
-
-    return [deal.lead.website for deal in deals if deal.lead and deal.lead.website]
-
-
-def count_pending_scrape(session: "AccountSession") -> int:
-    """Count Deals in 'Discovered' stage."""
-    from crm.models import Deal
-
-    stage = _get_stage(ProfileState.DISCOVERED)
-    return Deal.objects.filter(
-        stage=stage,
-        owner=session.django_user,
-    ).count()
-
-
-def get_updated_at_map(session: "AccountSession", public_identifiers: List[str]) -> dict:
-    """
-    Return a dict mapping public_identifier → update_date for existing Leads.
-    """
-    from crm.models import Lead
-
-    if not public_identifiers:
-        return {}
-
-    urls = [public_id_to_url(pid) for pid in public_identifiers]
-
-    results = Lead.objects.filter(
-        website__in=urls,
-    ).values_list("website", "update_date")
-
-    result_map = {
-        url_to_public_id(url): updated
-        for url, updated in results
-    }
-
-    logger.debug("Retrieved updated_at for %d profiles from DB", len(result_map))
-    return result_map
-
-
-def _deal_to_profile_dict(deal) -> dict:
-    """Convert a Deal (with select_related lead) to a profile dict for lanes."""
-    lead = deal.lead
-    profile = _lead_profile(lead) or {}
-    public_id = url_to_public_id(lead.website) if lead.website else ""
-    return {
-        "public_identifier": public_id,
-        "url": lead.website or "",
-        "profile": profile,
-        "meta": _parse_next_step(deal),
-    }
-
-
-def get_enriched_profiles(session) -> list:
-    """All Deals at ENRICHED stage for this user."""
-    from crm.models import Deal
-
-    stage = _get_stage(ProfileState.ENRICHED)
-    deals = Deal.objects.filter(
-        stage=stage,
-        owner=session.django_user,
-    ).select_related("lead")
-
-    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
-
-
-def count_enriched_profiles(session) -> int:
-    """Count Deals at ENRICHED stage."""
-    from crm.models import Deal
-
-    stage = _get_stage(ProfileState.ENRICHED)
-    return Deal.objects.filter(
-        stage=stage,
-        owner=session.django_user,
-    ).count()
-
-
 def get_qualified_profiles(session) -> list:
-    """All Deals at QUALIFIED stage for this user."""
+    """All Deals at 'New' stage for this user (qualified, ready for connect)."""
     from crm.models import Deal
 
-    stage = _get_stage(ProfileState.QUALIFIED)
+    stage = _get_stage(ProfileState.NEW)
     deals = Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
@@ -492,10 +396,10 @@ def get_qualified_profiles(session) -> list:
 
 
 def count_qualified_profiles(session) -> int:
-    """Count Deals at QUALIFIED stage."""
+    """Count Deals at 'New' stage."""
     from crm.models import Deal
 
-    stage = _get_stage(ProfileState.QUALIFIED)
+    stage = _get_stage(ProfileState.NEW)
     return Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
@@ -577,23 +481,102 @@ def get_connected_profiles(session) -> list:
     return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
 
 
+def get_updated_at_map(session: "AccountSession", public_identifiers: List[str]) -> dict:
+    """
+    Return a dict mapping public_identifier -> update_date for existing Leads.
+    """
+    from crm.models import Lead
+
+    if not public_identifiers:
+        return {}
+
+    urls = [public_id_to_url(pid) for pid in public_identifiers]
+
+    results = Lead.objects.filter(
+        website__in=urls,
+    ).values_list("website", "update_date")
+
+    result_map = {
+        url_to_public_id(url): updated
+        for url, updated in results
+    }
+
+    logger.debug("Retrieved updated_at for %d profiles from DB", len(result_map))
+    return result_map
+
+
+# ── Internal helpers ──
+
+
+def _update_lead_fields(lead, profile: Dict[str, Any]):
+    """Update Lead model fields from parsed LinkedIn profile."""
+    lead.first_name = profile.get("first_name", "") or ""
+    lead.last_name = profile.get("last_name", "") or ""
+    lead.title = profile.get("headline", "") or ""
+    lead.city_name = profile.get("location_name", "") or ""
+
+    if profile.get("email"):
+        lead.email = profile["email"]
+    if profile.get("phone"):
+        lead.phone = profile["phone"]
+
+    positions = profile.get("positions", [])
+    if positions:
+        lead.company_name = positions[0].get("company_name", "") or ""
+
+    lead.description = json.dumps(profile, ensure_ascii=False, default=str)
+    lead.save()
+
+
+def _ensure_company(lead, profile: Dict[str, Any]):
+    """Create or get Company from first position. Returns Company or None."""
+    from crm.models import Company
+
+    positions = profile.get("positions", [])
+    if not positions or not positions[0].get("company_name"):
+        return None
+
+    company, _ = Company.objects.get_or_create(
+        full_name=positions[0]["company_name"],
+        defaults={"owner": lead.owner, "department": lead.department},
+    )
+    lead.company = company
+    lead.save()
+    return company
+
+
+def _attach_raw_data(lead, public_id: str, data: Dict[str, Any]):
+    """Save raw Voyager JSON as TheFile attached to the Lead."""
+    from common.models import TheFile
+    from django.contrib.contenttypes.models import ContentType
+
+    ct = ContentType.objects.get_for_model(lead)
+    raw_json = json.dumps(data, ensure_ascii=False, default=str)
+    the_file = TheFile(content_type=ct, object_id=lead.pk)
+    the_file.file.save(
+        f"{public_id}_voyager.json",
+        ContentFile(raw_json.encode("utf-8")),
+        save=True,
+    )
+
+
 # ── Pure URL helpers (no DB dependency) ──
 
-def url_to_public_id(url: str) -> str:
+def url_to_public_id(url: str) -> Optional[str]:
     """
     Strict LinkedIn public ID extractor:
     - Path MUST start with /in/
     - Returns the second segment, percent-decoded
-    - Anything else → raises ValueError
+    - Returns None for empty or non-profile URLs
     """
     if not url:
-        raise ValueError("Empty URL")
+        return None
 
     path = urlparse(url.strip()).path
     parts = path.strip("/").split("/")
 
     if len(parts) < 2 or parts[0] != "in":
-        raise ValueError(f"Not a valid /in/ profile URL: {url!r}")
+        return None
 
     public_id = parts[1]
     return unquote(public_id)
@@ -611,9 +594,13 @@ def save_chat_message(session: "AccountSession", public_identifier: str, content
     """Persist an outgoing message as a ChatMessage attached to the Lead."""
     from chat.models import ChatMessage
     from django.contrib.contenttypes.models import ContentType
+    from crm.models import Lead
 
     clean_url = public_id_to_url(public_identifier)
-    lead, _deal = _get_or_create_lead_and_deal(session, public_identifier, clean_url)
+    lead = Lead.objects.filter(website=clean_url).first()
+    if not lead:
+        logger.warning("save_chat_message: no Lead for %s", public_identifier)
+        return
 
     ct = ContentType.objects.get_for_model(lead)
     ChatMessage.objects.create(

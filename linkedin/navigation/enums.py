@@ -2,10 +2,7 @@ from enum import Enum
 
 
 class ProfileState(str, Enum):
-    DISCOVERED = "discovered"
-    ENRICHED = "enriched"
-    QUALIFIED = "qualified"
-    DISQUALIFIED = "disqualified"
+    NEW = "new"
     PENDING = "pending"
     CONNECTED = "connected"
     COMPLETED = "completed"

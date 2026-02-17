@@ -74,7 +74,7 @@ class PlaywrightLinkedinAPI:
         if not public_identifier and profile_url:
             public_identifier = url_to_public_id(profile_url)
 
-        if not public_identifier:
+        if not public_identifier:  # None from url_to_public_id or missing arg
             raise ValueError("Need public_identifier or profile_url")
 
         params = {

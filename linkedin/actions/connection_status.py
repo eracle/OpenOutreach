@@ -60,15 +60,15 @@ def get_connection_status(
     # Connect button or label visible → not connected
     if top_card.locator(SELECTORS["invite_to_connect"]).count() > 0:
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
-        return ProfileState.ENRICHED
+        return ProfileState.NEW
 
     if "Connect" in main_text or degree:
         logger.debug("Connect label or degree present → NOT_CONNECTED")
-        return ProfileState.ENRICHED
+        return ProfileState.NEW
 
     logger.debug("No clear indicators → defaulting to NOT_CONNECTED")
     # save_page(profile, session)  # uncomment if you want HTML dumps
-    return ProfileState.ENRICHED
+    return ProfileState.NEW
 
 
 if __name__ == "__main__":

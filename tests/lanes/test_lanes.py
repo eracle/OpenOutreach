@@ -8,9 +8,10 @@ from django.utils import timezone
 from linkedin.db.crm_profiles import (
     get_profile,
     set_profile_state,
-    save_scraped_profile,
+    create_enriched_lead,
+    promote_lead_to_contact,
+    count_qualified_profiles,
 )
-from linkedin.lanes.enrich import EnrichLane, is_preexisting_connection
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.follow_up import FollowUpLane
@@ -28,18 +29,17 @@ SAMPLE_PROFILE = {
 }
 
 
-def _make_enriched(session, public_id="alice"):
-    """Create a Lead+Deal at ENRICHED with profile data."""
-    url = f"https://www.linkedin.com/in/{public_id}/"
-    save_scraped_profile(session, url, SAMPLE_PROFILE, None)
-    set_profile_state(session, public_id, ProfileState.ENRICHED.value)
-
-
 def _make_qualified(session, public_id="alice"):
-    """Create a Lead+Deal at QUALIFIED with profile data."""
+    """Create a Lead + Contact + Deal at 'New' stage."""
     url = f"https://www.linkedin.com/in/{public_id}/"
-    save_scraped_profile(session, url, SAMPLE_PROFILE, None)
-    set_profile_state(session, public_id, ProfileState.QUALIFIED.value)
+    create_enriched_lead(session, url, SAMPLE_PROFILE)
+    promote_lead_to_contact(session, public_id)
+
+
+def _make_connected(session, public_id="alice"):
+    """Create a Lead + Contact + Deal at 'Connected' stage."""
+    _make_qualified(session, public_id)
+    set_profile_state(session, public_id, ProfileState.CONNECTED.value)
 
 
 def _make_old_deal(session, days):
@@ -52,37 +52,20 @@ def _make_old_deal(session, days):
     )
 
 
-# ── Existing can_execute tests ────────────────────────────────────────
-
-
-@pytest.mark.django_db
-class TestEnrichLaneCanExecute:
-    def test_can_execute_with_discovered(self, fake_session):
-        set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
-        lane = EnrichLane(fake_session)
-        assert lane.can_execute() is True
-
-    def test_cannot_execute_empty(self, fake_session):
-        lane = EnrichLane(fake_session)
-        assert lane.can_execute() is False
-
-    def test_cannot_execute_only_enriched(self, fake_session):
-        set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)
-        lane = EnrichLane(fake_session)
-        assert lane.can_execute() is False
+# ── ConnectLane tests ────────────────────────────────────────
 
 
 @pytest.mark.django_db
 class TestConnectLaneCanExecute:
     def test_can_execute_with_qualified_and_rate_ok(self, fake_session):
-        set_profile_state(fake_session, "alice", ProfileState.QUALIFIED.value)
+        _make_qualified(fake_session)
         rl = RateLimiter(daily_limit=10)
         scorer = BayesianQualifier(seed=42)
         lane = ConnectLane(fake_session, rl, scorer)
         assert lane.can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
-        set_profile_state(fake_session, "alice", ProfileState.QUALIFIED.value)
+        _make_qualified(fake_session)
         rl = RateLimiter(daily_limit=0)
         scorer = BayesianQualifier(seed=42)
         lane = ConnectLane(fake_session, rl, scorer)
@@ -94,159 +77,17 @@ class TestConnectLaneCanExecute:
         lane = ConnectLane(fake_session, rl, scorer)
         assert lane.can_execute() is False
 
-    def test_cannot_execute_only_enriched(self, fake_session):
-        """ENRICHED profiles should NOT be picked up by connect lane."""
-        set_profile_state(fake_session, "alice", ProfileState.ENRICHED.value)
+    def test_cannot_execute_only_enriched_lead(self, fake_session):
+        """Enriched leads (no Deal) should NOT be picked up by connect lane."""
+        create_enriched_lead(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            SAMPLE_PROFILE,
+        )
         rl = RateLimiter(daily_limit=10)
         scorer = BayesianQualifier(seed=42)
         lane = ConnectLane(fake_session, rl, scorer)
         assert lane.can_execute() is False
-
-
-@pytest.mark.django_db
-class TestCheckPendingLaneCanExecute:
-    def test_can_execute_with_old_pending(self, fake_session):
-        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
-        from crm.models import Deal
-        deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        Deal.objects.filter(pk=deal.pk).update(
-            update_date=timezone.now() - timedelta(days=5)
-        )
-
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
-        assert lane.can_execute() is True
-
-    def test_cannot_execute_too_recent(self, fake_session):
-        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
-        # update_date is already now() from set_profile_state's deal.save()
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
-        assert lane.can_execute() is False
-
-    def test_cannot_execute_with_high_backoff(self, fake_session):
-        """Profile with large per-profile backoff is not ready even if base would allow it."""
-        import json
-        set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
-        from crm.models import Deal
-        deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        Deal.objects.filter(pk=deal.pk).update(
-            update_date=timezone.now() - timedelta(hours=5),
-            next_step=json.dumps({"backoff_hours": 100}),
-        )
-
-        lane = CheckPendingLane(fake_session, recheck_after_hours=1)
-        assert lane.can_execute() is False
-
-    def test_cannot_execute_empty(self, fake_session):
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
-        assert lane.can_execute() is False
-
-
-@pytest.mark.django_db
-class TestFollowUpLaneCanExecute:
-    def test_can_execute_with_connected(self, fake_session):
-        _make_enriched(fake_session)
-        set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-
-        rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl)
-        assert lane.can_execute() is True
-
-    def test_cannot_execute_rate_limited(self, fake_session):
-        _make_enriched(fake_session)
-        set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
-
-        rl = RateLimiter(daily_limit=0)
-        lane = FollowUpLane(fake_session, rl)
-        assert lane.can_execute() is False
-
-    def test_cannot_execute_empty(self, fake_session):
-        rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl)
-        assert lane.can_execute() is False
-
-
-# ── EnrichLane.execute() tests ────────────────────────────────────────
-
-
-@pytest.mark.django_db
-class TestEnrichLaneExecute:
-    def _run(self, fake_session, get_profile_rv):
-        """Create a DISCOVERED profile, mock the API, and run execute()."""
-        set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
-
-        with (
-            patch("linkedin.lanes.enrich.PlaywrightLinkedinAPI") as MockAPI,
-            patch("linkedin.ml.embeddings.embed_profile", return_value=True),
-        ):
-            mock_api = MockAPI.return_value
-            mock_api.get_profile.return_value = get_profile_rv
-            lane = EnrichLane(fake_session)
-            lane.execute()
-
-    def test_execute_enriches_and_saves(self, fake_session):
-        profile = {**SAMPLE_PROFILE, "connection_degree": 2}
-        self._run(fake_session, (profile, {"raw": "data"}))
-        result = get_profile(fake_session, "alice")
-        assert result["state"] == ProfileState.ENRICHED.value
-
-    def test_execute_marks_failed_on_none_profile(self, fake_session):
-        self._run(fake_session, (None, None))
-        result = get_profile(fake_session, "alice")
-        assert result["state"] == ProfileState.FAILED.value
-
-    def test_execute_marks_ignored_preexisting(self, fake_session):
-        profile = {**SAMPLE_PROFILE, "connection_degree": 1}
-        with patch.dict(
-            "linkedin.lanes.enrich.CAMPAIGN_CONFIG",
-            {"follow_up_existing_connections": False},
-        ):
-            self._run(fake_session, (profile, {"raw": "data"}))
-        result = get_profile(fake_session, "alice")
-        assert result["state"] == ProfileState.IGNORED.value
-
-    def test_execute_noop_when_no_urls(self, fake_session):
-        # No DISCOVERED profiles → execute returns without error
-        lane = EnrichLane(fake_session)
-        lane.execute()  # should not raise
-
-    def test_execute_computes_embedding_after_enrichment(self, fake_session):
-        """Embedding should be computed as part of the enrich lane."""
-        set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
-        profile = {**SAMPLE_PROFILE, "connection_degree": 2}
-
-        with (
-            patch("linkedin.lanes.enrich.PlaywrightLinkedinAPI") as MockAPI,
-            patch.object(EnrichLane, "_embed_profile") as mock_embed,
-        ):
-            mock_api = MockAPI.return_value
-            mock_api.get_profile.return_value = (profile, {"raw": "data"})
-            lane = EnrichLane(fake_session)
-            lane.execute()
-
-            mock_embed.assert_called_once_with("alice", profile)
-
-    def test_execute_no_embedding_on_ignored(self, fake_session):
-        """Pre-existing connections (IGNORED) should NOT get embedded."""
-        set_profile_state(fake_session, "alice", ProfileState.DISCOVERED.value)
-        profile = {**SAMPLE_PROFILE, "connection_degree": 1}
-
-        with (
-            patch("linkedin.lanes.enrich.PlaywrightLinkedinAPI") as MockAPI,
-            patch.dict(
-                "linkedin.lanes.enrich.CAMPAIGN_CONFIG",
-                {"follow_up_existing_connections": False},
-            ),
-            patch.object(EnrichLane, "_embed_profile") as mock_embed,
-        ):
-            mock_api = MockAPI.return_value
-            mock_api.get_profile.return_value = (profile, {"raw": "data"})
-            lane = EnrichLane(fake_session)
-            lane.execute()
-
-            mock_embed.assert_not_called()
-
-
-# ── ConnectLane.execute() tests ───────────────────────────────────────
 
 
 @pytest.mark.django_db
@@ -266,7 +107,7 @@ class TestConnectLaneExecute:
     def test_execute_sends_connection_and_records(
         self, mock_status, mock_send, fake_session
     ):
-        mock_status.return_value = ProfileState.QUALIFIED
+        mock_status.return_value = ProfileState.NEW
         mock_send.return_value = ProfileState.PENDING
 
         lane = self._setup(fake_session)
@@ -334,7 +175,7 @@ class TestConnectLaneExecute:
     def test_execute_handles_skip_profile(
         self, mock_status, mock_send, fake_session
     ):
-        mock_status.return_value = ProfileState.QUALIFIED
+        mock_status.return_value = ProfileState.NEW
         mock_send.side_effect = SkipProfile("bad profile")
 
         lane = self._setup(fake_session)
@@ -344,7 +185,47 @@ class TestConnectLaneExecute:
         assert result["state"] == ProfileState.FAILED.value
 
 
-# ── CheckPendingLane.execute() tests ──────────────────────────────────
+# ── CheckPendingLane tests ──────────────────────────────────────
+
+
+@pytest.mark.django_db
+class TestCheckPendingLaneCanExecute:
+    def _make_pending(self, session, public_id="alice"):
+        _make_qualified(session, public_id)
+        set_profile_state(session, public_id, ProfileState.PENDING.value)
+
+    def test_can_execute_with_old_pending(self, fake_session):
+        self._make_pending(fake_session)
+        from crm.models import Deal
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        Deal.objects.filter(pk=deal.pk).update(
+            update_date=timezone.now() - timedelta(days=5)
+        )
+
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
+        assert lane.can_execute() is True
+
+    def test_cannot_execute_too_recent(self, fake_session):
+        self._make_pending(fake_session)
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
+        assert lane.can_execute() is False
+
+    def test_cannot_execute_with_high_backoff(self, fake_session):
+        import json
+        self._make_pending(fake_session)
+        from crm.models import Deal
+        deal = Deal.objects.filter(owner=fake_session.django_user).first()
+        Deal.objects.filter(pk=deal.pk).update(
+            update_date=timezone.now() - timedelta(hours=5),
+            next_step=json.dumps({"backoff_hours": 100}),
+        )
+
+        lane = CheckPendingLane(fake_session, recheck_after_hours=1)
+        assert lane.can_execute() is False
+
+    def test_cannot_execute_empty(self, fake_session):
+        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
+        assert lane.can_execute() is False
 
 
 @pytest.mark.django_db
@@ -354,7 +235,7 @@ class TestCheckPendingLaneExecute:
         pass
 
     def _setup(self, fake_session):
-        _make_enriched(fake_session)
+        _make_qualified(fake_session)
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         _make_old_deal(fake_session, days=5)
 
@@ -405,8 +286,7 @@ class TestCheckPendingLaneExecute:
         import json
         mock_status.return_value = ProfileState.PENDING
 
-        # Set an initial backoff of 10h
-        _make_enriched(fake_session, "bob")
+        _make_qualified(fake_session, "bob")
         set_profile_state(fake_session, "bob", ProfileState.PENDING.value)
         from crm.models import Deal
         from linkedin.db.crm_profiles import public_id_to_url
@@ -426,21 +306,41 @@ class TestCheckPendingLaneExecute:
     def test_execute_noop_when_no_profiles(
         self, mock_status, fake_session
     ):
-        # No pending profiles → execute returns immediately
         lane = CheckPendingLane(fake_session, recheck_after_hours=72)
         lane.execute()
 
         mock_status.assert_not_called()
 
 
-# ── FollowUpLane.execute() tests ─────────────────────────────────────
+# ── FollowUpLane tests ─────────────────────────────────────
+
+
+@pytest.mark.django_db
+class TestFollowUpLaneCanExecute:
+    def test_can_execute_with_connected(self, fake_session):
+        _make_connected(fake_session)
+
+        rl = RateLimiter(daily_limit=10)
+        lane = FollowUpLane(fake_session, rl)
+        assert lane.can_execute() is True
+
+    def test_cannot_execute_rate_limited(self, fake_session):
+        _make_connected(fake_session)
+
+        rl = RateLimiter(daily_limit=0)
+        lane = FollowUpLane(fake_session, rl)
+        assert lane.can_execute() is False
+
+    def test_cannot_execute_empty(self, fake_session):
+        rl = RateLimiter(daily_limit=10)
+        lane = FollowUpLane(fake_session, rl)
+        assert lane.can_execute() is False
 
 
 @pytest.mark.django_db
 class TestFollowUpLaneExecute:
     def _setup(self, fake_session):
-        _make_enriched(fake_session)
-        set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
+        _make_connected(fake_session)
 
         rl = RateLimiter(daily_limit=10)
         return FollowUpLane(fake_session, rl)
@@ -502,42 +402,8 @@ class TestFollowUpLaneExecute:
     def test_execute_noop_when_no_profiles(
         self, mock_send, fake_session
     ):
-        # No connected profiles → execute returns immediately
         rl = RateLimiter(daily_limit=10)
         lane = FollowUpLane(fake_session, rl)
         lane.execute()
 
         mock_send.assert_not_called()
-
-
-# ── is_preexisting_connection() tests ─────────────────────────────────
-
-
-class TestIsPreexistingConnection:
-    def test_degree_1_is_preexisting(self):
-        with patch.dict(
-            "linkedin.lanes.enrich.CAMPAIGN_CONFIG",
-            {"follow_up_existing_connections": False},
-        ):
-            assert is_preexisting_connection({"connection_degree": 1}) is True
-
-    def test_degree_2_not_preexisting(self):
-        with patch.dict(
-            "linkedin.lanes.enrich.CAMPAIGN_CONFIG",
-            {"follow_up_existing_connections": False},
-        ):
-            assert is_preexisting_connection({"connection_degree": 2}) is False
-
-    def test_follow_up_flag_overrides(self):
-        with patch.dict(
-            "linkedin.lanes.enrich.CAMPAIGN_CONFIG",
-            {"follow_up_existing_connections": True},
-        ):
-            assert is_preexisting_connection({"connection_degree": 1}) is False
-
-    def test_none_degree_not_preexisting(self):
-        with patch.dict(
-            "linkedin.lanes.enrich.CAMPAIGN_CONFIG",
-            {"follow_up_existing_connections": False},
-        ):
-            assert is_preexisting_connection({"connection_degree": None}) is False

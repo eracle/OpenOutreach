@@ -38,6 +38,8 @@ SELECT
               AND json_array_length(json_extract(description, '$.educations')) IS NOT NULL
          THEN json_array_length(json_extract(description, '$.educations'))
          ELSE 0 END AS num_educations,
+    disqualified,
+    contact_id,
     creation_date,
     update_date
 FROM crm.crm_lead

@@ -52,8 +52,6 @@ class ConnectLane:
 
         try:
             # Check actual connection status on the page before attempting to connect.
-            # This catches pre-existing connections that slipped through enrich
-            # (connection_degree was None at scrape time).
             connection_status = get_connection_status(self.session, profile)
 
             if connection_status == ProfileState.CONNECTED:
