@@ -37,9 +37,9 @@ ME_URL = "https://www.linkedin.com/in/me/"
 
 
 def ensure_self_profile(session):
-    """Discover the logged-in user's own profile via Voyager API and mark it IGNORED.
+    """Discover the logged-in user's own profile via Voyager API and mark it disqualified.
 
-    Creates two IGNORED leads: the real profile URL and a ``/in/me/`` sentinel.
+    Creates a disqualified lead for the real profile URL and a ``/in/me/`` sentinel.
     On subsequent runs the sentinel is detected and the stored profile is
     returned from the CRM.
 
@@ -50,12 +50,10 @@ def ensure_self_profile(session):
 
     from linkedin.api.client import PlaywrightLinkedinAPI
     from linkedin.db.crm_profiles import (
-        add_profile_urls,
+        create_enriched_lead,
+        disqualify_lead,
         public_id_to_url,
-        save_scraped_profile,
-        set_profile_state,
     )
-    from linkedin.navigation.enums import ProfileState
 
     # Sentinel check — already ran once
     if Lead.objects.filter(website=ME_URL).exists():
@@ -72,14 +70,21 @@ def ensure_self_profile(session):
     real_id = profile["public_identifier"]
     real_url = public_id_to_url(real_id)
 
-    # Save and mark the real profile as IGNORED
-    add_profile_urls(session, [real_url])
-    save_scraped_profile(session, real_url, profile, data)
-    set_profile_state(session, real_id, ProfileState.IGNORED.value, reason="Own profile")
+    # Save and disqualify the real profile
+    create_enriched_lead(session, real_url, profile, data)
+    disqualify_lead(session, real_id, reason="Own profile")
 
-    # Save the /in/me/ sentinel as IGNORED
-    add_profile_urls(session, [ME_URL])
-    set_profile_state(session, "me", ProfileState.IGNORED.value, reason="Own profile sentinel")
+    # Save the /in/me/ sentinel as disqualified
+    from common.models import Department
+    dept = Department.objects.get(name="LinkedIn Outreach")
+    Lead.objects.get_or_create(
+        website=ME_URL,
+        defaults={
+            "owner": session.django_user,
+            "department": dept,
+            "disqualified": True,
+        },
+    )
 
     logger.info("Self-profile discovered: %s", real_url)
     return profile
