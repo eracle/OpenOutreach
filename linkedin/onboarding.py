@@ -29,36 +29,65 @@ def _prompt(prompt_msg: str, default: str = "") -> str:
     return value or default
 
 
-def _ensure_llm_api_key() -> None:
-    """Check .env for LLM_API_KEY; if missing, prompt and write it."""
-    import linkedin.conf as conf
-
-    if conf.LLM_API_KEY:
-        return
-
-    print()
-    print("LLM_API_KEY is required for lead qualification and message generation.")
-    while True:
-        key = input("Enter your LLM API key (e.g. sk-...): ").strip()
-        if key:
-            break
-        print("API key cannot be empty. Please try again.")
-
-    # Write to .env file
+def _write_env_var(var_name: str, value: str) -> None:
+    """Append a variable to .env if not already present."""
     ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
     if ENV_FILE.exists():
         content = ENV_FILE.read_text(encoding="utf-8")
-        if "LLM_API_KEY" not in content:
+        if var_name not in content:
             with open(ENV_FILE, "a", encoding="utf-8") as f:
-                f.write(f"\nLLM_API_KEY={key}\n")
+                f.write(f"\n{var_name}={value}\n")
     else:
-        ENV_FILE.write_text(f"LLM_API_KEY={key}\n", encoding="utf-8")
+        ENV_FILE.write_text(f"{var_name}={value}\n", encoding="utf-8")
 
-    # Update runtime
+
+def _ensure_env_var(
+    var_name: str, prompt_msg: str, *, required: bool = True
+) -> None:
+    """Check .env for *var_name*; if missing, prompt and write it."""
     import os
-    os.environ["LLM_API_KEY"] = key
-    conf.LLM_API_KEY = key
-    logger.info("LLM_API_KEY written to %s", ENV_FILE)
+
+    import linkedin.conf as conf
+
+    if getattr(conf, var_name, None):
+        return
+
+    print()
+    while True:
+        value = input(f"{prompt_msg}: ").strip()
+        if value or not required:
+            break
+        print(f"{var_name} cannot be empty. Please try again.")
+
+    if not value:
+        return
+
+    _write_env_var(var_name, value)
+
+    os.environ[var_name] = value
+    setattr(conf, var_name, value)
+    logger.info("%s written to %s", var_name, ENV_FILE)
+
+
+def _ensure_llm_config() -> None:
+    """Ensure all LLM-related env vars are set; prompt for missing ones."""
+    print()
+    print("Checking LLM configuration...")
+    _ensure_env_var(
+        "LLM_API_KEY",
+        "Enter your LLM API key (e.g. sk-...)",
+        required=True,
+    )
+    _ensure_env_var(
+        "AI_MODEL",
+        "Enter AI model name (e.g. gpt-4o, claude-sonnet-4-5-20250929)",
+        required=True,
+    )
+    _ensure_env_var(
+        "LLM_API_BASE",
+        "Enter LLM API base URL (leave empty for OpenAI default)",
+        required=False,
+    )
 
 
 def _onboard_campaign():
@@ -185,14 +214,13 @@ def _onboard_account(campaign):
 
 
 def ensure_onboarding() -> None:
-    """Ensure a Campaign and active LinkedInProfile exist in DB.
+    """Ensure LLM config, Campaign, and active LinkedInProfile exist.
 
-    If missing, runs interactive onboarding to create them.
-    Also ensures LLM_API_KEY is set in .env.
+    If missing, runs interactive prompts to configure them.
     """
     from linkedin.models import Campaign, LinkedInProfile
 
-    _ensure_llm_api_key()
+    _ensure_llm_config()
 
     campaign = Campaign.objects.first()
     if campaign is None:
