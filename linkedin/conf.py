@@ -39,8 +39,6 @@ ENV_FILE = ROOT_DIR / ".env"
 # ----------------------------------------------------------------------
 CAMPAIGN_CONFIG = {
     "check_pending_recheck_after_hours": 24,
-    "working_hours_start": "09:00",
-    "working_hours_end": "18:00",
     "enrich_min_interval": 1,
     "min_action_interval": 120,
     "qualification_entropy_threshold": 0.3,

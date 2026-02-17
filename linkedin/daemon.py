@@ -4,8 +4,6 @@ from __future__ import annotations
 import logging
 import random
 import time
-from datetime import datetime, timedelta
-
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
@@ -33,26 +31,6 @@ class LaneSchedule:
     def reschedule(self):
         jitter = random.uniform(0.8, 1.2)
         self.next_run = time.time() + self.base_interval * jitter
-
-
-def _parse_time(s: str) -> tuple[int, int]:
-    """Parse "HH:MM" -> (hour, minute)."""
-    h, m = s.split(":")
-    return int(h), int(m)
-
-
-def _in_working_hours(start: tuple[int, int], end: tuple[int, int]) -> bool:
-    now = datetime.now()
-    current = now.hour * 60 + now.minute
-    return (start[0] * 60 + start[1]) <= current < (end[0] * 60 + end[1])
-
-
-def _seconds_until_work_starts(start: tuple[int, int]) -> float:
-    now = datetime.now()
-    target = now.replace(hour=start[0], minute=start[1], second=0, microsecond=0)
-    if target <= now:
-        target += timedelta(days=1)
-    return (target - now).total_seconds()
 
 
 def _rebuild_analytics():
@@ -117,9 +95,6 @@ def run_daemon(session):
     follow_up_lane = FollowUpLane(session, follow_up_limiter)
     search_lane = SearchLane(session, qualifier)
 
-    # Working hours
-    wh_start = _parse_time(cfg["working_hours_start"])
-    wh_end = _parse_time(cfg["working_hours_end"])
     check_pending_interval = cfg["check_pending_recheck_after_hours"] * 3600
     min_enrich_interval = cfg["enrich_min_interval"]
     min_action_interval = cfg["min_action_interval"]
@@ -132,27 +107,12 @@ def run_daemon(session):
 
     logger.info(
         colored("Daemon started", "green", attrs=["bold"])
-        + " — working hours %s–%s, action interval %ds, check_pending every %.0fm",
-        cfg["working_hours_start"],
-        cfg["working_hours_end"],
+        + " — action interval %ds, check_pending every %.0fm",
         min_action_interval,
         check_pending_interval / 60,
     )
 
     while True:
-        # ── Working hours gate ──
-        if not _in_working_hours(wh_start, wh_end):
-            wait = _seconds_until_work_starts(wh_start)
-            logger.info(
-                colored("Outside working hours", "yellow")
-                + " — sleeping until %02d:%02d",
-                wh_start[0], wh_start[1],
-            )
-            time.sleep(wait)
-            for s in schedules:
-                s.next_run = time.time()  # fire immediately in new window
-            continue
-
         # ── Find soonest major action ──
         now = time.time()
         next_schedule = min(schedules, key=lambda s: s.next_run)

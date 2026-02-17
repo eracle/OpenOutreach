@@ -93,7 +93,7 @@ You need to provide your LinkedIn credentials and target profiles.
 ```bash
 make run
 ```
-The daemon priority-schedules five action lanes (connect, check pending, follow up, + enrich and qualify as gap-fillers) at a fixed pace within configurable working hours, with daily/weekly rate limits. Fully resumable — stop/restart anytime without losing progress.
+The daemon priority-schedules five action lanes (connect, check pending, follow up, + enrich and qualify as gap-fillers) at a fixed pace with daily/weekly rate limits. Fully resumable — stop/restart anytime without losing progress.
 
 ### 6. View Your Data (CRM Admin)
 
@@ -179,7 +179,7 @@ Book a **free 15-minute call** — I’d love to hear your needs and improve the
 
 ## 📖 Usage & Customization
 
-The daemon (`linkedin/daemon.py`) priority-schedules five action lanes across configurable working hours:
+The daemon (`linkedin/daemon.py`) priority-schedules five action lanes:
 
 | Lane | What it does | Rate limited? |
 |------|-------------|---------------|

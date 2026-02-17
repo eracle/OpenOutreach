@@ -5,7 +5,7 @@ workflow engine.
 
 ## High-Level Overview
 
-The system automates LinkedIn outreach through a daemon that schedules actions across configurable working hours:
+The system automates LinkedIn outreach through a daemon that schedules actions continuously:
 
 1. **Input**: A seed profile is loaded on startup, and new profiles are auto-discovered as the daemon navigates LinkedIn pages. When the pipeline has nothing left to process, LLM-generated search keywords are used to discover new profiles.
 2. **Enrichment**: The daemon scrapes detailed profile data via LinkedIn's internal Voyager API, stores it in the CRM, and computes embeddings.
@@ -37,8 +37,8 @@ States map to DjangoCRM Deal Stages via `db/crm_profiles.py:STATE_TO_STAGE`. The
 
 ## Daemon (`linkedin/daemon.py`)
 
-The daemon is the central orchestrator. It runs within configurable working hours (default 09:00-18:00,
-OS local timezone) and sleeps outside the window.
+The daemon is the central orchestrator. It runs continuously, pacing actions via configurable intervals
+and daily/weekly rate limiters.
 
 ### Scheduling
 
