@@ -32,11 +32,44 @@ CLOSING_REASONS = [
 LEAD_SOURCE_NAME = "LinkedIn Scraper"
 
 
+def ensure_campaign_pipeline(dept):
+    """Create standard stages, closing reasons, and lead source for a department.
+
+    Idempotent — safe to call multiple times for the same department.
+    """
+    from crm.models import Stage, ClosingReason, LeadSource
+
+    for index, name, is_default, is_success in STAGES:
+        Stage.objects.update_or_create(
+            name=name,
+            department=dept,
+            defaults={
+                "index_number": index,
+                "default": is_default,
+                "success_stage": is_success,
+            },
+        )
+
+    for index, name, is_success in CLOSING_REASONS:
+        ClosingReason.objects.update_or_create(
+            name=name,
+            department=dept,
+            defaults={
+                "index_number": index,
+                "success_reason": is_success,
+            },
+        )
+
+    LeadSource.objects.get_or_create(
+        name=LEAD_SOURCE_NAME,
+        department=dept,
+    )
+
+
 def setup_crm():
     from django.contrib.auth.models import Group
     from django.contrib.sites.models import Site
     from common.models import Department
-    from crm.models import Stage, ClosingReason, LeadSource
 
     # Ensure default Site exists
     Site.objects.get_or_create(id=1, defaults={"domain": "localhost", "name": "localhost"})
@@ -51,42 +84,9 @@ def setup_crm():
     else:
         logger.debug("Department already exists: %s", DEPARTMENT_NAME)
 
-    # 2. Create Deal Stages
-    for index, name, is_default, is_success in STAGES:
-        stage, created = Stage.objects.update_or_create(
-            name=name,
-            department=dept,
-            defaults={
-                "index_number": index,
-                "default": is_default,
-                "success_stage": is_success,
-            },
-        )
-        if created:
-            logger.info("Created stage: %s (index=%d)", name, index)
+    # 2. Create pipeline for main department
+    ensure_campaign_pipeline(dept)
 
-    # 3. Create ClosingReasons
-    for index, name, is_success in CLOSING_REASONS:
-        reason, created = ClosingReason.objects.update_or_create(
-            name=name,
-            department=dept,
-            defaults={
-                "index_number": index,
-                "success_reason": is_success,
-            },
-        )
-        if created:
-            logger.info("Created closing reason: %s", name)
-
-    # 4. Create LeadSource
-    source, created = LeadSource.objects.get_or_create(
-        name=LEAD_SOURCE_NAME,
-        department=dept,
-    )
-    if created:
-        logger.info("Created lead source: %s", LEAD_SOURCE_NAME)
-
-    _ensure_partner_pipeline()
     _check_legacy_stages(dept)
 
     logger.debug("CRM setup complete.")
@@ -117,39 +117,3 @@ def _check_legacy_stages(dept):
         summary,
     )
     sys.exit(1)
-
-
-def _ensure_partner_pipeline():
-    """Bootstrap partner outreach pipeline. Idempotent."""
-    from common.models import Department
-    from crm.models import Stage, ClosingReason, LeadSource
-
-    dept, created = Department.objects.get_or_create(name="Partner Outreach")
-    if created:
-        logger.log(5, "Created partner department")
-
-    for index, name, is_default, is_success in STAGES:
-        Stage.objects.update_or_create(
-            name=name,
-            department=dept,
-            defaults={
-                "index_number": index,
-                "default": is_default,
-                "success_stage": is_success,
-            },
-        )
-
-    for index, name, is_success in CLOSING_REASONS:
-        ClosingReason.objects.update_or_create(
-            name=name,
-            department=dept,
-            defaults={
-                "index_number": index,
-                "success_reason": is_success,
-            },
-        )
-
-    LeadSource.objects.get_or_create(
-        name="Partner Referral",
-        department=dept,
-    )

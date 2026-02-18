@@ -49,21 +49,16 @@ def _make_ticket() -> str:
     return uuid.uuid4().hex[:16]
 
 
-def _get_department():
-    from common.models import Department
-    return Department.objects.get(name="LinkedIn Outreach")
-
-
-def _get_stage(state: ProfileState):
+def _get_stage(state: ProfileState, session):
     from crm.models import Stage
-    dept = _get_department()
+    dept = session.campaign.department
     stage_name = STATE_TO_STAGE[state]
     return Stage.objects.get(name=stage_name, department=dept)
 
 
-def _get_lead_source():
+def _get_lead_source(session):
     from crm.models import LeadSource
-    dept = _get_department()
+    dept = session.campaign.department
     return LeadSource.objects.get(name="LinkedIn Scraper", department=dept)
 
 
@@ -123,8 +118,8 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optio
     lead = Lead.objects.create(
         website=clean_url,
         owner=session.django_user,
-        department=_get_department(),
-        lead_source=_get_lead_source(),
+        department=session.campaign.department,
+        lead_source=_get_lead_source(session),
     )
 
     _update_lead_fields(lead, profile)
@@ -196,15 +191,17 @@ def promote_lead_to_contact(session, public_id: str):
     lead.contact = contact
     lead.save()
 
+    dept = session.campaign.department
+
     # Create Deal at "New" stage
     deal = Deal.objects.create(
         name=f"LinkedIn: {public_id}",
         lead=lead,
         contact=contact,
         company=company,
-        stage=_get_stage(ProfileState.NEW),
+        stage=_get_stage(ProfileState.NEW, session),
         owner=session.django_user,
-        department=_get_department(),
+        department=dept,
         next_step="",
         next_step_date=date.today(),
         ticket=_make_ticket(),
@@ -300,7 +297,7 @@ def set_profile_state(
 
     ps = ProfileState(new_state)
     old_stage_name = deal.stage.name if deal.stage else None
-    new_stage = _get_stage(ps)
+    new_stage = _get_stage(ps, session)
     state_changed = (old_stage_name != new_stage.name)
 
     old_is_pending = (old_stage_name == STATE_TO_STAGE[ProfileState.PENDING])
@@ -317,7 +314,7 @@ def set_profile_state(
     if reason:
         deal.description = reason
 
-    dept = _get_department()
+    dept = session.campaign.department
 
     if ps == ProfileState.FAILED:
         closing = ClosingReason.objects.filter(
@@ -386,7 +383,7 @@ def get_qualified_profiles(session) -> list:
     """All Deals at 'New' stage for this user (qualified, ready for connect)."""
     from crm.models import Deal
 
-    stage = _get_stage(ProfileState.NEW)
+    stage = _get_stage(ProfileState.NEW, session)
     deals = Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
@@ -400,7 +397,7 @@ def count_qualified_profiles(session) -> int:
     """Count Deals at 'New' stage."""
     from crm.models import Deal
 
-    stage = _get_stage(ProfileState.NEW)
+    stage = _get_stage(ProfileState.NEW, session)
     return Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
@@ -417,7 +414,7 @@ def get_pending_profiles(session, recheck_after_hours: float) -> list:
     from crm.models import Deal
 
     now = timezone.now()
-    stage = _get_stage(ProfileState.PENDING)
+    stage = _get_stage(ProfileState.PENDING, session)
     all_deals = list(
         Deal.objects.filter(
             stage=stage,
@@ -470,7 +467,7 @@ def get_connected_profiles(session) -> list:
     """CONNECTED deals ready for follow-up."""
     from crm.models import Deal
 
-    stage = _get_stage(ProfileState.CONNECTED)
+    stage = _get_stage(ProfileState.CONNECTED, session)
     deals = list(
         Deal.objects.filter(
             stage=stage,
@@ -504,6 +501,63 @@ def get_updated_at_map(session: "AccountSession", public_identifiers: List[str])
 
     logger.debug("Retrieved updated_at for %d profiles from DB", len(result_map))
     return result_map
+
+
+# ── Promo campaign helpers ──
+
+
+def seed_promo_deals(session) -> int:
+    """Create deals in current campaign's department from disqualified leads with embeddings.
+
+    Returns the number of new deals created.
+    """
+    from crm.models import Lead, Deal
+    from linkedin.ml.embeddings import get_embedded_lead_ids
+
+    dept = session.campaign.department
+
+    disqualified_pks = set(
+        Lead.objects.filter(disqualified=True).values_list("pk", flat=True)
+    )
+    embedded_ids = get_embedded_lead_ids()
+    eligible_pks = sorted(disqualified_pks & embedded_ids)
+
+    if not eligible_pks:
+        return 0
+
+    from crm.models import Stage
+    stage = Stage.objects.filter(name="New", department=dept).first()
+    if stage is None:
+        return 0
+
+    created = 0
+    for lead_pk in eligible_pks:
+        lead = Lead.objects.filter(pk=lead_pk).first()
+        if not lead:
+            continue
+
+        # Skip if deal already exists in this department
+        if Deal.objects.filter(lead=lead, department=dept).exists():
+            continue
+
+        Deal.objects.create(
+            name=f"Promo: {url_to_public_id(lead.website) or lead.pk}",
+            lead=lead,
+            contact=lead.contact,
+            company=lead.company,
+            stage=stage,
+            owner=session.django_user,
+            department=dept,
+            next_step="",
+            next_step_date=date.today(),
+            ticket=_make_ticket(),
+        )
+        created += 1
+
+    if created:
+        logger.log(5, "Seeded %d promo deals in %s", created, dept.name)
+
+    return created
 
 
 # ── Internal helpers ──
@@ -562,7 +616,6 @@ def _attach_raw_data(lead, public_id: str, data: Dict[str, Any]):
 
 
 # ── Pure URL helpers (no DB dependency) ──
-
 def url_to_public_id(url: str) -> Optional[str]:
     """
     Strict LinkedIn public ID extractor:
@@ -617,149 +670,3 @@ def debug_profile_preview(enriched):
     pretty = json.dumps(enriched, indent=2, ensure_ascii=False, default=str)
     preview_lines = pretty.splitlines()[:3]
     logger.debug("=== ENRICHED PROFILE PREVIEW ===\n%s\n...", "\n".join(preview_lines))
-
-
-# ── Partner pipeline helpers ──
-
-_LVL = 5  # below DEBUG
-
-
-def _get_partner_department():
-    """Return the Partner Outreach department, bootstrapping if needed."""
-    from common.models import Department
-
-    dept = Department.objects.filter(name="Partner Outreach").first()
-    if dept is None:
-        from linkedin.management.setup_crm import _ensure_partner_pipeline
-        _ensure_partner_pipeline()
-        dept = Department.objects.get(name="Partner Outreach")
-    return dept
-
-
-def _get_partner_stage(state):
-    """Look up a Stage in the partner department."""
-    from crm.models import Stage
-
-    dept = _get_partner_department()
-    stage_name = STATE_TO_STAGE[state]
-    return Stage.objects.filter(name=stage_name, department=dept).first()
-
-
-def get_disqualified_leads_with_embeddings() -> list[int]:
-    """Lead PKs where disqualified=True AND have embeddings in DuckDB."""
-    from crm.models import Lead
-    from linkedin.ml.embeddings import get_embedded_lead_ids
-
-    disqualified_pks = set(
-        Lead.objects.filter(disqualified=True).values_list("pk", flat=True)
-    )
-    embedded_ids = get_embedded_lead_ids()
-    return sorted(disqualified_pks & embedded_ids)
-
-
-@transaction.atomic
-def create_partner_deal(session, lead_pk: int) -> bool:
-    """Create a Deal in the partner pipeline from an existing Lead. Returns True if created."""
-    from crm.models import Lead, Deal
-
-    dept = _get_partner_department()
-    lead = Lead.objects.filter(pk=lead_pk).first()
-    if not lead:
-        return False
-
-    # Skip if partner deal already exists for this lead
-    if Deal.objects.filter(lead=lead, department=dept).exists():
-        return False
-
-    stage = _get_partner_stage(ProfileState.NEW)
-    if stage is None:
-        return False
-
-    Deal.objects.create(
-        name=f"Partner: {url_to_public_id(lead.website) or lead.pk}",
-        lead=lead,
-        contact=lead.contact,
-        company=lead.company,
-        stage=stage,
-        owner=session.django_user,
-        department=dept,
-        next_step="",
-        next_step_date=date.today(),
-        ticket=_make_ticket(),
-    )
-    logger.log(_LVL, "Created partner deal for lead pk=%d", lead_pk)
-    return True
-
-
-def get_partner_deals(session, state) -> list:
-    """Partner Deals at the given state. Returns profile dicts."""
-    from crm.models import Deal
-
-    stage = _get_partner_stage(state)
-    if stage is None:
-        return []
-
-    dept = _get_partner_department()
-    deals = Deal.objects.filter(
-        stage=stage,
-        department=dept,
-        owner=session.django_user,
-    ).select_related("lead")
-
-    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
-
-
-def set_partner_deal_state(session, public_identifier: str, new_state, reason: str = ""):
-    """Move a partner Deal to the corresponding Stage. Logs at level 5."""
-    from crm.models import Deal, ClosingReason
-
-    dept = _get_partner_department()
-    clean_url = public_id_to_url(public_identifier)
-    deal = Deal.objects.filter(lead__website=clean_url, department=dept).first()
-    if not deal:
-        return
-
-    ps = new_state if isinstance(new_state, ProfileState) else ProfileState(new_state)
-    stage = _get_partner_stage(ps)
-    if stage is None:
-        return
-
-    deal.stage = stage
-    deal.change_stage_data(date.today())
-    deal.next_step_date = date.today()
-
-    if reason:
-        deal.description = reason
-
-    if ps == ProfileState.FAILED:
-        closing = ClosingReason.objects.filter(name="Failed", department=dept).first()
-        if closing:
-            deal.closing_reason = closing
-        deal.active = False
-
-    if ps == ProfileState.COMPLETED:
-        closing = ClosingReason.objects.filter(name="Completed", department=dept).first()
-        if closing:
-            deal.closing_reason = closing
-        from django.utils import timezone as tz
-        deal.win_closing_date = tz.now()
-
-    deal.save()
-    logger.log(_LVL, "Partner deal %s -> %s", public_identifier, ps.value)
-
-
-def _ensure_partner_campaign(kit_config: dict):
-    """Create or update a Campaign for the partner department. Returns Campaign or None."""
-    from linkedin.models import Campaign
-
-    dept = _get_partner_department()
-    campaign, _ = Campaign.objects.update_or_create(
-        department=dept,
-        defaults={
-            "product_docs": kit_config["product_docs"],
-            "campaign_objective": kit_config["campaign_objective"],
-            "followup_template": kit_config["followup_template"],
-            "booking_link": kit_config["booking_link"],
-        },
-    )
-    return campaign

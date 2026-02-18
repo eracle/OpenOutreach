@@ -13,6 +13,8 @@ class Campaign(models.Model):
     campaign_objective = models.TextField(blank=True)
     followup_template = models.TextField(blank=True)
     booking_link = models.URLField(max_length=500, blank=True)
+    is_promo = models.BooleanField(default=False)
+    action_fraction = models.FloatField(default=0.0)
 
     def __str__(self):
         return self.department.name
@@ -26,11 +28,6 @@ class LinkedInProfile(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name="linkedin_profile",
-    )
-    campaign = models.ForeignKey(
-        Campaign,
-        on_delete=models.CASCADE,
-        related_name="profiles",
     )
     linkedin_username = models.CharField(max_length=200)
     linkedin_password = models.CharField(max_length=200)

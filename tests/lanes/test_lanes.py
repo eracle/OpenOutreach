@@ -100,6 +100,8 @@ class TestConnectLaneExecute:
         _make_qualified(fake_session)
         rl = RateLimiter(daily_limit=10)
         scorer = BayesianQualifier(seed=42)
+        # Mock rank_profiles to return profiles in order (unfitted qualifier)
+        scorer.rank_profiles = lambda profiles, **kw: profiles
         return ConnectLane(fake_session, rl, scorer)
 
     @patch("linkedin.actions.connect.send_connection_request")

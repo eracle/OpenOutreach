@@ -17,11 +17,15 @@ class CheckPendingLane:
         self.session = session
         self.recheck_after_hours = recheck_after_hours
 
+    @property
+    def _log_level(self):
+        return 5 if getattr(self.session.campaign, "is_promo", False) else logging.INFO
+
     def can_execute(self) -> bool:
         return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0
 
     def execute(self):
-        logger.info(colored("▶ check_pending", "magenta", attrs=["bold"]))
+        logger.log(self._log_level, colored("▶ check_pending", "magenta", attrs=["bold"]))
         from crm.models import Deal
         from linkedin.actions.connection_status import get_connection_status
         from linkedin.db.crm_profiles import public_id_to_url

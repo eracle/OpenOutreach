@@ -135,6 +135,10 @@ def _onboard_campaign():
     booking_link = _prompt("Booking link (optional, e.g. https://cal.com/you)", default="")
 
     dept, _ = Department.objects.get_or_create(name=campaign_name)
+
+    from linkedin.management.setup_crm import ensure_campaign_pipeline
+    ensure_campaign_pipeline(dept)
+
     campaign = Campaign.objects.create(
         department=dept,
         product_docs=product_docs,
@@ -197,7 +201,6 @@ def _onboard_account(campaign):
 
     profile = LinkedInProfile.objects.create(
         user=user,
-        campaign=campaign,
         linkedin_username=username,
         linkedin_password=password,
         subscribe_newsletter=subscribe,

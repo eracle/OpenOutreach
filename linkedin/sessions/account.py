@@ -29,10 +29,12 @@ class AccountSession:
         self.handle = handle.strip().lower()
 
         self.linkedin_profile = LinkedInProfile.objects.select_related(
-            "user", "campaign", "campaign__department"
+            "user",
         ).get(user__username=self.handle)
         self.django_user = self.linkedin_profile.user
-        self.campaign = self.linkedin_profile.campaign
+
+        # Active campaign — set by the daemon before each lane execution
+        self.campaign = None
 
         self.account_cfg = {
             "handle": self.handle,
@@ -40,7 +42,6 @@ class AccountSession:
             "password": self.linkedin_profile.linkedin_password,
             "subscribe_newsletter": self.linkedin_profile.subscribe_newsletter,
             "active": self.linkedin_profile.active,
-            "booking_link": self.campaign.booking_link,
             "cookie_file": COOKIES_DIR / f"{self.handle}.json",
         }
 
@@ -49,6 +50,14 @@ class AccountSession:
         self.context = None
         self.browser = None
         self.playwright = None
+
+    @property
+    def campaigns(self):
+        """All campaigns this user belongs to (via group membership)."""
+        from linkedin.models import Campaign
+        return Campaign.objects.filter(
+            department__in=self.django_user.groups.all()
+        ).select_related("department")
 
     def ensure_browser(self):
         """Launch or recover browser + login if needed. Call before using .page"""
@@ -104,14 +113,3 @@ class AccountSession:
 
     def __repr__(self) -> str:
         return f"<AccountSession {self.handle}>"
-
-
-class _SessionProxy:
-    """Wraps a session with an alternate campaign."""
-
-    def __init__(self, base, campaign):
-        object.__setattr__(self, '_base', base)
-        object.__setattr__(self, 'campaign', campaign)
-
-    def __getattr__(self, name):
-        return getattr(self._base, name)

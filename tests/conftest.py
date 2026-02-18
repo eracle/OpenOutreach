@@ -23,19 +23,25 @@ def _ensure_crm_data(db):
 class FakeAccountSession:
     """Minimal stand-in for AccountSession — exposes django_user + campaign."""
 
-    def __init__(self, django_user, linkedin_profile):
+    def __init__(self, django_user, linkedin_profile, campaign):
         self.django_user = django_user
         self.handle = django_user.username
         self.linkedin_profile = linkedin_profile
-        self.campaign = linkedin_profile.campaign
+        self.campaign = campaign
         self.account_cfg = {
             "handle": self.handle,
             "username": linkedin_profile.linkedin_username,
             "password": linkedin_profile.linkedin_password,
             "subscribe_newsletter": linkedin_profile.subscribe_newsletter,
             "active": linkedin_profile.active,
-            "booking_link": self.campaign.booking_link,
         }
+
+    @property
+    def campaigns(self):
+        from linkedin.models import Campaign
+        return Campaign.objects.filter(
+            department__in=self.django_user.groups.all()
+        ).select_related("department")
 
     def ensure_browser(self):
         pass
@@ -59,13 +65,12 @@ def fake_session(db):
     linkedin_profile, _ = LinkedInProfile.objects.get_or_create(
         user=user,
         defaults={
-            "campaign": campaign,
             "linkedin_username": "testuser@example.com",
             "linkedin_password": "testpass",
         },
     )
 
-    return FakeAccountSession(django_user=user, linkedin_profile=linkedin_profile)
+    return FakeAccountSession(django_user=user, linkedin_profile=linkedin_profile, campaign=campaign)
 
 
 @pytest.fixture

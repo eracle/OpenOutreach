@@ -1,10 +1,9 @@
 # linkedin/ml/hub.py
-"""Partner campaign kit: download from HuggingFace, lazy-load, probabilistic hook."""
+"""Campaign kit: download from HuggingFace, lazy-load, promo campaign import."""
 from __future__ import annotations
 
 import json
 import logging
-import random
 from pathlib import Path
 from typing import Optional
 
@@ -112,115 +111,41 @@ def get_kit() -> Optional[dict]:
 
 
 # ------------------------------------------------------------------
-# Partner hook — called by daemon when action_fraction selects partner
+# Promo campaign import
 # ------------------------------------------------------------------
 
-def get_action_fraction() -> float:
-    """Return action_fraction from kit config, or 0.0 if no kit available."""
-    kit = get_kit()
-    if kit is None:
-        return 0.0
-    return float(kit["config"]["action_fraction"])
+def import_promo_campaign(kit_config: dict):
+    """Create or update a promo Campaign from kit config.
 
+    Creates the department, pipeline, and adds all active users to the group.
+    Returns the Campaign instance or None.
+    """
+    from common.models import Department
+    from linkedin.management.setup_crm import ensure_campaign_pipeline
+    from linkedin.models import Campaign, LinkedInProfile
 
-def after_action(session, connect_limiter=None, follow_up_limiter=None):
-    """Called by the daemon when a partner action slot is selected."""
-    kit = get_kit()
-    if kit is None:
-        return
+    dept_name = kit_config.get("campaign_name", "Partner Outreach")
+    dept, _ = Department.objects.get_or_create(name=dept_name)
 
-    _tick(session, kit, connect_limiter, follow_up_limiter)
+    ensure_campaign_pipeline(dept)
 
-
-# ------------------------------------------------------------------
-# Partner tick
-# ------------------------------------------------------------------
-
-def _tick(session, kit, connect_limiter, follow_up_limiter):
-    """Execute one partner action. Priority: follow_up > check_pending > connect."""
-    from linkedin.actions.connect import send_connection_request
-    from linkedin.actions.connection_status import get_connection_status
-    from linkedin.actions.message import send_follow_up_message
-    from linkedin.db.crm_profiles import (
-        create_partner_deal,
-        get_disqualified_leads_with_embeddings,
-        get_partner_deals,
-        set_partner_deal_state,
-        _ensure_partner_campaign,
+    campaign, _ = Campaign.objects.update_or_create(
+        department=dept,
+        defaults={
+            "product_docs": kit_config["product_docs"],
+            "campaign_objective": kit_config["campaign_objective"],
+            "followup_template": kit_config["followup_template"],
+            "booking_link": kit_config["booking_link"],
+            "is_promo": True,
+            "action_fraction": kit_config["action_fraction"],
+        },
     )
-    from linkedin.ml.qualifier import rank_with_external_model
-    from linkedin.navigation.enums import ProfileState
-    from linkedin.navigation.exceptions import ReachedConnectionLimit, SkipProfile
-    from linkedin.sessions.account import _SessionProxy
 
-    partner_campaign = _ensure_partner_campaign(kit["config"])
-    if partner_campaign is None:
-        return
+    # Add all active LinkedIn users to this department group
+    for lp in LinkedInProfile.objects.filter(active=True).select_related("user"):
+        if dept not in lp.user.groups.all():
+            lp.user.groups.add(dept)
 
-    proxy = _SessionProxy(session, partner_campaign)
-
-    # 1. Follow up CONNECTED partner deals
-    connected = get_partner_deals(session, ProfileState.CONNECTED)
-    if connected and (follow_up_limiter is None or follow_up_limiter.can_execute()):
-        candidate = connected[0]
-        public_id = candidate["public_identifier"]
-        profile = candidate.get("profile") or candidate
-        try:
-            message_text = send_follow_up_message(
-                session=proxy,
-                profile=profile,
-            )
-            if message_text is not None:
-                if follow_up_limiter:
-                    follow_up_limiter.record()
-                set_partner_deal_state(session, public_id, ProfileState.COMPLETED)
-                logger.log(_LVL, "Partner follow-up sent to %s", public_id)
-        except (SkipProfile, ReachedConnectionLimit):
-            logger.log(_LVL, "Partner follow-up skipped for %s", public_id, exc_info=True)
-        return
-
-    # 2. Check pending partner deals
-    pending = get_partner_deals(session, ProfileState.PENDING)
-    if pending:
-        candidate = pending[0]
-        public_id = candidate["public_identifier"]
-        profile = candidate.get("profile") or candidate
-        try:
-            new_state = get_connection_status(session, profile)
-            set_partner_deal_state(session, public_id, new_state)
-            logger.log(_LVL, "Partner check_pending %s -> %s", public_id, new_state.value)
-        except SkipProfile:
-            set_partner_deal_state(session, public_id, ProfileState.FAILED)
-            logger.log(_LVL, "Partner check_pending failed for %s", public_id, exc_info=True)
-        return
-
-    # 3. Connect: seed new deals from disqualified leads, then connect top-ranked
-    disqualified_ids = get_disqualified_leads_with_embeddings()
-    for lead_pk in disqualified_ids:
-        create_partner_deal(session, lead_pk)
-
-    new_deals = get_partner_deals(session, ProfileState.NEW)
-    if new_deals and (connect_limiter is None or connect_limiter.can_execute()):
-        ranked = rank_with_external_model(kit["model"], new_deals)
-        if not ranked:
-            return
-        candidate = ranked[0]
-        public_id = candidate["public_identifier"]
-        profile = candidate.get("profile") or candidate
-        try:
-            status = get_connection_status(session, profile)
-            if status in (ProfileState.CONNECTED, ProfileState.PENDING):
-                set_partner_deal_state(session, public_id, status)
-                return
-            result = send_connection_request(session=session, profile=profile)
-            set_partner_deal_state(session, public_id, result)
-            if result == ProfileState.PENDING and connect_limiter:
-                connect_limiter.record()
-            logger.log(_LVL, "Partner connect %s -> %s", public_id, result.value)
-        except ReachedConnectionLimit:
-            logger.log(_LVL, "Partner connect rate-limited", exc_info=True)
-            if connect_limiter:
-                connect_limiter.mark_daily_exhausted()
-        except SkipProfile:
-            set_partner_deal_state(session, public_id, ProfileState.FAILED)
-            logger.log(_LVL, "Partner connect skipped for %s", public_id, exc_info=True)
+    logger.log(_LVL, "Promo campaign imported: %s (action_fraction=%.2f)",
+               dept_name, kit_config["action_fraction"])
+    return campaign

@@ -116,7 +116,7 @@ class TestQualifyLaneAutoDecisions:
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
             patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
-            patch.object(qualifier, "predict", return_value=(0.95, 0.01)),
+            patch.object(qualifier, "predict", return_value=(0.95, 0.01, 0.01)),
             patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.db.crm_profiles.promote_lead_to_contact") as mock_promote,
@@ -128,7 +128,7 @@ class TestQualifyLaneAutoDecisions:
             mock_store.assert_called_once()
             call_args = mock_store.call_args
             assert call_args[1]["label"] == 1
-            assert "auto-accept" in call_args[1]["reason"]
+            assert "auto-accept" in call_args[1]["reason"].lower()
             mock_promote.assert_called_once_with(session, "alice")
             mock_disqualify.assert_not_called()
             mock_update.assert_called_once()
@@ -149,7 +149,7 @@ class TestQualifyLaneAutoDecisions:
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
             patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
-            patch.object(qualifier, "predict", return_value=(0.05, 0.01)),
+            patch.object(qualifier, "predict", return_value=(0.05, 0.01, 0.01)),
             patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label") as mock_store,
             patch("linkedin.db.crm_profiles.promote_lead_to_contact") as mock_promote,
@@ -161,7 +161,7 @@ class TestQualifyLaneAutoDecisions:
             mock_store.assert_called_once()
             call_args = mock_store.call_args
             assert call_args[1]["label"] == 0
-            assert "auto-reject" in call_args[1]["reason"]
+            assert "auto-reject" in call_args[1]["reason"].lower()
             mock_disqualify.assert_called_once()
             mock_promote.assert_not_called()
             mock_update.assert_called_once()
@@ -183,7 +183,7 @@ class TestQualifyLaneAutoDecisions:
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
             patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
             # prob=0.50, entropy=0.693 (max), well above threshold
-            patch.object(qualifier, "predict", return_value=(0.50, 0.693)),
+            patch.object(qualifier, "predict", return_value=(0.50, 0.693, 0.5)),
             patch.object(QualifyLane, "_get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_profile_llm", return_value=(1, "Good fit")) as mock_llm,
             patch.object(qualifier, "update") as mock_update,
@@ -244,7 +244,7 @@ class TestQualifyLaneAutoDecisions:
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
             patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
-            patch.object(qualifier, "predict", return_value=(0.95, 0.01)),
+            patch.object(qualifier, "predict", return_value=(0.95, 0.01, 0.01)),
             patch.object(qualifier, "update"),
             patch("linkedin.ml.embeddings.store_label"),
             patch("linkedin.db.crm_profiles.promote_lead_to_contact",
@@ -273,7 +273,7 @@ class TestQualifyLaneAutoDecisions:
         with (
             patch.object(QualifyLane, "_embed_next_profile", return_value=False),
             patch("linkedin.ml.embeddings.get_all_unlabeled_embeddings", return_value=[candidate]),
-            patch.object(qualifier, "predict", return_value=(0.95, 0.01)),
+            patch.object(qualifier, "predict", return_value=(0.95, 0.01, 0.01)),
             patch.object(qualifier, "update") as mock_update,
             patch("linkedin.ml.embeddings.store_label"),
             patch("linkedin.db.crm_profiles.promote_lead_to_contact"),

@@ -16,6 +16,10 @@ class FollowUpLane:
         self.session = session
         self.rate_limiter = rate_limiter
 
+    @property
+    def _log_level(self):
+        return 5 if getattr(self.session.campaign, "is_promo", False) else logging.INFO
+
     def can_execute(self) -> bool:
         return (
             self.rate_limiter.can_execute()
@@ -23,7 +27,7 @@ class FollowUpLane:
         )
 
     def execute(self):
-        logger.info(colored("▶ follow_up", "green", attrs=["bold"]))
+        logger.log(self._log_level, colored("▶ follow_up", "green", attrs=["bold"]))
         from linkedin.actions.message import send_follow_up_message
 
         profiles = get_connected_profiles(self.session)

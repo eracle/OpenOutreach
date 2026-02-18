@@ -281,13 +281,17 @@ class BayesianQualifier:
     # Ranking for connect lane
     # ------------------------------------------------------------------
 
-    def rank_profiles(self, profiles: list) -> list:
+    def rank_profiles(self, profiles: list, pipeline=None) -> list:
         """Rank QUALIFIED profiles by predicted acceptance probability (descending).
 
-        Raises if the model is not fitted or any profile lacks an embedding.
+        If *pipeline* is provided, use it instead of the internal model.
+        Raises if no model is available or any profile lacks an embedding.
         """
         if not profiles:
             return []
+
+        if pipeline is not None:
+            return self._rank_with_pipeline(pipeline, profiles)
 
         if not self._ensure_fitted():
             raise RuntimeError(
@@ -305,6 +309,24 @@ class BayesianQualifier:
             scored.append((prob, p))
         scored.sort(key=lambda t: t[0], reverse=True)
         return [p for _, p in scored]
+
+    def _rank_with_pipeline(self, pipeline, profiles: list) -> list:
+        """Rank profiles using an external pipeline. Profiles without embeddings are skipped."""
+        scored = []
+        for p in profiles:
+            emb = self._get_embedding(p)
+            if emb is None:
+                continue
+            scored.append((p, emb))
+
+        if not scored:
+            return []
+
+        X = np.array([emb for _, emb in scored], dtype=np.float64)
+        probs = np.clip(pipeline.predict(X), 0.0, 1.0)
+
+        ranked = sorted(zip(probs, [p for p, _ in scored]), key=lambda t: t[0], reverse=True)
+        return [p for _, p in ranked]
 
     # ------------------------------------------------------------------
     # Explain
@@ -360,40 +382,3 @@ class BayesianQualifier:
         if row:
             return np.array(row[0], dtype=np.float32)
         return None
-
-
-# ---------------------------------------------------------------------------
-# External model ranking (partner campaign)
-# ---------------------------------------------------------------------------
-
-def rank_with_external_model(pipeline, profiles: list) -> list:
-    """Rank profiles by pre-trained pipeline. Profiles without embeddings are skipped."""
-    from linkedin.ml.embeddings import _connect
-
-    if not profiles:
-        return []
-
-    # Look up embeddings from DuckDB
-    scored = []
-    con = _connect(read_only=True)
-    for p in profiles:
-        public_id = p.get("public_identifier")
-        if not public_id:
-            continue
-        row = con.execute(
-            "SELECT embedding FROM profile_embeddings WHERE public_identifier = ?",
-            [public_id],
-        ).fetchone()
-        if row is None:
-            continue
-        scored.append((p, np.array(row[0], dtype=np.float64)))
-    con.close()
-
-    if not scored:
-        return []
-
-    X = np.array([emb for _, emb in scored], dtype=np.float64)
-    probs = np.clip(pipeline.predict(X), 0.0, 1.0)
-
-    ranked = sorted(zip(probs, [p for p, _ in scored]), key=lambda t: t[0], reverse=True)
-    return [p for _, p in ranked]
