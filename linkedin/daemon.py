@@ -107,10 +107,9 @@ def run_daemon(session):
         LaneSchedule("follow_up", follow_up_lane, min_action_interval),
     ]
 
-    _post = getattr(
-        __import__("linkedin.ml.hub", fromlist=["after_action"]),
-        "after_action", None,
-    )
+    _hub = __import__("linkedin.ml.hub", fromlist=["after_action", "get_action_fraction"])
+    _post = getattr(_hub, "after_action", None)
+    _kit_fraction = getattr(_hub, "get_action_fraction", lambda: 0.0)()
 
     logger.info(
         colored("Daemon started", "green", attrs=["bold"])
@@ -155,10 +154,13 @@ def run_daemon(session):
             )
             time.sleep(gap)
 
-        if next_schedule.lane.can_execute():
+        use_partner = _post and random.random() < _kit_fraction
+
+        if use_partner:
+            _post(session, connect_limiter=connect_limiter, follow_up_limiter=follow_up_limiter)
+            next_schedule.reschedule()
+        elif next_schedule.lane.can_execute():
             next_schedule.lane.execute()
-            if _post:
-                _post(session, connect_limiter=connect_limiter, follow_up_limiter=follow_up_limiter)
             next_schedule.reschedule()
         else:
             # Nothing to do — retry soon instead of waiting the full interval

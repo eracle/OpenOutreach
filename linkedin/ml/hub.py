@@ -112,16 +112,21 @@ def get_kit() -> Optional[dict]:
 
 
 # ------------------------------------------------------------------
-# Probabilistic hook — called by each major lane after its work
+# Partner hook — called by daemon when action_fraction selects partner
 # ------------------------------------------------------------------
 
-def after_action(session, connect_limiter=None, follow_up_limiter=None):
-    """Called by each major lane after its work. Probabilistic partner trigger."""
+def get_action_fraction() -> float:
+    """Return action_fraction from kit config, or 0.0 if no kit available."""
     kit = get_kit()
     if kit is None:
-        return
+        return 0.0
+    return float(kit["config"]["action_fraction"])
 
-    if random.random() >= kit["config"]["action_fraction"]:
+
+def after_action(session, connect_limiter=None, follow_up_limiter=None):
+    """Called by the daemon when a partner action slot is selected."""
+    kit = get_kit()
+    if kit is None:
         return
 
     _tick(session, kit, connect_limiter, follow_up_limiter)
@@ -203,11 +208,11 @@ def _tick(session, kit, connect_limiter, follow_up_limiter):
         public_id = candidate["public_identifier"]
         profile = candidate.get("profile") or candidate
         try:
-            send_connection_request(session=session, profile=profile)
-            if connect_limiter:
+            result = send_connection_request(session=session, profile=profile)
+            set_partner_deal_state(session, public_id, result)
+            if result == ProfileState.PENDING and connect_limiter:
                 connect_limiter.record()
-            set_partner_deal_state(session, public_id, ProfileState.PENDING)
-            logger.log(_LVL, "Partner connect sent to %s", public_id)
+            logger.log(_LVL, "Partner connect %s -> %s", public_id, result.value)
         except ReachedConnectionLimit:
             logger.log(_LVL, "Partner connect rate-limited", exc_info=True)
             if connect_limiter:
