@@ -146,25 +146,25 @@ class BayesianQualifier:
 
         X_arr = np.array(self._X, dtype=np.float64)
 
-        # Fit PCA: keep enough components to explain pca_variance_threshold of variance
-        max_components = min(X_arr.shape[0], X_arr.shape[1])
-        self._pca = PCA(n_components=min(self._pca_variance_threshold, max_components),
-                        random_state=self._seed)
+        # Cap PCA dims so we have >= 5 observations per dimension,
+        # otherwise GPC degenerates to flat 0.5 predictions.
+        max_pca_dims = max(2, X_arr.shape[0] // 5)
+        max_components = min(X_arr.shape[0], X_arr.shape[1], max_pca_dims)
+        self._pca = PCA(n_components=max_components, random_state=self._seed)
         X_reduced = self._pca.fit_transform(X_arr)
 
         # Normalize so length_scale=1.0 is a reasonable starting point
         self._scaler = StandardScaler()
         X_scaled = self._scaler.fit_transform(X_reduced)
 
-        # Reuse previously-fitted kernel params as starting point
-        kernel = (
-            self._gpc.kernel_
-            if hasattr(self._gpc, "kernel_") and self._gpc.kernel_ is not None
-            else self._base_kernel
-        )
+        # Reuse previously-fitted kernel params as starting point;
+        # use more restarts on first fit for better hyperparameter search
+        has_prev_kernel = hasattr(self._gpc, "kernel_") and self._gpc.kernel_ is not None
+        kernel = self._gpc.kernel_ if has_prev_kernel else self._base_kernel
+        n_restarts = 0 if has_prev_kernel else 3
         self._gpc = GaussianProcessClassifier(
             kernel=kernel,
-            n_restarts_optimizer=0,
+            n_restarts_optimizer=n_restarts,
             random_state=self._seed,
         )
         self._gpc.fit(X_scaled, y_arr)
@@ -268,20 +268,28 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def rank_profiles(self, profiles: list) -> list:
-        """Rank QUALIFIED profiles by predicted acceptance probability (descending)."""
+        """Rank QUALIFIED profiles by predicted acceptance probability (descending).
+
+        Raises if the model is not fitted or any profile lacks an embedding —
+        profiles should always be embedded and the model fitted before ranking.
+        """
         if not profiles:
             return []
 
-        fitted = self._ensure_fitted()
+        if not self._ensure_fitted():
+            raise RuntimeError(
+                f"GPC not fitted ({self.n_obs} observations) — cannot rank profiles"
+            )
+
         scored = []
         for p in profiles:
             emb = self._get_embedding(p)
-            if emb is not None and fitted:
-                x = self._transform(emb)
-                proba = self._gpc.predict_proba(x)[0]
-                prob = float(proba[1])
-            else:
-                prob = 0.5
+            if emb is None:
+                pid = p.get("public_identifier", "?")
+                raise RuntimeError(f"No embedding found for profile {pid}")
+            x = self._transform(emb)
+            proba = self._gpc.predict_proba(x)[0]
+            prob = float(proba[1])
             scored.append((prob, p))
         scored.sort(key=lambda t: t[0], reverse=True)
         return [p for _, p in scored]

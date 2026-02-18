@@ -138,8 +138,8 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optio
 
 
 def disqualify_lead(session, public_id: str, reason: str = ""):
-    """Set Lead.disqualified = True."""
-    from crm.models import Lead
+    """Set Lead.disqualified = True and delete any existing Deal."""
+    from crm.models import Lead, Deal
 
     clean_url = public_id_to_url(public_id)
     lead = Lead.objects.filter(website=clean_url).first()
@@ -151,6 +151,8 @@ def disqualify_lead(session, public_id: str, reason: str = ""):
     if reason:
         lead.description = lead.description or ""
     lead.save()
+
+    Deal.objects.filter(lead=lead, owner=session.django_user).delete()
 
     color_label = colored("DISQUALIFIED", "red", attrs=["bold"])
     suffix = f" ({reason})" if reason else ""
@@ -388,6 +390,7 @@ def get_qualified_profiles(session) -> list:
     deals = Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
+        lead__disqualified=False,
     ).select_related("lead")
 
     return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
