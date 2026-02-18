@@ -20,7 +20,7 @@ from linkedin.management.setup_crm import setup_crm
 
 logging.getLogger().handlers.clear()
 logging.basicConfig(
-    level=5,
+    level=logging.DEBUG,
     format="%(message)s",
 )
 

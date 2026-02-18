@@ -7,7 +7,6 @@ from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import get_connected_profiles, set_profile_state, save_chat_message
 from linkedin.navigation.enums import ProfileState
 from linkedin.rate_limiter import RateLimiter
-from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +24,6 @@ class FollowUpLane:
     def _log_level(self):
         return PARTNER_LOG_LEVEL if self._is_partner else logging.INFO
 
-    @property
-    def _color(self):
-        return "yellow" if self._is_partner else "green"
-
     def can_execute(self) -> bool:
         return (
             self.rate_limiter.can_execute()
@@ -36,7 +31,8 @@ class FollowUpLane:
         )
 
     def execute(self):
-        logger.log(self._log_level, colored("▶ follow_up", self._color, attrs=["bold"]))
+        tag = "[Partner] " if self._is_partner else ""
+        logger.log(self._log_level, "%s▶ follow_up", tag)
         from linkedin.actions.message import send_follow_up_message
 
         profiles = get_connected_profiles(self.session)

@@ -13,7 +13,6 @@ from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
 from linkedin.rate_limiter import RateLimiter
 from linkedin.ml.qualifier import BayesianQualifier
-from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
@@ -34,15 +33,12 @@ class ConnectLane:
     def _log_level(self):
         return PARTNER_LOG_LEVEL if self._is_partner else logging.INFO
 
-    @property
-    def _color(self):
-        return "yellow" if self._is_partner else "cyan"
-
     def can_execute(self) -> bool:
         return self.rate_limiter.can_execute() and count_qualified_profiles(self.session) > 0
 
     def execute(self):
-        logger.log(self._log_level, colored("▶ connect", self._color, attrs=["bold"]))
+        tag = "[Partner] " if self._is_partner else ""
+        logger.log(self._log_level, "%s▶ connect", tag)
         from linkedin.actions.connect import send_connection_request
         from linkedin.actions.connection_status import get_connection_status
 
@@ -59,7 +55,8 @@ class ConnectLane:
         from linkedin.ml.embeddings import get_qualification_reason
         reason = get_qualification_reason(public_id)
         if reason:
-            logger.log(self._log_level, "Qualify motivation for %s: \n%s", public_id, reason)
+            tag = "[Partner] " if self._is_partner else ""
+            logger.log(self._log_level, "%sQualify motivation for %s: \n%s", tag, public_id, reason)
 
         explanation = self.qualifier.explain_profile(candidate)
         logger.debug("ML explanation for %s:\n%s", public_id, explanation)

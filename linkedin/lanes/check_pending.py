@@ -8,7 +8,6 @@ from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import get_pending_profiles, set_profile_state
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile
-from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +25,12 @@ class CheckPendingLane:
     def _log_level(self):
         return PARTNER_LOG_LEVEL if self._is_partner else logging.INFO
 
-    @property
-    def _color(self):
-        return "yellow" if self._is_partner else "white"
-
     def can_execute(self) -> bool:
         return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0
 
     def execute(self):
-        logger.log(self._log_level, colored("▶ check_pending", self._color, attrs=["bold"]))
+        tag = "[Partner] " if self._is_partner else ""
+        logger.log(self._log_level, "%s▶ check_pending", tag)
         from crm.models import Deal
         from linkedin.actions.connection_status import get_connection_status
         from linkedin.db.crm_profiles import public_id_to_url

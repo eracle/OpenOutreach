@@ -34,10 +34,10 @@ def download_kit(revision: str = "v1") -> Optional[Path]:
             revision=revision,
             local_dir=str(_KIT_DIR),
         )
-        logger.log(PARTNER_LOG_LEVEL, "Kit downloaded to %s", path)
+        logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit downloaded to %s", path)
         return Path(path)
     except Exception:
-        logger.log(PARTNER_LOG_LEVEL, "Kit download failed", exc_info=True)
+        logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit download failed", exc_info=True)
         return None
 
 
@@ -51,13 +51,13 @@ def load_kit_config(kit_dir: Path) -> Optional[dict]:
                      "booking_link", "followup_template")
         for key in required:
             if key not in data:
-                logger.log(PARTNER_LOG_LEVEL, "Kit config missing key: %s", key)
+                logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit config missing key: %s", key)
                 return None
 
-        logger.log(PARTNER_LOG_LEVEL, "Kit config loaded (action_fraction=%.2f)", data["action_fraction"])
+        logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit config loaded (action_fraction=%.2f)", data["action_fraction"])
         return data
     except Exception:
-        logger.log(PARTNER_LOG_LEVEL, "Kit config load failed", exc_info=True)
+        logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit config load failed", exc_info=True)
         return None
 
 
@@ -73,13 +73,13 @@ def load_kit_model(kit_dir: Path):
         model = joblib.load(kit_dir / "model.joblib")
 
         if not hasattr(model, "predict"):
-            logger.log(PARTNER_LOG_LEVEL, "Kit model has no predict() method")
+            logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit model has no predict() method")
             return None
 
-        logger.log(PARTNER_LOG_LEVEL, "Kit model loaded (%s)", type(model).__name__)
+        logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit model loaded (%s)", type(model).__name__)
         return model
     except Exception:
-        logger.log(PARTNER_LOG_LEVEL, "Kit model load failed", exc_info=True)
+        logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit model load failed", exc_info=True)
         return None
 
 
@@ -144,7 +144,6 @@ def import_partner_campaign(kit_config: dict):
         if dept not in lp.user.groups.all():
             lp.user.groups.add(dept)
 
-    from termcolor import colored
-    logger.log(PARTNER_LOG_LEVEL, colored("Campaign imported: %s (action_fraction=%.2f)", "yellow", attrs=["bold"]),
+    logger.log(PARTNER_LOG_LEVEL, "[Partner] Campaign imported: %s (action_fraction=%.2f)",
                dept_name, kit_config["action_fraction"])
     return campaign

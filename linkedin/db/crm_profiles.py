@@ -559,7 +559,7 @@ def seed_partner_deals(session) -> int:
         created += 1
 
     if created:
-        logger.log(PARTNER_LOG_LEVEL, colored("Seeded %d partner deals in %s", "yellow", attrs=["bold"]), created, dept.name)
+        logger.log(PARTNER_LOG_LEVEL, "[Partner] Seeded %d partner deals in %s", created, dept.name)
 
     return created
 
