@@ -21,8 +21,7 @@ from linkedin.management.setup_crm import setup_crm
 logging.getLogger().handlers.clear()
 logging.basicConfig(
     level=5,
-    format="%(asctime)s  %(message)s",
-    datefmt="%H:%M:%S",
+    format="%(message)s",
 )
 
 # Suppress noisy third-party loggers

@@ -45,8 +45,7 @@ if __name__ == "__main__":
     logging.getLogger().handlers.clear()
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(asctime)s │ %(levelname)-8s │ %(message)s',
-        datefmt="%H:%M:%S",
+        format='%(levelname)-8s │ %(message)s',
     )
 
     if len(sys.argv) != 2:
