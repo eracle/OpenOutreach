@@ -1,5 +1,5 @@
 # linkedin/ml/qualifier.py
-"""GPC-based qualifier: BALD active learning via GP latent posterior."""
+"""GP Regression qualifier: BALD active learning via exact GP posterior."""
 from __future__ import annotations
 
 import logging
@@ -52,12 +52,6 @@ def qualify_profile_llm(profile_text: str, product_docs: str, campaign_objective
 # Numerics
 # ---------------------------------------------------------------------------
 
-def _sigmoid(x):
-    """Numerically stable sigmoid, works for scalars and arrays."""
-    x = np.asarray(x, dtype=np.float64)
-    return np.where(x >= 0, 1.0 / (1.0 + np.exp(-x)), np.exp(x) / (1.0 + np.exp(x)))
-
-
 def _binary_entropy(p):
     """H(p) = -p log p - (1-p) log(1-p), safe for edge values."""
     p = np.asarray(p, dtype=np.float64)
@@ -66,40 +60,35 @@ def _binary_entropy(p):
 
 
 # ---------------------------------------------------------------------------
-# BayesianQualifier  (GPC backend)
+# BayesianQualifier  (GP Regression backend)
 # ---------------------------------------------------------------------------
 
 class BayesianQualifier:
-    """Gaussian Process Classifier for active learning qualification.
+    """Gaussian Process Regressor for active learning qualification.
 
-    Uses sklearn GaussianProcessClassifier with RBF kernel for non-linear
-    probabilistic classification of profile embeddings.  BALD (Bayesian
-    Active Learning by Disagreement) scores are computed via MC sampling
-    from the GP latent posterior for candidate selection; predictive entropy
+    Uses sklearn GaussianProcessRegressor with RBF kernel on 0/1 labels.
+    GPR provides an exact closed-form posterior (no Laplace approximation),
+    avoiding the degenerate-0.5 problem that plagues GPC on weakly
+    separable embedding data.  Predictions are clipped to [0, 1] for
+    probability interpretation.
+
+    BALD scores are computed via MC sampling from the GP posterior
+    f ~ N(f_mean, f_std) for candidate selection; predictive entropy
     gates auto-decisions vs LLM queries.
 
-    Training data is accumulated incrementally; the GPC is lazily re-fitted
-    (on ALL accumulated data) whenever predictions are requested after new
-    labels arrive.  This is identical in accuracy to refitting after every
-    label — "lazy" just avoids redundant fits between prediction calls.
+    PCA dimensionality is selected via leave-one-out cross-validation
+    (GPR provides analytical LOO log-likelihood) on each refit.
+
+    Training data is accumulated incrementally; the GPR is lazily
+    re-fitted on ALL accumulated data whenever predictions are needed.
     """
 
-    def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100,
-                 pca_variance_threshold: float = 0.95):
-        from sklearn.gaussian_process import GaussianProcessClassifier
-        from sklearn.gaussian_process.kernels import ConstantKernel, RBF
-
+    def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100):
         self.embedding_dim = embedding_dim
         self._seed = seed
         self._n_mc_samples = n_mc_samples
-        self._pca_variance_threshold = pca_variance_threshold
-        self._base_kernel = ConstantKernel(1.0) * RBF(length_scale=1.0)
-        self._gpc = GaussianProcessClassifier(
-            kernel=self._base_kernel,
-            n_restarts_optimizer=0,
-            random_state=seed,
-        )
-        self._pca = None  # fitted in _ensure_fitted()
+        self._gpr = None   # created fresh in _ensure_fitted()
+        self._pca = None   # fitted in _ensure_fitted()
         self._scaler = None  # fitted in _ensure_fitted()
         self._X: list[np.ndarray] = []
         self._y: list[int] = []
@@ -127,51 +116,61 @@ class BayesianQualifier:
         self._fitted = False
 
     # ------------------------------------------------------------------
-    # Lazy refit
+    # Lazy refit with PCA CV
     # ------------------------------------------------------------------
 
     def _ensure_fitted(self) -> bool:
-        """Fit PCA + GPC if dirty and feasible.  Returns True when model is usable."""
+        """Fit PCA + GPR if dirty and feasible.  Returns True when model is usable."""
         if self._fitted:
             return True
         if len(self._y) < 2:
             return False
-        y_arr = np.array(self._y)
+        y_arr = np.array(self._y, dtype=np.float64)
         if len(np.unique(y_arr)) < 2:
-            return False  # GPC needs both classes
+            return False  # need both classes
 
         from sklearn.decomposition import PCA
-        from sklearn.gaussian_process import GaussianProcessClassifier
+        from sklearn.gaussian_process import GaussianProcessRegressor
+        from sklearn.gaussian_process.kernels import ConstantKernel, RBF
         from sklearn.preprocessing import StandardScaler
 
         X_arr = np.array(self._X, dtype=np.float64)
+        n = X_arr.shape[0]
 
-        # Cap PCA dims so we have >= 5 observations per dimension,
-        # otherwise GPC degenerates to flat 0.5 predictions.
-        max_pca_dims = max(2, X_arr.shape[0] // 5)
-        max_components = min(X_arr.shape[0], X_arr.shape[1], max_pca_dims)
-        self._pca = PCA(n_components=max_components, random_state=self._seed)
-        X_reduced = self._pca.fit_transform(X_arr)
+        # Select PCA dims via GPR log-marginal-likelihood (analytical LOO proxy)
+        max_dims = min(n - 1, X_arr.shape[1])
+        candidates = sorted({d for d in [2, 4, 6, 10, 15, 20] if d <= max_dims})
+        if not candidates:
+            candidates = [max_dims]
 
-        # Normalize so length_scale=1.0 is a reasonable starting point
-        self._scaler = StandardScaler()
-        X_scaled = self._scaler.fit_transform(X_reduced)
+        best_lml = -np.inf
+        best_config = None
 
-        # Reuse previously-fitted kernel params as starting point;
-        # use more restarts on first fit for better hyperparameter search
-        has_prev_kernel = hasattr(self._gpc, "kernel_") and self._gpc.kernel_ is not None
-        kernel = self._gpc.kernel_ if has_prev_kernel else self._base_kernel
-        n_restarts = 0 if has_prev_kernel else 3
-        self._gpc = GaussianProcessClassifier(
-            kernel=kernel,
-            n_restarts_optimizer=n_restarts,
-            random_state=self._seed,
-        )
-        self._gpc.fit(X_scaled, y_arr)
+        for n_pca in candidates:
+            pca = PCA(n_components=n_pca, random_state=self._seed)
+            Xr = pca.fit_transform(X_arr)
+            sc = StandardScaler()
+            Xs = sc.fit_transform(Xr)
+
+            kernel = ConstantKernel(1.0) * RBF(length_scale=np.sqrt(n_pca))
+            gpr = GaussianProcessRegressor(
+                kernel=kernel,
+                n_restarts_optimizer=3,
+                random_state=self._seed,
+                alpha=0.1,
+            )
+            gpr.fit(Xs, y_arr)
+            lml = gpr.log_marginal_likelihood_value_
+            if lml > best_lml:
+                best_lml = lml
+                best_config = (n_pca, pca, sc, gpr)
+
+        n_pca, self._pca, self._scaler, self._gpr = best_config
         self._fitted = True
-        logger.debug("GPC fitted on %d observations (%d PCA dims, %.1f%% variance)",
-                     len(y_arr), self._pca.n_components_,
-                     100 * self._pca.explained_variance_ratio_.sum())
+        logger.debug("GPR fitted on %d observations (%d PCA dims, %.1f%% variance, LML=%.2f)",
+                     n, self._pca.n_components_,
+                     100 * self._pca.explained_variance_ratio_.sum(),
+                     best_lml)
         return True
 
     def _transform(self, X: np.ndarray) -> np.ndarray:
@@ -188,63 +187,45 @@ class BayesianQualifier:
     def predict(self, embedding: np.ndarray) -> tuple[float, float] | None:
         """Return (predictive_prob, predictive_entropy) for a single embedding.
 
-        Returns None when the model cannot be fitted yet (cold start:
-        fewer than 2 labels or only one class present).
+        Probability is GPR mean clipped to [0, 1].
+        Returns None when the model cannot be fitted yet.
         """
         if not self._ensure_fitted():
             return None
 
         x = self._transform(embedding)
-        proba = self._gpc.predict_proba(x)[0]
-        p = float(proba[1])
+        mean, std = self._gpr.predict(x, return_std=True)
+        p = float(np.clip(mean[0], 0.0, 1.0))
         entropy = float(_binary_entropy(p))
         return p, entropy
 
     # ------------------------------------------------------------------
-    # BALD acquisition via GP latent posterior
+    # BALD acquisition via GP posterior
     # ------------------------------------------------------------------
-
-    def _latent_f(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Extract GP posterior mean and variance of latent f(x) at test points.
-
-        Uses the fitted GPC's internal Laplace approximation attributes.
-        X should already be PCA-transformed.
-        Returns (f_mean, f_var) each of shape (N,).
-        """
-        from scipy.linalg import solve_triangular
-
-        base = self._gpc.base_estimator_
-        K_star = base.kernel_(X, base.X_train_)
-        f_mean = K_star.dot(base.y_train_ - base.pi_)
-        v = solve_triangular(base.L_, base.W_sr_[:, np.newaxis] * K_star.T, lower=True)
-        f_var = base.kernel_.diag(X) - np.einsum("ij,ij->j", v, v)
-        f_var = np.maximum(f_var, 1e-10)
-        return f_mean, f_var
 
     def bald_scores(self, embeddings: np.ndarray) -> np.ndarray | None:
         """BALD scores for (N, embedding_dim) candidates.
 
-        BALD = H(E[p]) - E[H(p)], computed by MC-sampling from the GP
-        latent posterior f ~ N(f_mean, f_var) and pushing through sigmoid.
+        BALD = H(E[p]) - E[H(p)], computed by MC-sampling from the
+        exact GP posterior f ~ N(mean, std) and clipping to [0, 1].
         Higher BALD = model disagrees with itself most = most informative.
 
-        Returns None when the model cannot be fitted yet (caller should
-        fall back to FIFO ordering).
+        Returns None when the model cannot be fitted yet.
         """
         if not self._ensure_fitted():
             return None
 
         X = self._transform(embeddings)
-        f_mean, f_var = self._latent_f(X)
+        f_mean, f_std = self._gpr.predict(X, return_std=True)
 
-        # MC sample: (M, N) latent function draws
+        # MC sample: (M, N) draws from GP posterior
         f_samples = (
             f_mean[np.newaxis, :]
-            + np.sqrt(f_var)[np.newaxis, :] * self._rng.randn(self._n_mc_samples, len(X))
+            + f_std[np.newaxis, :] * self._rng.randn(self._n_mc_samples, len(X))
         )
-        p_samples = _sigmoid(f_samples)  # (M, N)
+        p_samples = np.clip(f_samples, 0.0, 1.0)
 
-        p_pred = p_samples.mean(axis=0)  # (N,)
+        p_pred = p_samples.mean(axis=0)
         H_pred = _binary_entropy(p_pred)
         H_individual = _binary_entropy(p_samples).mean(axis=0)
         return H_pred - H_individual
@@ -261,7 +242,8 @@ class BayesianQualifier:
         if not self._ensure_fitted():
             return None
         X = self._transform(embeddings)
-        return self._gpc.predict_proba(X)[:, 1]
+        mean = self._gpr.predict(X)
+        return np.clip(mean, 0.0, 1.0)
 
     # ------------------------------------------------------------------
     # Ranking for connect lane
@@ -270,15 +252,14 @@ class BayesianQualifier:
     def rank_profiles(self, profiles: list) -> list:
         """Rank QUALIFIED profiles by predicted acceptance probability (descending).
 
-        Raises if the model is not fitted or any profile lacks an embedding —
-        profiles should always be embedded and the model fitted before ranking.
+        Raises if the model is not fitted or any profile lacks an embedding.
         """
         if not profiles:
             return []
 
         if not self._ensure_fitted():
             raise RuntimeError(
-                f"GPC not fitted ({self.n_obs} observations) — cannot rank profiles"
+                f"GPR not fitted ({self.n_obs} observations) — cannot rank profiles"
             )
 
         scored = []
@@ -288,8 +269,7 @@ class BayesianQualifier:
                 pid = p.get("public_identifier", "?")
                 raise RuntimeError(f"No embedding found for profile {pid}")
             x = self._transform(emb)
-            proba = self._gpc.predict_proba(x)[0]
-            prob = float(proba[1])
+            prob = float(np.clip(self._gpr.predict(x)[0], 0.0, 1.0))
             scored.append((prob, p))
         scored.sort(key=lambda t: t[0], reverse=True)
         return [p for _, p in scored]
@@ -318,11 +298,7 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def warm_start(self, X: np.ndarray, y: np.ndarray):
-        """Bulk-load historical labels and fit.
-
-        Unlike the previous linear model's sequential replay, GPC fits
-        all data at once — so warm_start is faster than incremental updates.
-        """
+        """Bulk-load historical labels and fit once."""
         self._X = [X[i].astype(np.float64).ravel() for i in range(len(X))]
         self._y = [int(y[i]) for i in range(len(y))]
         self._fitted = False
