@@ -24,8 +24,7 @@ _cache_attempted = False
 # Kit download & loading
 # ------------------------------------------------------------------
 
-def _hub_repo_id() -> str:
-    return "/".join(["openoutreach", "campaign-kit"])
+_DEFAULT_REPO_ID = "eracle/campaign-kit"
 
 
 def download_kit(revision: str = "v1") -> Optional[Path]:
@@ -34,7 +33,7 @@ def download_kit(revision: str = "v1") -> Optional[Path]:
         from huggingface_hub import snapshot_download
 
         path = snapshot_download(
-            repo_id=_hub_repo_id(),
+            repo_id=_DEFAULT_REPO_ID,
             revision=revision,
             local_dir=str(_KIT_DIR),
         )
