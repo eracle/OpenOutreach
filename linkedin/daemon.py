@@ -6,7 +6,7 @@ import random
 import time
 from termcolor import colored
 
-from linkedin.conf import CAMPAIGN_CONFIG
+from linkedin.conf import CAMPAIGN_CONFIG, MODEL_PATH
 from linkedin.db.crm_profiles import count_leads_for_qualification, pipeline_needs_refill
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
@@ -70,6 +70,7 @@ def run_daemon(session):
     qualifier = BayesianQualifier(
         seed=42,
         n_mc_samples=cfg["qualification_n_mc_samples"],
+        save_path=MODEL_PATH,
     )
     X, y = get_labeled_data()
     if len(X) > 0:

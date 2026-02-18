@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import jinja2
 import numpy as np
@@ -83,11 +84,13 @@ class BayesianQualifier:
     re-fitted on ALL accumulated data whenever predictions are needed.
     """
 
-    def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100):
+    def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100,
+                 save_path: Path | None = None):
         self.embedding_dim = embedding_dim
         self._seed = seed
         self._n_mc_samples = n_mc_samples
         self._pipeline = None  # Pipeline([('pca', PCA), ('scaler', StandardScaler), ('gpr', GPR)])
+        self._save_path = save_path
         self._X: list[np.ndarray] = []
         self._y: list[int] = []
         self._fitted = False
@@ -175,7 +178,19 @@ class BayesianQualifier:
                      n, pca_step.n_components_,
                      100 * pca_step.explained_variance_ratio_.sum(),
                      best_lml)
+        self._save()
         return True
+
+    def _save(self):
+        """Persist the fitted pipeline to disk (if save_path is set)."""
+        if self._save_path is None or self._pipeline is None:
+            return
+        import joblib
+
+        tmp = self._save_path.with_suffix(".tmp")
+        joblib.dump(self._pipeline, tmp)
+        tmp.rename(self._save_path)
+        logger.debug("Pipeline saved to %s", self._save_path)
 
     # ------------------------------------------------------------------
     # Internal: predict with std via pipeline
