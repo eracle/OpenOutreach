@@ -5,7 +5,6 @@ from typing import Dict, Any
 from urllib.parse import urlparse, parse_qs, urlencode
 
 from linkedin.navigation.utils import goto_page, human_type
-from linkedin.sessions.registry import get_session
 
 logger = logging.getLogger(__name__)
 
@@ -173,9 +172,8 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
-    session = get_session(
-        handle=handle,
-    )
+    from linkedin.sessions.registry import get_session
+    session = get_session(handle=handle)
 
     # Make sure browser is up
 

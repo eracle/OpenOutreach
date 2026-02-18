@@ -35,7 +35,7 @@ class FollowUpLane:
         profile = candidate.get("profile") or candidate
 
         message_text = send_follow_up_message(
-            handle=self.session.handle,
+            session=self.session,
             profile=profile,
         )
 

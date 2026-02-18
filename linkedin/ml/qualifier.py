@@ -337,3 +337,41 @@ class BayesianQualifier:
         if row:
             return np.array(row[0], dtype=np.float32)
         return None
+
+
+# ---------------------------------------------------------------------------
+# External model ranking (partner campaign)
+# ---------------------------------------------------------------------------
+
+def rank_with_external_model(gpc, pca, profiles: list) -> list:
+    """Rank profiles by pre-trained model. Profiles without embeddings are skipped."""
+    from linkedin.ml.embeddings import _connect
+
+    if not profiles:
+        return []
+
+    # Look up embeddings from DuckDB
+    scored = []
+    con = _connect(read_only=True)
+    for p in profiles:
+        public_id = p.get("public_identifier")
+        if not public_id:
+            continue
+        row = con.execute(
+            "SELECT embedding FROM profile_embeddings WHERE public_identifier = ?",
+            [public_id],
+        ).fetchone()
+        if row is None:
+            continue
+        scored.append((p, np.array(row[0], dtype=np.float64)))
+    con.close()
+
+    if not scored:
+        return []
+
+    X = np.array([emb for _, emb in scored], dtype=np.float64)
+    X_reduced = pca.transform(X)
+    probs = gpc.predict_proba(X_reduced)[:, 1]
+
+    ranked = sorted(zip(probs, [p for p, _ in scored]), key=lambda t: t[0], reverse=True)
+    return [p for _, p in ranked]

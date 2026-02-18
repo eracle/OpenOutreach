@@ -105,6 +105,11 @@ def run_daemon(session):
         LaneSchedule("follow_up", follow_up_lane, min_action_interval),
     ]
 
+    _post = getattr(
+        __import__("linkedin.ml.hub", fromlist=["after_action"]),
+        "after_action", None,
+    )
+
     logger.info(
         colored("Daemon started", "green", attrs=["bold"])
         + " — action interval %ds, check_pending every %.0fm",
@@ -151,6 +156,8 @@ def run_daemon(session):
 
         if next_schedule.lane.can_execute():
             next_schedule.lane.execute()
+            if _post:
+                _post(session, connect_limiter=connect_limiter, follow_up_limiter=follow_up_limiter)
             next_schedule.reschedule()
         else:
             # Nothing to do — retry soon instead of waiting the full interval

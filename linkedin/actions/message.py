@@ -7,7 +7,6 @@ from typing import Dict, Any
 from linkedin.actions.connection_status import get_connection_status
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.utils import goto_page, human_type
-from linkedin.sessions.registry import get_session
 from linkedin.templates.renderer import render_template
 
 logger = logging.getLogger(__name__)
@@ -28,13 +27,10 @@ SELECTORS = {
 
 
 def send_follow_up_message(
-        handle: str,
+        session,
         profile: Dict[str, Any],
 ) -> str | None:
     """Send a follow-up message. Returns the message text if sent, None if skipped."""
-    session = get_session(
-        handle=handle,
-    )
 
     status = get_connection_status(session, profile)
 
@@ -151,6 +147,7 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
+    from linkedin.sessions.registry import get_session
     session = get_session(
         handle=handle,
     )
@@ -163,6 +160,6 @@ if __name__ == "__main__":
     }
 
     send_follow_up_message(
-        handle=handle,
+        session=session,
         profile=test_profile,
     )

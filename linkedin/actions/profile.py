@@ -5,18 +5,13 @@ from pathlib import Path
 from typing import Dict, Any
 
 from linkedin.conf import FIXTURE_PROFILES_DIR
-from linkedin.sessions.registry import get_session
 from ..api.client import PlaywrightLinkedinAPI
 
 logger = logging.getLogger(__name__)
 
 
-def scrape_profile(handle: str, profile: dict):
+def scrape_profile(session, profile: dict):
     url = profile["url"]
-
-    session = get_session(
-        handle=handle,
-    )
 
     # ── Existing enrichment logic (100% unchanged) ──
     session.ensure_browser()
@@ -60,11 +55,14 @@ if __name__ == "__main__":
 
     handle = sys.argv[1]
 
+    from linkedin.sessions.registry import get_session
+    session = get_session(handle=handle)
+
     test_profile = {
         "url": "https://www.linkedin.com/in/me/",
     }
 
-    profile, data = scrape_profile(handle, test_profile)
+    profile, data = scrape_profile(session, test_profile)
     from pprint import pprint
 
     pprint(profile)

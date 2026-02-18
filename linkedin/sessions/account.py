@@ -104,3 +104,14 @@ class AccountSession:
 
     def __repr__(self) -> str:
         return f"<AccountSession {self.handle}>"
+
+
+class _SessionProxy:
+    """Wraps a session with an alternate campaign."""
+
+    def __init__(self, base, campaign):
+        object.__setattr__(self, '_base', base)
+        object.__setattr__(self, 'campaign', campaign)
+
+    def __getattr__(self, name):
+        return getattr(self._base, name)

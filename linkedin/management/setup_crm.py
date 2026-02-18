@@ -85,4 +85,42 @@ def setup_crm():
     if created:
         logger.info("Created lead source: %s", LEAD_SOURCE_NAME)
 
+    _ensure_partner_pipeline()
+
     logger.debug("CRM setup complete.")
+
+
+def _ensure_partner_pipeline():
+    """Bootstrap partner outreach pipeline. Idempotent."""
+    from common.models import Department
+    from crm.models import Stage, ClosingReason, LeadSource
+
+    dept, created = Department.objects.get_or_create(name="Partner Outreach")
+    if created:
+        logger.log(5, "Created partner department")
+
+    for index, name, is_default, is_success in STAGES:
+        Stage.objects.update_or_create(
+            name=name,
+            department=dept,
+            defaults={
+                "index_number": index,
+                "default": is_default,
+                "success_stage": is_success,
+            },
+        )
+
+    for index, name, is_success in CLOSING_REASONS:
+        ClosingReason.objects.update_or_create(
+            name=name,
+            department=dept,
+            defaults={
+                "index_number": index,
+                "success_reason": is_success,
+            },
+        )
+
+    LeadSource.objects.get_or_create(
+        name="Partner Referral",
+        department=dept,
+    )
