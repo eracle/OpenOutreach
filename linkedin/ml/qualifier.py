@@ -184,10 +184,12 @@ class BayesianQualifier:
     # Prediction
     # ------------------------------------------------------------------
 
-    def predict(self, embedding: np.ndarray) -> tuple[float, float] | None:
-        """Return (predictive_prob, predictive_entropy) for a single embedding.
+    def predict(self, embedding: np.ndarray) -> tuple[float, float, float] | None:
+        """Return (predictive_prob, predictive_entropy, posterior_std) for a single embedding.
 
         Probability is GPR mean clipped to [0, 1].
+        posterior_std is the GP's uncertainty about the function value — high
+        when few training points are nearby (e.g. early training).
         Returns None when the model cannot be fitted yet.
         """
         if not self._ensure_fitted():
@@ -197,7 +199,7 @@ class BayesianQualifier:
         mean, std = self._gpr.predict(x, return_std=True)
         p = float(np.clip(mean[0], 0.0, 1.0))
         entropy = float(_binary_entropy(p))
-        return p, entropy
+        return p, entropy, float(std[0])
 
     # ------------------------------------------------------------------
     # BALD acquisition via GP posterior
@@ -286,10 +288,11 @@ class BayesianQualifier:
         result = self.predict(emb)
         if result is None:
             return f"Model not fitted yet ({self.n_obs} observations, need both classes)"
-        prob, entropy = result
+        prob, entropy, std = result
         return (
             f"GP predictive p(qualified): {prob:.3f}\n"
             f"Predictive entropy: {entropy:.4f}\n"
+            f"Posterior std: {std:.4f}\n"
             f"Observations seen: {self.n_obs}"
         )
 

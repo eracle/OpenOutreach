@@ -42,6 +42,8 @@ CAMPAIGN_CONFIG = {
     "enrich_min_interval": 1,
     "min_action_interval": 120,
     "qualification_entropy_threshold": 0.3,
+    "qualification_max_auto_std": 0.05,
+    "qualification_min_auto_accept_prob": 0.9,
     "qualification_n_mc_samples": 100,
     "embedding_model": "BAAI/bge-small-en-v1.5",
     "min_qualifiable_leads": 50,

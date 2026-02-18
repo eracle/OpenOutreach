@@ -57,13 +57,14 @@ class TestBayesianQualifierUpdate:
 
 
 class TestBayesianQualifierPredict:
-    def test_predict_returns_prob_and_entropy(self):
+    def test_predict_returns_prob_entropy_and_std(self):
         qualifier, pos_emb, _ = _make_trained_qualifier()
         result = qualifier.predict(pos_emb)
         assert result is not None
-        prob, entropy = result
+        prob, entropy, std = result
         assert 0 <= prob <= 1
         assert entropy >= 0
+        assert std >= 0
 
     def test_predict_returns_none_when_unfitted(self):
         qualifier = BayesianQualifier(seed=42)
@@ -80,7 +81,7 @@ class TestBayesianQualifierPredict:
         qualifier, pos_emb, _ = _make_trained_qualifier(n_pos=20, n_neg=5)
         result = qualifier.predict(pos_emb)
         assert result is not None
-        prob, _ = result
+        prob, _, _ = result
         assert prob > 0.7
 
 
