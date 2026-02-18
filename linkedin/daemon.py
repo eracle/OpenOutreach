@@ -75,7 +75,7 @@ def run_daemon(session):
     if len(X) > 0:
         qualifier.warm_start(X, y)
         logger.info(
-            colored("GPC qualifier warm-started", "cyan")
+            colored("GP qualifier warm-started", "cyan")
             + " on %d labelled samples (%d positive, %d negative)",
             len(y), int((y == 1).sum()), int((y == 0).sum()),
         )

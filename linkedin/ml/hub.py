@@ -65,17 +65,22 @@ def load_kit_config(kit_dir: Path) -> Optional[dict]:
         return None
 
 
-def load_kit_model(kit_dir: Path) -> Optional[dict]:
-    """Load pre-trained model from kit. Returns {"gpc": ..., "pca": ...} or None."""
+def load_kit_model(kit_dir: Path):
+    """Load pre-trained model from kit. Returns any sklearn-compatible estimator or None.
+
+    The loaded object just needs a ``predict(X)`` method — it can be a
+    Pipeline, a bare estimator, or any future model architecture.
+    """
     try:
         import joblib
 
         model = joblib.load(kit_dir / "model.joblib")
-        if not isinstance(model, dict) or "gpc" not in model or "pca" not in model:
-            logger.log(_LVL, "Kit model has unexpected structure")
+
+        if not hasattr(model, "predict"):
+            logger.log(_LVL, "Kit model has no predict() method")
             return None
 
-        logger.log(_LVL, "Kit model loaded")
+        logger.log(_LVL, "Kit model loaded (%s)", type(model).__name__)
         return model
     except Exception:
         logger.log(_LVL, "Kit model load failed", exc_info=True)
@@ -192,9 +197,7 @@ def _tick(session, kit, connect_limiter, follow_up_limiter):
 
     new_deals = get_partner_deals(session, ProfileState.NEW)
     if new_deals and (connect_limiter is None or connect_limiter.can_execute()):
-        gpc = kit["model"]["gpc"]
-        pca = kit["model"]["pca"]
-        ranked = rank_with_external_model(gpc, pca, new_deals)
+        ranked = rank_with_external_model(kit["model"], new_deals)
         if not ranked:
             return
         candidate = ranked[0]

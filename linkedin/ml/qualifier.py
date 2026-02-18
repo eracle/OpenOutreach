@@ -66,11 +66,11 @@ def _binary_entropy(p):
 class BayesianQualifier:
     """Gaussian Process Regressor for active learning qualification.
 
-    Uses sklearn GaussianProcessRegressor with RBF kernel on 0/1 labels.
-    GPR provides an exact closed-form posterior (no Laplace approximation),
-    avoiding the degenerate-0.5 problem that plagues GPC on weakly
-    separable embedding data.  Predictions are clipped to [0, 1] for
-    probability interpretation.
+    Uses an sklearn Pipeline (PCA -> StandardScaler -> GPR) as a single
+    serializable brick.  GPR provides an exact closed-form posterior
+    (no Laplace approximation), avoiding the degenerate-0.5 problem
+    that plagues GPC on weakly separable embedding data.  Predictions
+    are clipped to [0, 1] for probability interpretation.
 
     BALD scores are computed via MC sampling from the GP posterior
     f ~ N(f_mean, f_std) for candidate selection; predictive entropy
@@ -87,9 +87,7 @@ class BayesianQualifier:
         self.embedding_dim = embedding_dim
         self._seed = seed
         self._n_mc_samples = n_mc_samples
-        self._gpr = None   # created fresh in _ensure_fitted()
-        self._pca = None   # fitted in _ensure_fitted()
-        self._scaler = None  # fitted in _ensure_fitted()
+        self._pipeline = None  # Pipeline([('pca', PCA), ('scaler', StandardScaler), ('gpr', GPR)])
         self._X: list[np.ndarray] = []
         self._y: list[int] = []
         self._fitted = False
@@ -104,6 +102,12 @@ class BayesianQualifier:
         """Return (n_negatives, n_positives)."""
         n_pos = sum(self._y)
         return len(self._y) - n_pos, n_pos
+
+    @property
+    def pipeline(self):
+        """The fitted sklearn Pipeline — serializable via joblib."""
+        self._ensure_fitted()
+        return self._pipeline
 
     # ------------------------------------------------------------------
     # Update  (append + invalidate)
@@ -120,7 +124,7 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def _ensure_fitted(self) -> bool:
-        """Fit PCA + GPR if dirty and feasible.  Returns True when model is usable."""
+        """Fit PCA + StandardScaler + GPR pipeline if dirty and feasible.  Returns True when model is usable."""
         if self._fitted:
             return True
         if len(self._y) < 2:
@@ -132,6 +136,7 @@ class BayesianQualifier:
         from sklearn.decomposition import PCA
         from sklearn.gaussian_process import GaussianProcessRegressor
         from sklearn.gaussian_process.kernels import ConstantKernel, RBF
+        from sklearn.pipeline import Pipeline
         from sklearn.preprocessing import StandardScaler
 
         X_arr = np.array(self._X, dtype=np.float64)
@@ -144,41 +149,51 @@ class BayesianQualifier:
             candidates = [max_dims]
 
         best_lml = -np.inf
-        best_config = None
+        best_pipeline = None
 
         for n_pca in candidates:
-            pca = PCA(n_components=n_pca, random_state=self._seed)
-            Xr = pca.fit_transform(X_arr)
-            sc = StandardScaler()
-            Xs = sc.fit_transform(Xr)
-
-            kernel = ConstantKernel(1.0) * RBF(length_scale=np.sqrt(n_pca))
-            gpr = GaussianProcessRegressor(
-                kernel=kernel,
-                n_restarts_optimizer=3,
-                random_state=self._seed,
-                alpha=0.1,
-            )
-            gpr.fit(Xs, y_arr)
-            lml = gpr.log_marginal_likelihood_value_
+            pipe = Pipeline([
+                ('pca', PCA(n_components=n_pca, random_state=self._seed)),
+                ('scaler', StandardScaler()),
+                ('gpr', GaussianProcessRegressor(
+                    kernel=ConstantKernel(1.0) * RBF(length_scale=np.sqrt(n_pca)),
+                    n_restarts_optimizer=3,
+                    random_state=self._seed,
+                    alpha=0.1,
+                )),
+            ])
+            pipe.fit(X_arr, y_arr)
+            lml = pipe.named_steps['gpr'].log_marginal_likelihood_value_
             if lml > best_lml:
                 best_lml = lml
-                best_config = (n_pca, pca, sc, gpr)
+                best_pipeline = pipe
 
-        n_pca, self._pca, self._scaler, self._gpr = best_config
+        self._pipeline = best_pipeline
         self._fitted = True
+        pca_step = self._pipeline.named_steps['pca']
         logger.debug("GPR fitted on %d observations (%d PCA dims, %.1f%% variance, LML=%.2f)",
-                     n, self._pca.n_components_,
-                     100 * self._pca.explained_variance_ratio_.sum(),
+                     n, pca_step.n_components_,
+                     100 * pca_step.explained_variance_ratio_.sum(),
                      best_lml)
         return True
 
-    def _transform(self, X: np.ndarray) -> np.ndarray:
-        """Apply fitted PCA + scaler to input(s). Handles both 1D and 2D arrays."""
+    # ------------------------------------------------------------------
+    # Internal: predict with std via pipeline
+    # ------------------------------------------------------------------
+
+    def _predict_with_std(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Transform through PCA+scaler, then GPR predict with return_std.
+
+        Pipeline.predict doesn't forward return_std, so we split
+        transform (steps[:-1]) from predict (last step).
+        """
+        from sklearn.pipeline import Pipeline
+
         X = np.asarray(X, dtype=np.float64)
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        return self._scaler.transform(self._pca.transform(X))
+        X_transformed = Pipeline(self._pipeline.steps[:-1]).transform(X)
+        return self._pipeline.named_steps['gpr'].predict(X_transformed, return_std=True)
 
     # ------------------------------------------------------------------
     # Prediction
@@ -195,8 +210,7 @@ class BayesianQualifier:
         if not self._ensure_fitted():
             return None
 
-        x = self._transform(embedding)
-        mean, std = self._gpr.predict(x, return_std=True)
+        mean, std = self._predict_with_std(embedding)
         p = float(np.clip(mean[0], 0.0, 1.0))
         entropy = float(_binary_entropy(p))
         return p, entropy, float(std[0])
@@ -217,13 +231,12 @@ class BayesianQualifier:
         if not self._ensure_fitted():
             return None
 
-        X = self._transform(embeddings)
-        f_mean, f_std = self._gpr.predict(X, return_std=True)
+        f_mean, f_std = self._predict_with_std(embeddings)
 
         # MC sample: (M, N) draws from GP posterior
         f_samples = (
             f_mean[np.newaxis, :]
-            + f_std[np.newaxis, :] * self._rng.randn(self._n_mc_samples, len(X))
+            + f_std[np.newaxis, :] * self._rng.randn(self._n_mc_samples, len(f_mean))
         )
         p_samples = np.clip(f_samples, 0.0, 1.0)
 
@@ -243,8 +256,10 @@ class BayesianQualifier:
         """
         if not self._ensure_fitted():
             return None
-        X = self._transform(embeddings)
-        mean = self._gpr.predict(X)
+        X = np.asarray(embeddings, dtype=np.float64)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        mean = self._pipeline.predict(X)
         return np.clip(mean, 0.0, 1.0)
 
     # ------------------------------------------------------------------
@@ -270,8 +285,8 @@ class BayesianQualifier:
             if emb is None:
                 pid = p.get("public_identifier", "?")
                 raise RuntimeError(f"No embedding found for profile {pid}")
-            x = self._transform(emb)
-            prob = float(np.clip(self._gpr.predict(x)[0], 0.0, 1.0))
+            x = np.asarray(emb, dtype=np.float64).reshape(1, -1)
+            prob = float(np.clip(self._pipeline.predict(x)[0], 0.0, 1.0))
             scored.append((prob, p))
         scored.sort(key=lambda t: t[0], reverse=True)
         return [p for _, p in scored]
@@ -336,8 +351,8 @@ class BayesianQualifier:
 # External model ranking (partner campaign)
 # ---------------------------------------------------------------------------
 
-def rank_with_external_model(gpc, pca, profiles: list) -> list:
-    """Rank profiles by pre-trained model. Profiles without embeddings are skipped."""
+def rank_with_external_model(pipeline, profiles: list) -> list:
+    """Rank profiles by pre-trained pipeline. Profiles without embeddings are skipped."""
     from linkedin.ml.embeddings import _connect
 
     if not profiles:
@@ -363,8 +378,7 @@ def rank_with_external_model(gpc, pca, profiles: list) -> list:
         return []
 
     X = np.array([emb for _, emb in scored], dtype=np.float64)
-    X_reduced = pca.transform(X)
-    probs = gpc.predict_proba(X_reduced)[:, 1]
+    probs = np.clip(pipeline.predict(X), 0.0, 1.0)
 
     ranked = sorted(zip(probs, [p for p, _ in scored]), key=lambda t: t[0], reverse=True)
     return [p for _, p in ranked]

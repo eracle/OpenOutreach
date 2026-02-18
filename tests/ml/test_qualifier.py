@@ -1,5 +1,5 @@
 # tests/ml/test_qualifier.py
-"""Tests for BayesianQualifier (GPC backend) and LLM qualification."""
+"""Tests for BayesianQualifier (GP Regression backend) and LLM qualification."""
 from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
