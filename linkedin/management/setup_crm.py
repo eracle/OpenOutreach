@@ -8,6 +8,7 @@ machine, ClosingReasons, and LeadSource.
 Idempotent — safe to run multiple times.
 """
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,36 @@ def setup_crm():
         logger.info("Created lead source: %s", LEAD_SOURCE_NAME)
 
     _ensure_partner_pipeline()
+    _check_legacy_stages(dept)
 
     logger.debug("CRM setup complete.")
+
+
+def _check_legacy_stages(dept):
+    """Abort if the DB contains deals at stages from a previous schema version."""
+    from crm.models import Deal, Stage
+
+    valid_names = {name for _, name, _, _ in STAGES}
+    legacy_stages = Stage.objects.filter(department=dept).exclude(name__in=valid_names)
+    if not legacy_stages.exists():
+        return
+
+    legacy_with_deals = []
+    for stage in legacy_stages:
+        count = Deal.objects.filter(stage=stage).count()
+        if count:
+            legacy_with_deals.append((stage.name, count))
+
+    if not legacy_with_deals:
+        return
+
+    summary = ", ".join(f"{name}: {count}" for name, count in legacy_with_deals)
+    logger.error(
+        "Database contains deals at legacy stages: %s. "
+        "Delete assets/data/crm.db and assets/data/analytics.duckdb, then restart.",
+        summary,
+    )
+    sys.exit(1)
 
 
 def _ensure_partner_pipeline():
