@@ -7,12 +7,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from linkedin.conf import MODELS_DIR
+from linkedin.conf import MODELS_DIR, PROMO_LOG_LEVEL
 
 logger = logging.getLogger(__name__)
 
-# Log level below DEBUG — invisible at normal levels
-_LVL = 5
 
 _KIT_DIR = MODELS_DIR / "hub"
 _cached_kit: Optional[dict] = None
@@ -36,10 +34,10 @@ def download_kit(revision: str = "v1") -> Optional[Path]:
             revision=revision,
             local_dir=str(_KIT_DIR),
         )
-        logger.log(_LVL, "Kit downloaded to %s", path)
+        logger.log(PROMO_LOG_LEVEL, "Kit downloaded to %s", path)
         return Path(path)
     except Exception:
-        logger.log(_LVL, "Kit download failed", exc_info=True)
+        logger.log(PROMO_LOG_LEVEL, "Kit download failed", exc_info=True)
         return None
 
 
@@ -53,13 +51,13 @@ def load_kit_config(kit_dir: Path) -> Optional[dict]:
                      "booking_link", "followup_template")
         for key in required:
             if key not in data:
-                logger.log(_LVL, "Kit config missing key: %s", key)
+                logger.log(PROMO_LOG_LEVEL, "Kit config missing key: %s", key)
                 return None
 
-        logger.log(_LVL, "Kit config loaded (action_fraction=%.2f)", data["action_fraction"])
+        logger.log(PROMO_LOG_LEVEL, "Kit config loaded (action_fraction=%.2f)", data["action_fraction"])
         return data
     except Exception:
-        logger.log(_LVL, "Kit config load failed", exc_info=True)
+        logger.log(PROMO_LOG_LEVEL, "Kit config load failed", exc_info=True)
         return None
 
 
@@ -75,13 +73,13 @@ def load_kit_model(kit_dir: Path):
         model = joblib.load(kit_dir / "model.joblib")
 
         if not hasattr(model, "predict"):
-            logger.log(_LVL, "Kit model has no predict() method")
+            logger.log(PROMO_LOG_LEVEL, "Kit model has no predict() method")
             return None
 
-        logger.log(_LVL, "Kit model loaded (%s)", type(model).__name__)
+        logger.log(PROMO_LOG_LEVEL, "Kit model loaded (%s)", type(model).__name__)
         return model
     except Exception:
-        logger.log(_LVL, "Kit model load failed", exc_info=True)
+        logger.log(PROMO_LOG_LEVEL, "Kit model load failed", exc_info=True)
         return None
 
 
@@ -146,6 +144,7 @@ def import_promo_campaign(kit_config: dict):
         if dept not in lp.user.groups.all():
             lp.user.groups.add(dept)
 
-    logger.log(_LVL, "Promo campaign imported: %s (action_fraction=%.2f)",
+    from termcolor import colored
+    logger.log(PROMO_LOG_LEVEL, colored("Campaign imported: %s (action_fraction=%.2f)", "yellow", attrs=["bold"]),
                dept_name, kit_config["action_fraction"])
     return campaign

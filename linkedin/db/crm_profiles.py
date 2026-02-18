@@ -27,6 +27,7 @@ from django.db import transaction
 from django.utils import timezone
 from termcolor import colored
 
+from linkedin.conf import PROMO_LOG_LEVEL
 from linkedin.navigation.enums import ProfileState
 
 logger = logging.getLogger(__name__)
@@ -555,7 +556,7 @@ def seed_promo_deals(session) -> int:
         created += 1
 
     if created:
-        logger.log(5, "Seeded %d promo deals in %s", created, dept.name)
+        logger.log(PROMO_LOG_LEVEL, colored("Seeded %d promo deals in %s", "yellow", attrs=["bold"]), created, dept.name)
 
     return created
 
