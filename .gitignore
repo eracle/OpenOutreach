@@ -11,6 +11,7 @@ assets/accounts.secrets.yaml
 assets/campaign/campaign_keywords.yaml
 assets/cookies/
 assets/data/
+assets/models/
 /analytics/logs/dbt.log
 /analytics/target/compiled/openoutreach_analytics/models/marts/_marts.yml/accepted_values_ml_connection_accepted_accepted__0__1.sql
 /analytics/target/compiled/openoutreach_analytics/models/marts/_marts.yml/not_null_ml_connection_accepted_deal_id.sql
@@ -38,3 +39,4 @@ assets/data/
 /assets/campaign/campaign_objective.txt
 /assets/campaign/product_docs.txt
 /venv/
+/linkedin/management/commands/export_model.py

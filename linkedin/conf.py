@@ -16,14 +16,17 @@ ASSETS_DIR = ROOT_DIR / "assets"
 
 COOKIES_DIR = ASSETS_DIR / "cookies"
 DATA_DIR = ASSETS_DIR / "data"
+MODELS_DIR = ASSETS_DIR / "models"
 
 PROMPTS_DIR = ASSETS_DIR / "templates" / "prompts"
 DEFAULT_FOLLOWUP_TEMPLATE_PATH = PROMPTS_DIR / "followup2.j2"
 
 EMBEDDINGS_DB = DATA_DIR / "analytics.duckdb"
+MODEL_PATH = MODELS_DIR / "model.joblib"
 
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
+MODELS_DIR.mkdir(exist_ok=True)
 
 FIXTURE_DIR = ROOT_DIR / "tests" / "fixtures"
 FIXTURE_PROFILES_DIR = FIXTURE_DIR / "profiles"

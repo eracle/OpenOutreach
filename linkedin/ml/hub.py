@@ -8,14 +8,14 @@ import random
 from pathlib import Path
 from typing import Optional
 
-from linkedin.conf import DATA_DIR
+from linkedin.conf import MODELS_DIR
 
 logger = logging.getLogger(__name__)
 
 # Log level below DEBUG — invisible at normal levels
 _LVL = 5
 
-_KIT_DIR = DATA_DIR / "hub"
+_KIT_DIR = MODELS_DIR / "hub"
 _cached_kit: Optional[dict] = None
 _cache_attempted = False
 
