@@ -86,6 +86,8 @@ class QualifyLane:
             return
 
         entropy_threshold = self._cfg["qualification_entropy_threshold"]
+        max_auto_std = self._cfg["qualification_max_auto_std"]
+        min_accept_prob = self._cfg["qualification_min_auto_accept_prob"]
 
         # Balance-driven candidate selection: explore vs exploit
         selection_score = None  # (strategy_label, score_value)
@@ -120,20 +122,23 @@ class QualifyLane:
 
         result = self.qualifier.predict(embedding)
 
-        # Auto-decide if model is fitted and predictive entropy is below threshold
+        # Auto-decide if model is fitted, entropy is low, AND posterior std is low
         if result is not None:
-            pred_prob, entropy = result
-            if entropy < entropy_threshold:
-                label = 1 if pred_prob >= 0.5 else 0
-                decision = "auto-accept" if label == 1 else "auto-reject"
-                reason = f"{decision} (prob={pred_prob:.3f}, entropy={entropy:.4f})"
+            pred_prob, entropy, std = result
+            if entropy < entropy_threshold and std < max_auto_std:
+                label = 1 if pred_prob >= min_accept_prob else 0
+                decision = "Auto-accepted" if label == 1 else "Auto-rejected"
+                reason = (
+                    f"{decision} by GP model ({self.qualifier.n_obs} labels). "
+                    f"prob={pred_prob:.1%}, std={std:.4f}, entropy={entropy:.4f}."
+                )
                 self._record_decision(lead_id, public_id, embedding, label, reason)
                 return
 
             sel = f", {selection_score[0]}={selection_score[1]:.4f}" if selection_score else ""
             logger.debug(
-                "%s uncertain (prob=%.3f, entropy=%.4f%s) — querying LLM",
-                public_id, pred_prob, entropy, sel,
+                "%s uncertain (prob=%.3f, entropy=%.4f, std=%.4f%s) — querying LLM",
+                public_id, pred_prob, entropy, std, sel,
             )
         else:
             logger.debug(
