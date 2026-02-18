@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 
+from linkedin.conf import PROMO_LOG_LEVEL
 from linkedin.db.crm_profiles import get_pending_profiles, set_profile_state
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile
@@ -18,14 +19,22 @@ class CheckPendingLane:
         self.recheck_after_hours = recheck_after_hours
 
     @property
+    def _is_promo(self):
+        return getattr(self.session.campaign, "is_promo", False)
+
+    @property
     def _log_level(self):
-        return 5 if getattr(self.session.campaign, "is_promo", False) else logging.INFO
+        return PROMO_LOG_LEVEL if self._is_promo else logging.INFO
+
+    @property
+    def _color(self):
+        return "yellow" if self._is_promo else "white"
 
     def can_execute(self) -> bool:
         return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0
 
     def execute(self):
-        logger.log(self._log_level, colored("▶ check_pending", "magenta", attrs=["bold"]))
+        logger.log(self._log_level, colored("▶ check_pending", self._color, attrs=["bold"]))
         from crm.models import Deal
         from linkedin.actions.connection_status import get_connection_status
         from linkedin.db.crm_profiles import public_id_to_url
