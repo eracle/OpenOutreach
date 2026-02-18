@@ -96,10 +96,11 @@ class BayesianQualifier:
         self._base_kernel = ConstantKernel(1.0) * RBF(length_scale=1.0)
         self._gpc = GaussianProcessClassifier(
             kernel=self._base_kernel,
-            n_restarts_optimizer=2,
+            n_restarts_optimizer=0,
             random_state=seed,
         )
         self._pca = None  # fitted in _ensure_fitted()
+        self._scaler = None  # fitted in _ensure_fitted()
         self._X: list[np.ndarray] = []
         self._y: list[int] = []
         self._fitted = False
@@ -141,6 +142,7 @@ class BayesianQualifier:
 
         from sklearn.decomposition import PCA
         from sklearn.gaussian_process import GaussianProcessClassifier
+        from sklearn.preprocessing import StandardScaler
 
         X_arr = np.array(self._X, dtype=np.float64)
 
@@ -150,6 +152,10 @@ class BayesianQualifier:
                         random_state=self._seed)
         X_reduced = self._pca.fit_transform(X_arr)
 
+        # Normalize so length_scale=1.0 is a reasonable starting point
+        self._scaler = StandardScaler()
+        X_scaled = self._scaler.fit_transform(X_reduced)
+
         # Reuse previously-fitted kernel params as starting point
         kernel = (
             self._gpc.kernel_
@@ -158,10 +164,10 @@ class BayesianQualifier:
         )
         self._gpc = GaussianProcessClassifier(
             kernel=kernel,
-            n_restarts_optimizer=0,  # fast refit from previous params
+            n_restarts_optimizer=0,
             random_state=self._seed,
         )
-        self._gpc.fit(X_reduced, y_arr)
+        self._gpc.fit(X_scaled, y_arr)
         self._fitted = True
         logger.debug("GPC fitted on %d observations (%d PCA dims, %.1f%% variance)",
                      len(y_arr), self._pca.n_components_,
@@ -169,11 +175,11 @@ class BayesianQualifier:
         return True
 
     def _transform(self, X: np.ndarray) -> np.ndarray:
-        """Apply fitted PCA to input(s). Handles both 1D and 2D arrays."""
+        """Apply fitted PCA + scaler to input(s). Handles both 1D and 2D arrays."""
         X = np.asarray(X, dtype=np.float64)
         if X.ndim == 1:
             X = X.reshape(1, -1)
-        return self._pca.transform(X)
+        return self._scaler.transform(self._pca.transform(X))
 
     # ------------------------------------------------------------------
     # Prediction
