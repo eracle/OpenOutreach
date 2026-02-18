@@ -385,13 +385,16 @@ def get_qualified_profiles(session) -> list:
     from crm.models import Deal
 
     stage = _get_stage(ProfileState.NEW, session)
-    deals = Deal.objects.filter(
+    qs = Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
-        lead__disqualified=False,
     ).select_related("lead")
 
-    return [_deal_to_profile_dict(d) for d in deals if d.lead and d.lead.website]
+    # Promo campaigns re-use disqualified leads, so skip the filter.
+    if not getattr(session.campaign, "is_promo", False):
+        qs = qs.filter(lead__disqualified=False)
+
+    return [_deal_to_profile_dict(d) for d in qs if d.lead and d.lead.website]
 
 
 def count_qualified_profiles(session) -> int:
