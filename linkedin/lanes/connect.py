@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from linkedin.conf import PROMO_LOG_LEVEL
+from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import (
     count_qualified_profiles,
     get_qualified_profiles,
@@ -27,16 +27,16 @@ class ConnectLane:
         self.pipeline = pipeline
 
     @property
-    def _is_promo(self):
-        return getattr(self.session.campaign, "is_promo", False)
+    def _is_partner(self):
+        return getattr(self.session.campaign, "is_partner", False)
 
     @property
     def _log_level(self):
-        return PROMO_LOG_LEVEL if self._is_promo else logging.INFO
+        return PARTNER_LOG_LEVEL if self._is_partner else logging.INFO
 
     @property
     def _color(self):
-        return "yellow" if self._is_promo else "cyan"
+        return "yellow" if self._is_partner else "cyan"
 
     def can_execute(self) -> bool:
         return self.rate_limiter.can_execute() and count_qualified_profiles(self.session) > 0

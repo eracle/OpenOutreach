@@ -27,7 +27,7 @@ from django.db import transaction
 from django.utils import timezone
 from termcolor import colored
 
-from linkedin.conf import PROMO_LOG_LEVEL
+from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.navigation.enums import ProfileState
 
 logger = logging.getLogger(__name__)
@@ -390,8 +390,8 @@ def get_qualified_profiles(session) -> list:
         owner=session.django_user,
     ).select_related("lead")
 
-    # Promo campaigns re-use disqualified leads, so skip the filter.
-    if not getattr(session.campaign, "is_promo", False):
+    # Partner campaigns re-use disqualified leads, so skip the filter.
+    if not getattr(session.campaign, "is_partner", False):
         qs = qs.filter(lead__disqualified=False)
 
     return [_deal_to_profile_dict(d) for d in qs if d.lead and d.lead.website]
@@ -507,10 +507,10 @@ def get_updated_at_map(session: "AccountSession", public_identifiers: List[str])
     return result_map
 
 
-# ── Promo campaign helpers ──
+# ── Partner campaign helpers ──
 
 
-def seed_promo_deals(session) -> int:
+def seed_partner_deals(session) -> int:
     """Create deals in current campaign's department from disqualified leads with embeddings.
 
     Returns the number of new deals created.
@@ -545,7 +545,7 @@ def seed_promo_deals(session) -> int:
             continue
 
         Deal.objects.create(
-            name=f"Promo: {url_to_public_id(lead.website) or lead.pk}",
+            name=f"Partner: {url_to_public_id(lead.website) or lead.pk}",
             lead=lead,
             contact=lead.contact,
             company=lead.company,
@@ -559,7 +559,7 @@ def seed_promo_deals(session) -> int:
         created += 1
 
     if created:
-        logger.log(PROMO_LOG_LEVEL, colored("Seeded %d promo deals in %s", "yellow", attrs=["bold"]), created, dept.name)
+        logger.log(PARTNER_LOG_LEVEL, colored("Seeded %d partner deals in %s", "yellow", attrs=["bold"]), created, dept.name)
 
     return created
 

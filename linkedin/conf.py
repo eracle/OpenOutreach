@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Log level for promo-campaign messages (below DEBUG → invisible at normal verbosity).
-PROMO_LOG_LEVEL = 5
+# Log level for partner-campaign messages (below DEBUG → invisible at normal verbosity).
+PARTNER_LOG_LEVEL = 5
 
 # ----------------------------------------------------------------------
 # Paths (all under assets/)

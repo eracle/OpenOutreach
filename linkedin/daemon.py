@@ -7,7 +7,7 @@ import time
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG, MODEL_PATH
-from linkedin.db.crm_profiles import count_leads_for_qualification, pipeline_needs_refill, seed_promo_deals
+from linkedin.db.crm_profiles import count_leads_for_qualification, pipeline_needs_refill, seed_partner_deals
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.follow_up import FollowUpLane
@@ -62,7 +62,7 @@ def run_daemon(session):
     from linkedin.lanes.qualify import QualifyLane
     from linkedin.management.setup_crm import ensure_campaign_pipeline
     from linkedin.ml.embeddings import ensure_embeddings_table, get_labeled_data
-    from linkedin.ml.hub import get_kit, import_promo_campaign
+    from linkedin.ml.hub import get_kit, import_partner_campaign
 
     cfg = CAMPAIGN_CONFIG
     lp = session.linkedin_profile
@@ -93,16 +93,22 @@ def run_daemon(session):
         daily_limit=lp.follow_up_daily_limit,
     )
 
-    # Load kit model for promo campaigns
+    # Load kit model for partner campaigns
     kit = get_kit()
     if kit:
-        import_promo_campaign(kit["config"])
+        import_partner_campaign(kit["config"])
     kit_model = kit["model"] if kit else None
 
     check_pending_interval = cfg["check_pending_recheck_after_hours"] * 3600
     min_enrich_interval = cfg["enrich_min_interval"]
     min_action_interval = cfg["min_action_interval"]
     min_qualifiable_leads = cfg["min_qualifiable_leads"]
+
+    # Compute partner action_fraction (max across all partner campaigns)
+    partner_fraction = max(
+        (c.action_fraction for c in session.campaigns if c.is_partner),
+        default=0.0,
+    )
 
     # Build schedules for ALL campaigns
     all_schedules = []
@@ -113,7 +119,7 @@ def run_daemon(session):
         session.campaign = campaign
         ensure_campaign_pipeline(campaign.department)
 
-        if campaign.is_promo:
+        if campaign.is_partner:
             connect_lane = ConnectLane(session, connect_limiter, qualifier, pipeline=kit_model)
             check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
             follow_up_lane = FollowUpLane(session, follow_up_limiter)
@@ -128,7 +134,7 @@ def run_daemon(session):
             check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
             follow_up_lane = FollowUpLane(session, follow_up_limiter)
 
-            # Qualify and search lanes are only for non-promo campaigns
+            # Qualify and search lanes are only for non-partner campaigns
             qualify_lane = QualifyLane(session, qualifier)
             search_lane = SearchLane(session, qualifier)
 
@@ -156,12 +162,12 @@ def run_daemon(session):
         next_schedule = min(all_schedules, key=lambda s: s.next_run)
         gap = max(next_schedule.next_run - now, 0)
 
-        # ── Fill gap with search (pipeline low) + qualifications (non-promo only) ──
-        has_non_promo = qualify_lane is not None and search_lane is not None
-        if has_non_promo and gap > min_enrich_interval:
-            # Set campaign to the non-promo one for gap-filling
-            non_promo = next(c for c in session.campaigns if not c.is_promo)
-            session.campaign = non_promo
+        # ── Fill gap with search (pipeline low) + qualifications (non-partner only) ──
+        has_non_partner = qualify_lane is not None and search_lane is not None
+        if has_non_partner and gap > min_enrich_interval:
+            # Set campaign to the non-partner one for gap-filling
+            non_partner = next(c for c in session.campaigns if not c.is_partner)
+            session.campaign = non_partner
 
             if pipeline_needs_refill(session, min_qualifiable_leads):
                 if search_lane.can_execute():
@@ -194,12 +200,18 @@ def run_daemon(session):
         # Set active campaign for this schedule
         session.campaign = next_schedule.campaign
 
-        # Probabilistic gating for promo campaigns
-        if next_schedule.campaign.is_promo:
+        # Probabilistic gating for partner campaigns
+        if next_schedule.campaign.is_partner:
             if random.random() >= next_schedule.campaign.action_fraction:
                 next_schedule.reschedule()
                 continue
-            seed_promo_deals(session)
+            seed_partner_deals(session)
+
+        # Inverse gating: skip regular campaigns proportionally to partner action_fraction
+        if not next_schedule.campaign.is_partner and partner_fraction > 0:
+            if random.random() < partner_fraction:
+                next_schedule.reschedule()
+                continue
 
         if next_schedule.lane.can_execute():
             next_schedule.lane.execute()

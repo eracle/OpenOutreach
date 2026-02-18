@@ -1,5 +1,5 @@
 # linkedin/ml/hub.py
-"""Campaign kit: download from HuggingFace, lazy-load, promo campaign import."""
+"""Campaign kit: download from HuggingFace, lazy-load, partner campaign import."""
 from __future__ import annotations
 
 import json
@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from linkedin.conf import MODELS_DIR, PROMO_LOG_LEVEL
+from linkedin.conf import MODELS_DIR, PARTNER_LOG_LEVEL
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +34,10 @@ def download_kit(revision: str = "v1") -> Optional[Path]:
             revision=revision,
             local_dir=str(_KIT_DIR),
         )
-        logger.log(PROMO_LOG_LEVEL, "Kit downloaded to %s", path)
+        logger.log(PARTNER_LOG_LEVEL, "Kit downloaded to %s", path)
         return Path(path)
     except Exception:
-        logger.log(PROMO_LOG_LEVEL, "Kit download failed", exc_info=True)
+        logger.log(PARTNER_LOG_LEVEL, "Kit download failed", exc_info=True)
         return None
 
 
@@ -51,13 +51,13 @@ def load_kit_config(kit_dir: Path) -> Optional[dict]:
                      "booking_link", "followup_template")
         for key in required:
             if key not in data:
-                logger.log(PROMO_LOG_LEVEL, "Kit config missing key: %s", key)
+                logger.log(PARTNER_LOG_LEVEL, "Kit config missing key: %s", key)
                 return None
 
-        logger.log(PROMO_LOG_LEVEL, "Kit config loaded (action_fraction=%.2f)", data["action_fraction"])
+        logger.log(PARTNER_LOG_LEVEL, "Kit config loaded (action_fraction=%.2f)", data["action_fraction"])
         return data
     except Exception:
-        logger.log(PROMO_LOG_LEVEL, "Kit config load failed", exc_info=True)
+        logger.log(PARTNER_LOG_LEVEL, "Kit config load failed", exc_info=True)
         return None
 
 
@@ -73,13 +73,13 @@ def load_kit_model(kit_dir: Path):
         model = joblib.load(kit_dir / "model.joblib")
 
         if not hasattr(model, "predict"):
-            logger.log(PROMO_LOG_LEVEL, "Kit model has no predict() method")
+            logger.log(PARTNER_LOG_LEVEL, "Kit model has no predict() method")
             return None
 
-        logger.log(PROMO_LOG_LEVEL, "Kit model loaded (%s)", type(model).__name__)
+        logger.log(PARTNER_LOG_LEVEL, "Kit model loaded (%s)", type(model).__name__)
         return model
     except Exception:
-        logger.log(PROMO_LOG_LEVEL, "Kit model load failed", exc_info=True)
+        logger.log(PARTNER_LOG_LEVEL, "Kit model load failed", exc_info=True)
         return None
 
 
@@ -109,11 +109,11 @@ def get_kit() -> Optional[dict]:
 
 
 # ------------------------------------------------------------------
-# Promo campaign import
+# Partner campaign import
 # ------------------------------------------------------------------
 
-def import_promo_campaign(kit_config: dict):
-    """Create or update a promo Campaign from kit config.
+def import_partner_campaign(kit_config: dict):
+    """Create or update a partner Campaign from kit config.
 
     Creates the department, pipeline, and adds all active users to the group.
     Returns the Campaign instance or None.
@@ -134,7 +134,7 @@ def import_promo_campaign(kit_config: dict):
             "campaign_objective": kit_config["campaign_objective"],
             "followup_template": kit_config["followup_template"],
             "booking_link": kit_config["booking_link"],
-            "is_promo": True,
+            "is_partner": True,
             "action_fraction": kit_config["action_fraction"],
         },
     )
@@ -145,6 +145,6 @@ def import_promo_campaign(kit_config: dict):
             lp.user.groups.add(dept)
 
     from termcolor import colored
-    logger.log(PROMO_LOG_LEVEL, colored("Campaign imported: %s (action_fraction=%.2f)", "yellow", attrs=["bold"]),
+    logger.log(PARTNER_LOG_LEVEL, colored("Campaign imported: %s (action_fraction=%.2f)", "yellow", attrs=["bold"]),
                dept_name, kit_config["action_fraction"])
     return campaign

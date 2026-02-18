@@ -6,7 +6,7 @@ from linkedin.models import Campaign, LinkedInProfile, SearchKeyword
 
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
-    list_display = ("department", "booking_link", "is_promo", "action_fraction")
+    list_display = ("department", "booking_link", "is_partner", "action_fraction")
     raw_id_fields = ("department",)
 
 

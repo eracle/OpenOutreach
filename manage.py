@@ -110,8 +110,8 @@ def _run_daemon():
 
     session = get_session(handle=handle)
 
-    # Set default campaign (first non-promo, or first available) for startup tasks
-    first_campaign = session.campaigns.filter(is_promo=False).first() or session.campaigns.first()
+    # Set default campaign (first non-partner, or first available) for startup tasks
+    first_campaign = session.campaigns.filter(is_partner=False).first() or session.campaigns.first()
     if first_campaign is None:
         logger.error("No campaigns found for this user.")
         sys.exit(1)

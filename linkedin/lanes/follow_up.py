@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from linkedin.conf import PROMO_LOG_LEVEL
+from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import get_connected_profiles, set_profile_state, save_chat_message
 from linkedin.navigation.enums import ProfileState
 from linkedin.rate_limiter import RateLimiter
@@ -18,16 +18,16 @@ class FollowUpLane:
         self.rate_limiter = rate_limiter
 
     @property
-    def _is_promo(self):
-        return getattr(self.session.campaign, "is_promo", False)
+    def _is_partner(self):
+        return getattr(self.session.campaign, "is_partner", False)
 
     @property
     def _log_level(self):
-        return PROMO_LOG_LEVEL if self._is_promo else logging.INFO
+        return PARTNER_LOG_LEVEL if self._is_partner else logging.INFO
 
     @property
     def _color(self):
-        return "yellow" if self._is_promo else "green"
+        return "yellow" if self._is_partner else "green"
 
     def can_execute(self) -> bool:
         return (
