@@ -17,6 +17,25 @@ from linkedin.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
+class _PromoRotator:
+    """Logs rotating promotional messages every *every* lane executions."""
+
+    _MESSAGES = [
+        colored("Questions or feedback? Write me on Telegram \u2192 https://t.me/+Y5bh9Vg8UVg5ODU0", "blue", attrs=["bold"]),
+        "\033[38;5;208;1mLove OpenOutreach? Sponsor the project \u2192 https://github.com/sponsors/eracle\033[0m",
+    ]
+
+    def __init__(self, every: int = 10):
+        self._every = every
+        self._ticks = 0
+        self._next = 0
+
+    def tick(self):
+        self._ticks += 1
+        if self._ticks % self._every == 0:
+            logger.info(self._MESSAGES[self._next % len(self._MESSAGES)])
+            self._next += 1
+
 
 
 class LaneSchedule:
@@ -156,6 +175,8 @@ def run_daemon(session):
         check_pending_interval / 60,
     )
 
+    promo = _PromoRotator(every=3)
+
     while True:
         # ── Find soonest major action ──
         now = time.time()
@@ -216,6 +237,7 @@ def run_daemon(session):
         if next_schedule.lane.can_execute():
             next_schedule.lane.execute()
             next_schedule.reschedule()
+            promo.tick()
         else:
             # Nothing to do — retry soon instead of waiting the full interval
             next_schedule.next_run = time.time() + 60
