@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 
 _model = None
 
-
 def _get_model():
     """Lazy-load fastembed model singleton."""
     global _model
@@ -65,7 +64,6 @@ def ensure_embeddings_table():
     """)
 
     con.close()
-    logger.debug("Embeddings table ensured at %s", EMBEDDINGS_DB)
 
 
 def store_embedding(
