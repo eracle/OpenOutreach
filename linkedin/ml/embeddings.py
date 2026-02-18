@@ -74,6 +74,7 @@ def store_embedding(
     embedding: np.ndarray,
 ):
     """Upsert a profile embedding into DuckDB."""
+    ensure_embeddings_table()
     con = _connect()
     emb_list = embedding.tolist()
 
