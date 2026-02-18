@@ -17,7 +17,12 @@ class SearchKeywords(BaseModel):
     keywords: list[str] = Field(description="List of LinkedIn People search queries")
 
 
-def generate_search_keywords(product_docs: str, campaign_objective: str, n_keywords: int = 10) -> list[str]:
+def generate_search_keywords(
+    product_docs: str,
+    campaign_objective: str,
+    n_keywords: int = 10,
+    exclude_keywords: list[str] | None = None,
+) -> list[str]:
     """Call LLM to generate LinkedIn search keywords from campaign context.
 
     Returns a list of search query strings.
@@ -36,6 +41,7 @@ def generate_search_keywords(product_docs: str, campaign_objective: str, n_keywo
         product_docs=product_docs,
         campaign_objective=campaign_objective,
         n_keywords=n_keywords,
+        exclude_keywords=exclude_keywords or [],
     )
 
     llm = ChatOpenAI(model=AI_MODEL, temperature=0.9, api_key=LLM_API_KEY, base_url=LLM_API_BASE)

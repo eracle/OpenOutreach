@@ -254,6 +254,14 @@ def count_leads_for_qualification(session) -> int:
     ).count()
 
 
+def pipeline_needs_refill(session, min_leads: int) -> bool:
+    """Return True when the qualification pipeline is running low and needs more leads.
+
+    Override this function to change the refill strategy.
+    """
+    return count_leads_for_qualification(session) < min_leads
+
+
 # ── Deal-level operations (post-qualification) ──
 
 

@@ -7,7 +7,7 @@ import time
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
-from linkedin.db.crm_profiles import count_leads_for_qualification
+from linkedin.db.crm_profiles import count_leads_for_qualification, pipeline_needs_refill
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.follow_up import FollowUpLane
@@ -98,6 +98,7 @@ def run_daemon(session):
     check_pending_interval = cfg["check_pending_recheck_after_hours"] * 3600
     min_enrich_interval = cfg["enrich_min_interval"]
     min_action_interval = cfg["min_action_interval"]
+    min_qualifiable_leads = cfg["min_qualifiable_leads"]
 
     schedules = [
         LaneSchedule("connect", connect_lane, min_action_interval),
@@ -123,10 +124,14 @@ def run_daemon(session):
         next_schedule = min(schedules, key=lambda s: s.next_run)
         gap = max(next_schedule.next_run - now, 0)
 
-        # ── Fill gap with qualifications + search ──
+        # ── Fill gap with search (pipeline low) + qualifications ──
         if gap > min_enrich_interval:
-            to_qualify = count_leads_for_qualification(session)
+            if pipeline_needs_refill(session, min_qualifiable_leads):
+                if search_lane.can_execute():
+                    search_lane.execute()
+                    continue
 
+            to_qualify = count_leads_for_qualification(session)
             if to_qualify > 0:
                 qualify_wait = max(gap / to_qualify, min_enrich_interval)
                 qualify_wait *= random.uniform(0.8, 1.2)
@@ -140,11 +145,6 @@ def run_daemon(session):
                 if qualify_lane.can_execute():
                     qualify_lane.execute()
                     continue
-
-            # Pipeline empty — search for new profiles
-            if search_lane.can_execute():
-                search_lane.execute()
-                continue
 
         # ── Wait for major action ──
         if gap > 0:

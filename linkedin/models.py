@@ -45,3 +45,21 @@ class LinkedInProfile(models.Model):
 
     class Meta:
         app_label = "linkedin"
+
+
+class SearchKeyword(models.Model):
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name="search_keywords",
+    )
+    keyword = models.CharField(max_length=500)
+    used = models.BooleanField(default=False)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "linkedin"
+        unique_together = [("campaign", "keyword")]
+
+    def __str__(self):
+        return self.keyword

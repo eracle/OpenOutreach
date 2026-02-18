@@ -44,6 +44,7 @@ CAMPAIGN_CONFIG = {
     "qualification_entropy_threshold": 0.3,
     "qualification_n_mc_samples": 100,
     "embedding_model": "BAAI/bge-small-en-v1.5",
+    "min_qualifiable_leads": 50,
 }
 
 # ----------------------------------------------------------------------
