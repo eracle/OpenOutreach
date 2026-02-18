@@ -41,40 +41,17 @@ def search_profile(session: "AccountSession", profile: Dict[str, Any]):
     _go_to_profile(session, url, public_identifier)
 
 
-def _initiate_search(session: "AccountSession", full_name: str):
-    """Go to feed and start typing the name in the global search bar."""
+def _initiate_search(session: "AccountSession", keyword: str):
+    """Navigate directly to LinkedIn People search results for *keyword*."""
     page = session.page
-
-    if "feed/" not in page.url:
-        goto_page(
-            session,
-            action=lambda: page.goto("https://www.linkedin.com/feed/?doFeedRefresh=true&nis=true"),
-            expected_url_pattern="feed/",
-            error_message="Failed to reach LinkedIn feed"
-        )
-
-    search_bar = page.locator(SELECTORS["search_bar"])
-    search_bar.click()
-    human_type(search_bar, full_name)
+    params = urlencode({"keywords": keyword, "origin": "GLOBAL_SEARCH_HEADER"})
+    url = f"https://www.linkedin.com/search/results/people/?{params}"
 
     goto_page(
         session,
-        action=lambda: search_bar.press("Enter"),
-        expected_url_pattern="/search/results/",
-        error_message="Failed to reach search results"
-    )
-
-    current = urlparse(page.url)
-    new_path = "/search/results/people/" if "/all/" in current.path else current.path
-    params = parse_qs(current.query)
-    params["page"] = ["1"]
-    new_url = current._replace(path=new_path, query=urlencode(params, doseq=True)).geturl()
-
-    goto_page(
-        session,
-        action=lambda: page.goto(new_url),
+        action=lambda: page.goto(url),
         expected_url_pattern="/search/results/people/",
-        error_message="Failed to switch to People tab"
+        error_message="Failed to reach People search results",
     )
 
 
