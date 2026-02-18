@@ -208,6 +208,10 @@ def _tick(session, kit, connect_limiter, follow_up_limiter):
         public_id = candidate["public_identifier"]
         profile = candidate.get("profile") or candidate
         try:
+            status = get_connection_status(session, profile)
+            if status in (ProfileState.CONNECTED, ProfileState.PENDING):
+                set_partner_deal_state(session, public_id, status)
+                return
             result = send_connection_request(session=session, profile=profile)
             set_partner_deal_state(session, public_id, result)
             if result == ProfileState.PENDING and connect_limiter:

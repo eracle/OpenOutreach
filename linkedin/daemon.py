@@ -125,7 +125,7 @@ def run_daemon(session):
         gap = max(next_schedule.next_run - now, 0)
 
         # ── Fill gap with search (pipeline low) + qualifications ──
-        if gap > min_enrich_interval:
+        if _kit_fraction < 1.0 and gap > min_enrich_interval:
             if pipeline_needs_refill(session, min_qualifiable_leads):
                 if search_lane.can_execute():
                     search_lane.execute()
