@@ -1,7 +1,6 @@
 # linkedin/actions/message.py
 import json
 import logging
-import sys
 from typing import Dict, Any
 
 from linkedin.actions.connection_status import get_connection_status
@@ -133,30 +132,41 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
 
 
 if __name__ == "__main__":
+    import os
+    import argparse
 
-    logging.getLogger().handlers.clear()
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
+
+    import django
+    django.setup()
+
+    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.sessions.registry import get_session
+
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(levelname)-8s │ %(message)s',
+        format="[%(levelname)s] %(message)s",
     )
 
-    if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.actions.message <handle>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Send a LinkedIn follow-up message")
+    parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active profile)")
+    parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
+    args = parser.parse_args()
 
-    handle = sys.argv[1]
-
-    from linkedin.sessions.registry import get_session
-    session = get_session(
-        handle=handle,
-    )
-    session.ensure_browser()
+    handle = args.handle or get_first_active_profile_handle()
+    if not handle:
+        print("No active LinkedInProfile found and no --handle provided.")
+        raise SystemExit(1)
 
     test_profile = {
-        "full_name": "Bill Gates",
-        "url": "https://www.linkedin.com/in/williamhgates/",
-        "public_identifier": "williamhgates",
+        "url": f"https://www.linkedin.com/in/{args.profile}/",
+        "public_identifier": args.profile,
     }
+
+    session = get_session(handle=handle)
+    session.campaign = session.campaigns.first()
+    session.ensure_browser()
+    print(f"Sending follow-up message as @{handle} → {args.profile}")
 
     send_follow_up_message(
         session=session,

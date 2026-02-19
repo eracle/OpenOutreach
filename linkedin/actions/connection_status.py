@@ -9,7 +9,7 @@ from linkedin.navigation.utils import get_top_card
 logger = logging.getLogger(__name__)
 
 SELECTORS = {
-    "pending_button": 'button[aria-label*="Pending"]:visible',
+    "pending_button": '[aria-label*="Pending"]',
     "invite_to_connect": 'button[aria-label*="Invite"][aria-label*="to connect"]:visible',
 }
 
@@ -62,18 +62,29 @@ def get_connection_status(
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ProfileState.NEW
 
-    if "Connect" in main_text or degree:
-        logger.debug("Connect label or degree present → NOT_CONNECTED")
+    if "Connect" in main_text:
+        logger.debug("Connect label present → NOT_CONNECTED")
+        return ProfileState.NEW
+
+    if degree:
+        logger.debug("No UI indicators but degree=%s → NOT_CONNECTED", degree)
         return ProfileState.NEW
 
     logger.debug("No clear indicators → defaulting to NOT_CONNECTED")
-    # save_page(profile, session)  # uncomment if you want HTML dumps
     return ProfileState.NEW
 
 
 if __name__ == "__main__":
-    import sys
+    import os
+    import argparse
     import logging
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
+
+    import django
+    django.setup()
+
+    from linkedin.conf import get_first_active_profile_handle
     from linkedin.sessions.registry import get_session
 
     logging.basicConfig(
@@ -81,26 +92,24 @@ if __name__ == "__main__":
         format="[%(levelname)s] %(message)s",
     )
 
-    if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.actions.connections <handle>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Check LinkedIn connection status")
+    parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active profile)")
+    parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
+    args = parser.parse_args()
 
-    handle = sys.argv[1]
+    handle = args.handle or get_first_active_profile_handle()
+    if not handle:
+        print("No active LinkedInProfile found and no --handle provided.")
+        raise SystemExit(1)
 
-    public_identifier = "benjames01"
     test_profile = {
-        "full_name": "Ben James",
-        "url": f"https://www.linkedin.com/in/{public_identifier}/",
-        "public_identifier": public_identifier,
+        "url": f"https://www.linkedin.com/in/{args.profile}/",
+        "public_identifier": args.profile,
     }
 
-    print(f"Checking connection status as @{handle} → {test_profile['full_name']}")
+    print(f"Checking connection status as @{handle} → {args.profile}")
 
-    # Get session and navigate
-    session = get_session(
-        handle=handle,
-    )
-
-    # Check status
+    session = get_session(handle=handle)
+    session.campaign = session.campaigns.first()
     status = get_connection_status(session, test_profile)
     print(f"Connection status → {status.value}")

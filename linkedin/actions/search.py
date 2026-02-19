@@ -136,29 +136,40 @@ def _simulate_human_search(session: "AccountSession", profile: Dict[str, Any]) -
 
 # ——————————————————————————————————————————————————————————————
 if __name__ == "__main__":
-    import sys
+    import os
+    import argparse
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
+
+    import django
+    django.setup()
+
+    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.sessions.registry import get_session
 
     logging.basicConfig(
         level=logging.DEBUG,
-        format="%(name)s - %(levelname)s - %(message)s"
+        format="[%(levelname)s] %(message)s",
     )
 
-    if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.actions.search <handle>")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Navigate to a LinkedIn profile")
+    parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active profile)")
+    parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
+    args = parser.parse_args()
 
-    handle = sys.argv[1]
-
-    from linkedin.sessions.registry import get_session
-    session = get_session(handle=handle)
-
-    # Make sure browser is up
+    handle = args.handle or get_first_active_profile_handle()
+    if not handle:
+        print("No active LinkedInProfile found and no --handle provided.")
+        raise SystemExit(1)
 
     test_profile = {
-        "full_name": "Bill Gates",
-        "url": "https://www.linkedin.com/in/williamhgates/",
-        "public_identifier": "williamhgates",
+        "url": f"https://www.linkedin.com/in/{args.profile}/",
+        "public_identifier": args.profile,
     }
+
+    session = get_session(handle=handle)
+    session.campaign = session.campaigns.first()
+    print(f"Navigating to profile as @{handle} → {args.profile}")
 
     search_profile(session, test_profile)
 
