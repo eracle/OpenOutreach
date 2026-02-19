@@ -8,7 +8,7 @@ When modifying code, always update CLAUDE.md and MEMORY.md to reflect the change
 
 ## Dependency Rule
 
-When adding, removing, or changing a dependency in `requirements/*.txt`, always mirror the change in `pyproject.toml` (and vice versa). The two sources must stay in sync — `pyproject.toml` is used for local dev via `uv`, `requirements/` files are used by Docker.
+Dependencies are managed in `requirements/*.txt` files. `requirements/` files are used by both local dev and Docker.
 
 ## Project Overview
 
@@ -16,32 +16,32 @@ OpenOutreach is a self-hosted LinkedIn automation tool for B2B lead generation. 
 
 ## Commands
 
-### Local Development (requires [uv](https://docs.astral.sh/uv/))
+### Docker (Recommended)
+```bash
+docker run -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest  # run from pre-built image
+make up       # build from source + run
+make stop     # stop services
+make attach   # follow logs
+make up-view  # run + open VNC viewer
+```
+
+### Local Development
 ```bash
 make setup                           # install deps + Playwright browsers + migrate + bootstrap CRM
 make run                             # run the daemon (interactive onboarding on first run)
 make admin                           # Django Admin at http://localhost:8000/admin/
 make analytics                       # build dbt models (DuckDB analytics)
 make analytics-test                  # run dbt schema tests
-uv run python manage.py migrate      # run Django migrations
-uv run python manage.py createsuperuser  # create Django admin user
+python manage.py migrate             # run Django migrations
+python manage.py createsuperuser     # create Django admin user
 ```
 
 ### Testing
 ```bash
 make test                         # run tests locally
 make docker-test                  # run tests in Docker
-uv run pytest tests/api/test_voyager.py  # run single test file
-uv run pytest -k test_name              # run single test by name
-```
-
-### Docker
-```bash
-make build    # build containers
-make up       # build + run
-make stop     # stop services
-make attach   # follow logs
-make up-view  # run + open VNC viewer
+pytest tests/api/test_voyager.py  # run single test file
+pytest -k test_name               # run single test by name
 ```
 
 ## Architecture
@@ -136,8 +136,7 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 - **LinkedInProfile model** — `linkedin_username`, `linkedin_password`, `subscribe_newsletter`, `active`, `connect_daily_limit` (20), `connect_weekly_limit` (100), `follow_up_daily_limit` (30) — managed via Django Admin or onboarding.
 - **`assets/templates/prompts/qualify_lead.j2`** — Jinja2 prompt template for LLM-based lead qualification. Receives `product_docs`, `campaign_objective`, and `profile_text` variables.
 - **`assets/templates/prompts/search_keywords.j2`** — Jinja2 prompt template for LLM-based search keyword generation. Receives `product_docs`, `campaign_objective`, and `n_keywords` variables.
-- **`pyproject.toml`** — Canonical dependency list for local dev via `uv`. DjangoCRM's `mysqlclient` dependency excluded via `[tool.uv] override-dependencies`. Dev deps (pytest, factory-boy) in `[dependency-groups] dev`.
-- **`requirements/`** — `crm.txt` (DjangoCRM), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`. Used by Docker only; must stay in sync with `pyproject.toml`.
+- **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`. Used by both local dev and Docker.
 
 ### Analytics Layer (dbt + DuckDB)
 The `analytics/` directory contains a dbt project that reads from the CRM SQLite DB (via DuckDB's SQLite attach) to build ML training sets. No CRM data is modified.
@@ -151,8 +150,12 @@ The `analytics/` directory contains a dbt project that reads from the CRM SQLite
 ### Error Handling Convention
 The application should crash on unexpected errors. `try/except` blocks should only handle expected, recoverable errors. Custom exceptions in `navigation/exceptions.py`: `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 
+### CI/CD
+- **`.github/workflows/tests.yml`** — Runs pytest (in Docker) and dbt tests on push to `master` and PRs.
+- **`.github/workflows/deploy.yml`** — On push to `master` or version tags (`v*`): runs tests, then builds and pushes the production Docker image to `ghcr.io/eracle/openoutreach`. Tags: `latest`, `sha-<commit>`, semver (`v1.0.0` → `1.0.0` + `1.0`).
+
 ### Dependencies
-Managed via `pyproject.toml` (local dev with `uv`) and `requirements/` (Docker). DjangoCRM's `mysqlclient` is excluded via `[tool.uv] override-dependencies` locally and `--no-deps` in Docker.
+Managed via `requirements/` files. DjangoCRM's `mysqlclient` is excluded via `--no-deps` in the install step. `uv pip install` is used for fast installs (both locally via `make setup` and in Docker).
 
 Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin`, `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
 ML/Embeddings: `scikit-learn` (GaussianProcessRegressor), `numpy`, `duckdb`, `fastembed`, `joblib`

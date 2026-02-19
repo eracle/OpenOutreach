@@ -43,59 +43,48 @@ Perfect for founders, sales teams, and agencies who want powerful automation **w
 
 ---
 
-## ⚡ Quick Start (Local Installation)
+## ⚡ Quick Start (Docker — Recommended)
 
-Get up and running in minutes by running the application directly on your machine.
+The fastest way to get started. Pre-built images are published to GitHub Container Registry on every push to `master`.
+
+```bash
+docker run -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest
+```
+
+The interactive onboarding will prompt you for LinkedIn credentials, LLM API key, and campaign details on first run. Your data persists in the `openoutreach_data` Docker volume across restarts.
+
+Connect a VNC client to `localhost:5900` to watch the browser live.
+
+For Docker Compose, build-from-source, and more options see the **[Docker Guide](./docs/docker.md)**.
+
+---
+
+## ⚙️ Local Installation (Development)
+
+For contributors or if you prefer running directly on your machine.
 
 ### Prerequisites
 
 - [Git](https://git-scm.com/)
-- [Python](https://www.python.org/downloads/) (3.11+ recommended)
-- `venv` for creating virtual environments (usually included with Python)
+- [Python](https://www.python.org/downloads/) (3.12+)
 
-### 1. Clone the Repository
+### 1. Clone & Set Up
 ```bash
 git clone https://github.com/eracle/OpenOutreach.git
 cd OpenOutreach
-```
 
-### 2. Set Up a Virtual Environment
-It's highly recommended to use a virtual environment to manage dependencies.
-```bash
-# Create the virtual environment
-python -m venv venv
-
-# Activate it
-source venv/bin/activate          # Windows: venv\Scripts\activate
-```
-
-### 3. Install Dependencies & Set Up the CRM
-We use `uv` for fast dependency management and DjangoCRM for the local database.
-```bash
-# Install deps, run migrations, and bootstrap CRM data
+# Install deps, Playwright browsers, run migrations, and bootstrap CRM
 make setup
-
-# Install required browser assets
-playwright install --with-deps chromium
 ```
 
-### 4. Configure the Application
-You need to provide your LinkedIn credentials and target profiles.
-
-1. **Configure LinkedIn accounts + optional OpenAI key**
-   ```bash
-   cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
-   ```
-   Edit `assets/accounts.secrets.yaml` with your credentials and add your LLM API key under `env:` (required for profile qualification).
-
-### 5. Run the Daemon
+### 2. Run the Daemon
 
 ```bash
 make run
 ```
-The daemon priority-schedules five action lanes (connect, check pending, follow up, + enrich and qualify as gap-fillers) at a fixed pace with daily/weekly rate limits. Fully resumable — stop/restart anytime without losing progress.
+The interactive onboarding will prompt for LinkedIn credentials, LLM API key, and campaign details on first run. Fully resumable — stop/restart anytime without losing progress.
 
-### 6. View Your Data (CRM Admin)
+### 3. View Your Data (CRM Admin)
 
 OpenOutreach includes a full CRM web interface powered by DjangoCRM:
 ```bash
@@ -108,13 +97,6 @@ make admin
 Then open:
 - **Django Admin:** http://localhost:8000/admin/
 - **CRM UI:** http://localhost:8000/crm/
----
-
-## 🐳 Docker Installation
-
-We also support running the application via Docker. This is a great option for ensuring a consistent environment and simplifying dependency management.
-
-For full instructions, please see the **[Docker Installation Guide](./docs/docker.md)**.
 
 ---
 ## ✨ Features

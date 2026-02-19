@@ -1,66 +1,79 @@
 # Docker Installation and Usage
 
-This guide provides instructions for running the application using Docker, which is the recommended method for a stable and consistent environment.
+## ⚡ Quick Start (Pre-built Image — Recommended)
+
+Pre-built production images are published to GitHub Container Registry on every push to `master`.
+
+```bash
+docker run -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest
+```
+
+That's it. The interactive onboarding will guide you through LinkedIn credentials, LLM API key, and campaign setup on first run. All data (CRM database, cookies, embeddings) persists in the `openoutreach_data` Docker volume.
+
+### Available Tags
+
+| Tag | Description |
+|:----|:------------|
+| `latest` | Latest build from `master` |
+| `sha-<commit>` | Pinned to a specific commit |
+| `1.0.0` / `1.0` | Semantic version (when tagged) |
+
+### VNC (Live Browser View)
+
+The container includes a VNC server for watching the automation live. Connect any VNC client to `localhost:5900` (no password).
+
+On Linux with `vinagre`:
+```bash
+vinagre vnc://127.0.0.1:5900
+```
+
+### Stopping & Restarting
+
+```bash
+# Find the container
+docker ps
+
+# Stop it
+docker stop <container-id>
+
+# Restart (data persists in the volume)
+docker run -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest
+```
+
+---
+
+## Build from Source (Docker Compose)
+
+For development or customization, you can build the image locally.
 
 ### Prerequisites
 
 - [Make](https://www.gnu.org/software/make/)
 - [Docker](https://www.docker.com/)
 - [Docker Compose](https://docs.docker.com/compose/)
-- [Git](https://git-scm.com/)
 
-## ⚡ Quick Start
-
-Get up and running in minutes.
+### Build & Run
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/eracle/OpenOutreach.git
 cd OpenOutreach
 
-# 2. Build and start the application
+# Build and start
 make up
 ```
 
-This command will build the Docker image and start the automation service.
+This builds the Docker image from source with `BUILD_ENV=local` (includes test dependencies) and starts the daemon.
 
-### Configuration
+### Useful Commands
 
-Before running, you need to set up your credentials and target profiles:
+| Command | Description |
+|:--------|:------------|
+| `make up` | Build and start the service |
+| `make stop` | Stop the running containers |
+| `make attach` | Follow application logs |
+| `make up-view` | Start + open VNC viewer (Linux, requires `vinagre`) |
+| `make docker-test` | Run the test suite in Docker |
 
-1.  **Configure LinkedIn accounts**
-    ```bash
-    cp assets/accounts.secrets.template.yaml assets/accounts.secrets.yaml
-    ```
-    Then, edit `assets/accounts.secrets.yaml` with your LinkedIn username and password. You can add multiple accounts, but only one should be marked as `active: true`.
+### VNC with Docker Compose
 
-Once configured, running `make up` will launch the default campaign. The process is fully resumable, so you can stop (`make stop`) and restart it at any time without losing progress.
-
-## 🖥️ Visual Debugging with VNC
-
-The Docker container includes a VNC server, allowing you to watch the automation live. This is useful for debugging and seeing exactly what the tool is doing.
-
-**Option 1: Using the Makefile command (for Linux with `vinagre`)**
-
-If you are on Linux and have `vinagre` installed, you can use the built-in Make command:
-```bash
-make up-view
-```
-This will start the services in the background and automatically open a VNC viewer connected to the session.
-
-**Option 2: Manual Connection**
-
-On any operating system, you can connect manually:
-
-1.  Start the application normally: `make up`
-2.  Open your favorite VNC client (e.g., [RealVNC Viewer](https://www.realvnc.com/en/connect/download/viewer/), [TightVNC](https://www.tightvnc.com/)).
-3.  Connect to the address: `localhost:5900`.
-4.  No password is required by default.
-
-This will open a window showing the virtual desktop inside the container where the browser is running.
-
-## useful-commands
-
-- `make stop`: Stops the running containers.
-- `make attach`: Follows the application logs.
-- `make test`: Runs the test suite.
+The VNC server is exposed on port 5900. Use `make up-view` to auto-open it, or connect manually to `localhost:5900` with any VNC client.

@@ -1,34 +1,38 @@
 .DEFAULT_GOAL := help
-.PHONY: help attach test docker-test stop build up up-view setup run admin analytics analytics-test view
+.PHONY: help attach test docker-test stop build up up-view install setup run admin analytics analytics-test view
 
 help:
 	@perl -nle'print $& if m{^[a-zA-Z_-]+:.*?## .*$$}' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-25s\033[0m %s\n", $$1, $$2}'
 
-setup: ## install deps + Playwright browsers + migrate + bootstrap CRM
-	uv sync --group dev
-	uv run playwright install --with-deps chromium
-	uv run python manage.py migrate --no-input
-	uv run python manage.py setup_crm
+install: ## install all Python dependencies (local dev)
+	pip install uv 2>/dev/null || true
+	uv pip install --no-deps -r requirements/crm.txt
+	uv pip install -r requirements/local.txt
+
+setup: install ## install deps + Playwright browsers + migrate + bootstrap CRM
+	playwright install --with-deps chromium
+	python manage.py migrate --no-input
+	python manage.py setup_crm
 
 run: ## run the daemon
-	uv run python manage.py
+	python manage.py
 
 test: ## run the test suite
-	uv run pytest
+	pytest
 
 admin: ## start the Django Admin web server
 	@echo ""
 	@echo "  Django Admin: http://localhost:8000/admin/"
 	@echo "  CRM UI:       http://localhost:8000/crm/"
-	@echo "  No superuser yet? Run: uv run python manage.py createsuperuser"
+	@echo "  No superuser yet? Run: python manage.py createsuperuser"
 	@echo ""
-	uv run python manage.py runserver
+	python manage.py runserver
 
 analytics: ## run dbt models (build analytics tables)
-	cd analytics && uv run dbt run
+	cd analytics && dbt run
 
 analytics-test: ## run dbt schema tests
-	cd analytics && uv run dbt test
+	cd analytics && dbt test
 
 # Docker targets
 attach: ## follow the logs of the service
