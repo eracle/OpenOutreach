@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import logging
 
+from termcolor import colored
+
 from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import get_pending_profiles, set_profile_state
 from linkedin.navigation.enums import ProfileState
@@ -30,7 +32,7 @@ class CheckPendingLane:
 
     def execute(self):
         tag = "[Partner] " if self._is_partner else ""
-        logger.log(self._log_level, "%s▶ check_pending", tag)
+        logger.log(self._log_level, "%s%s", tag, colored("▶ check_pending", "magenta", attrs=["bold"]))
         from crm.models import Deal
         from linkedin.actions.connection_status import get_connection_status
         from linkedin.db.crm_profiles import public_id_to_url
