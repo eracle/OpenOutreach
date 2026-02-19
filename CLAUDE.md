@@ -6,31 +6,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 When modifying code, always update CLAUDE.md and MEMORY.md to reflect the changes. This includes changes to models, function signatures, module structure, configuration keys, state machines, lane behavior, ML pipeline, and any other architectural details documented in these files. Documentation must stay in sync with the code at all times.
 
+## Dependency Rule
+
+When adding, removing, or changing a dependency in `requirements/*.txt`, always mirror the change in `pyproject.toml` (and vice versa). The two sources must stay in sync — `pyproject.toml` is used for local dev via `uv`, `requirements/` files are used by Docker.
+
 ## Project Overview
 
 OpenOutreach is a self-hosted LinkedIn automation tool for B2B lead generation. It uses Playwright with stealth plugins for browser automation and LinkedIn's internal Voyager API for structured profile data. The CRM backend is powered by DjangoCRM with Django Admin UI.
 
 ## Commands
 
-### Local Development
+### Local Development (requires [uv](https://docs.astral.sh/uv/))
 ```bash
-python -m venv venv && source venv/bin/activate
-make setup                           # install deps + migrate + bootstrap CRM
-playwright install --with-deps chromium
-python manage.py                     # run the daemon (interactive onboarding on first run)
-python manage.py runserver           # Django Admin at http://localhost:8000/admin/
-python manage.py migrate             # run Django migrations
-python manage.py createsuperuser     # create Django admin user
+make setup                           # install deps + Playwright browsers + migrate + bootstrap CRM
+make run                             # run the daemon (interactive onboarding on first run)
+make admin                           # Django Admin at http://localhost:8000/admin/
 make analytics                       # build dbt models (DuckDB analytics)
 make analytics-test                  # run dbt schema tests
+uv run python manage.py migrate      # run Django migrations
+uv run python manage.py createsuperuser  # create Django admin user
 ```
 
 ### Testing
 ```bash
-pytest                            # run all tests
-pytest tests/api/test_voyager.py  # run single test file
-pytest -k test_name               # run single test by name
-make test                         # run tests via Docker
+make test                         # run tests locally
+make docker-test                  # run tests in Docker
+uv run pytest tests/api/test_voyager.py  # run single test file
+uv run pytest -k test_name              # run single test by name
 ```
 
 ### Docker
@@ -134,7 +136,8 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 - **LinkedInProfile model** — `linkedin_username`, `linkedin_password`, `subscribe_newsletter`, `active`, `connect_daily_limit` (20), `connect_weekly_limit` (100), `follow_up_daily_limit` (30) — managed via Django Admin or onboarding.
 - **`assets/templates/prompts/qualify_lead.j2`** — Jinja2 prompt template for LLM-based lead qualification. Receives `product_docs`, `campaign_objective`, and `profile_text` variables.
 - **`assets/templates/prompts/search_keywords.j2`** — Jinja2 prompt template for LLM-based search keyword generation. Receives `product_docs`, `campaign_objective`, and `n_keywords` variables.
-- **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`.
+- **`pyproject.toml`** — Canonical dependency list for local dev via `uv`. DjangoCRM's `mysqlclient` dependency excluded via `[tool.uv] override-dependencies`. Dev deps (pytest, factory-boy) in `[dependency-groups] dev`.
+- **`requirements/`** — `crm.txt` (DjangoCRM), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`. Used by Docker only; must stay in sync with `pyproject.toml`.
 
 ### Analytics Layer (dbt + DuckDB)
 The `analytics/` directory contains a dbt project that reads from the CRM SQLite DB (via DuckDB's SQLite attach) to build ML training sets. No CRM data is modified.
@@ -149,6 +152,8 @@ The `analytics/` directory contains a dbt project that reads from the CRM SQLite
 The application should crash on unexpected errors. `try/except` blocks should only handle expected, recoverable errors. Custom exceptions in `navigation/exceptions.py`: `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 
 ### Dependencies
-Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin` (installed via `--no-deps` to skip mysqlclient), `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
+Managed via `pyproject.toml` (local dev with `uv`) and `requirements/` (Docker). DjangoCRM's `mysqlclient` is excluded via `[tool.uv] override-dependencies` locally and `--no-deps` in Docker.
+
+Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin`, `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
 ML/Embeddings: `scikit-learn` (GaussianProcessRegressor), `numpy`, `duckdb`, `fastembed`, `joblib`
 Analytics: `dbt-core` 1.11.x, `dbt-duckdb` 1.10.x, `protobuf` 6.33.x (6.32.x had memory regression, resolved in 6.33+)
