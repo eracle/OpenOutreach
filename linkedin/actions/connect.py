@@ -98,30 +98,41 @@ def _click_without_note(session):
 
 
 if __name__ == "__main__":
-    import sys
+    import os
+    import argparse
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
+
+    import django
+    django.setup()
+
+    from linkedin.conf import get_first_active_profile_handle
     from linkedin.actions.connection_status import get_connection_status
     from linkedin.sessions.registry import get_session
-
-    if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.actions.connect <handle>")
-        sys.exit(1)
-
-    handle = sys.argv[1]
 
     logging.basicConfig(
         level=logging.DEBUG,
         format="[%(levelname)s] %(message)s",
     )
 
-    public_identifier = "benjames01"
+    parser = argparse.ArgumentParser(description="Send a LinkedIn connection request")
+    parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active profile)")
+    parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
+    args = parser.parse_args()
+
+    handle = args.handle or get_first_active_profile_handle()
+    if not handle:
+        print("No active LinkedInProfile found and no --handle provided.")
+        raise SystemExit(1)
+
     test_profile = {
-        "full_name": "Ben James",
-        "url": f"https://www.linkedin.com/in/{public_identifier}/",
-        "public_identifier": public_identifier,
+        "url": f"https://www.linkedin.com/in/{args.profile}/",
+        "public_identifier": args.profile,
     }
 
     session = get_session(handle=handle)
-    print(f"Testing connection request as @{handle} )")
+    session.campaign = session.campaigns.first()
+    print(f"Testing connection request as @{handle} → {args.profile}")
 
     connection_status = get_connection_status(session, test_profile)
     print(f"Pre-check status → {connection_status.value}")

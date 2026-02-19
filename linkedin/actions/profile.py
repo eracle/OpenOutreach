@@ -38,31 +38,45 @@ def _save_profile_to_fixture(enriched_profile: Dict[str, Any], path: str | Path)
 
 # python -m linkedin.actions.profile
 if __name__ == "__main__":
-    import sys
-
-    FIXTURE_PATH = FIXTURE_PROFILES_DIR / "linkedin_profile.json"
-
-    logging.getLogger().handlers.clear()
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(levelname)-8s │ %(message)s',
-    )
-
-    if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.actions.profile <handle>")
-        sys.exit(1)
-
-    handle = sys.argv[1]
-
-    from linkedin.sessions.registry import get_session
-    session = get_session(handle=handle)
-
-    test_profile = {
-        "url": "https://www.linkedin.com/in/me/",
-    }
-
-    profile, data = scrape_profile(session, test_profile)
+    import os
+    import argparse
     from pprint import pprint
 
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
+
+    import django
+    django.setup()
+
+    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.sessions.registry import get_session
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="[%(levelname)s] %(message)s",
+    )
+
+    parser = argparse.ArgumentParser(description="Scrape a LinkedIn profile")
+    parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active profile)")
+    parser.add_argument("--profile", default="me", help="Public identifier of the target profile (default: me)")
+    parser.add_argument("--save-fixture", action="store_true", help="Save raw data as test fixture")
+    args = parser.parse_args()
+
+    handle = args.handle or get_first_active_profile_handle()
+    if not handle:
+        print("No active LinkedInProfile found and no --handle provided.")
+        raise SystemExit(1)
+
+    test_profile = {
+        "url": f"https://www.linkedin.com/in/{args.profile}/",
+    }
+
+    session = get_session(handle=handle)
+    session.campaign = session.campaigns.first()
+    print(f"Scraping profile as @{handle} → {args.profile}")
+
+    profile, data = scrape_profile(session, test_profile)
     pprint(profile)
-    # _save_profile_to_fixture(data, FIXTURE_PATH)
+
+    if args.save_fixture:
+        fixture_path = FIXTURE_PROFILES_DIR / "linkedin_profile.json"
+        _save_profile_to_fixture(data, fixture_path)
