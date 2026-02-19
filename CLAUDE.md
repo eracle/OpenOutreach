@@ -18,7 +18,7 @@ OpenOutreach is a self-hosted LinkedIn automation tool for B2B lead generation. 
 
 ### Docker (Recommended)
 ```bash
-docker run -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest  # run from pre-built image
+docker run --pull always -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest  # run from pre-built image
 make up       # build from source + run
 make stop     # stop services
 make attach   # follow logs

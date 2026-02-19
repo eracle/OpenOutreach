@@ -48,7 +48,7 @@ Perfect for founders, sales teams, and agencies who want powerful automation **w
 The fastest way to get started. Pre-built images are published to GitHub Container Registry on every push to `master`.
 
 ```bash
-docker run -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest
+docker run --pull always -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest
 ```
 
 The interactive onboarding will prompt you for LinkedIn credentials, LLM API key, and campaign details on first run. Your data persists in the `openoutreach_data` Docker volume across restarts.
