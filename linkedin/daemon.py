@@ -21,7 +21,7 @@ class _PromoRotator:
     """Logs rotating promotional messages every *every* lane executions."""
 
     _MESSAGES = [
-        colored("Questions or feedback? Write me on Telegram \u2192 https://t.me/+Y5bh9Vg8UVg5ODU0", "blue", attrs=["bold"]),
+        colored("Join the community or give direct feedback on Telegram \u2192 https://t.me/+Y5bh9Vg8UVg5ODU0", "blue", attrs=["bold"]),
         "\033[38;5;208;1mLove OpenOutreach? Sponsor the project \u2192 https://github.com/sponsors/eracle\033[0m",
     ]
 
