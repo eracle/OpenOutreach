@@ -99,6 +99,7 @@ STATIC_ROOT = ROOT_DIR / "staticfiles"
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = DATA_DIR / "media"
+MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 
 LOGIN_URL = "/admin/login/"
 
