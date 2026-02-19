@@ -7,7 +7,6 @@ services:
       dockerfile: ./compose/linkedin/Dockerfile
       args:
         - BUILD_ENV=local
-    command: /start
     volumes:
       - .:/app
     ports:

@@ -31,3 +31,5 @@ COPY . ${APP_HOME}
 
 # Set the working directory
 WORKDIR ${APP_HOME}
+
+CMD ["/start"]
