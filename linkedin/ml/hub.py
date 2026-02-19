@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +40,8 @@ def download_kit(revision: str = "v1") -> Optional[Path]:
             revision=revision,
             local_dir=str(_KIT_DIR),
         )
+        # Remove HF download metadata cache — not needed after download
+        shutil.rmtree(_KIT_DIR / ".cache", ignore_errors=True)
         logger.log(PARTNER_LOG_LEVEL, "[Partner] Kit downloaded to %s", path)
         return Path(path)
     except Exception:
