@@ -175,7 +175,7 @@ def run_daemon(session):
         check_pending_interval / 60,
     )
 
-    promo = _PromoRotator(every=3)
+    promo = _PromoRotator(every=2)
 
     while True:
         # ── Find soonest major action ──

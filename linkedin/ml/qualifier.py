@@ -14,6 +14,11 @@ from linkedin.conf import CAMPAIGN_CONFIG, PROMPTS_DIR
 logger = logging.getLogger(__name__)
 
 
+def format_stats(prob: float, entropy: float, std: float, n_obs: int) -> str:
+    """Compact one-liner stats string."""
+    return f"prob={prob:.3f}, entropy={entropy:.4f}, std={std:.4f}, obs={n_obs}"
+
+
 class QualificationDecision(BaseModel):
     """Structured LLM output for lead qualification."""
     qualified: bool = Field(description="True if the profile is a good prospect, False otherwise")
@@ -333,7 +338,7 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def explain_profile(self, profile: dict) -> str:
-        """Human-readable scoring explanation."""
+        """Human-readable compact scoring explanation."""
         emb = self._get_embedding(profile)
         if emb is None:
             return "No embedding found for profile"
@@ -341,12 +346,7 @@ class BayesianQualifier:
         if result is None:
             return f"Model not fitted yet ({self.n_obs} observations, need both classes)"
         prob, entropy, std = result
-        return (
-            f"GP predictive p(qualified): {prob:.3f}\n"
-            f"Predictive entropy: {entropy:.4f}\n"
-            f"Posterior std: {std:.4f}\n"
-            f"Observations seen: {self.n_obs}"
-        )
+        return format_stats(prob, entropy, std, self.n_obs)
 
     # ------------------------------------------------------------------
     # Warm start

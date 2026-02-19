@@ -181,8 +181,8 @@ class TestExplainProfile:
 
         profile = {"public_identifier": "alice"}
         explanation = qualifier.explain_profile(profile)
-        assert "predictive" in explanation.lower()
-        assert "entropy" in explanation.lower()
+        assert "prob=" in explanation
+        assert "entropy=" in explanation
 
     def test_explain_unfitted(self, embeddings_db):
         from linkedin.ml.embeddings import store_embedding

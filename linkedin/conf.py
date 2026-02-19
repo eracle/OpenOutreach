@@ -1,6 +1,7 @@
 # linkedin/conf.py
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Log level for partner-campaign messages (below DEBUG → invisible at normal verbosity).
-PARTNER_LOG_LEVEL = 5
+PARTNER_LOG_LEVEL = logging.DEBUG
 
 # ----------------------------------------------------------------------
 # Paths (all under assets/)

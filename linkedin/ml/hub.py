@@ -27,7 +27,12 @@ _DEFAULT_REPO_ID = "eracle/campaign-kit"
 def download_kit(revision: str = "v1") -> Optional[Path]:
     """Download campaign kit from HuggingFace Hub. Returns path or None."""
     try:
+        import huggingface_hub
         from huggingface_hub import snapshot_download
+
+        huggingface_hub.utils.disable_progress_bars()
+        logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+        logging.getLogger("filelock").setLevel(logging.WARNING)
 
         path = snapshot_download(
             repo_id=_DEFAULT_REPO_ID,

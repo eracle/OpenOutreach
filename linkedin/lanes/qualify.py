@@ -8,7 +8,7 @@ import numpy as np
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
-from linkedin.ml.qualifier import BayesianQualifier
+from linkedin.ml.qualifier import BayesianQualifier, format_stats
 
 logger = logging.getLogger(__name__)
 
@@ -135,10 +135,11 @@ class QualifyLane:
                 self._record_decision(lead_id, public_id, embedding, label, reason)
                 return
 
+            stats = format_stats(pred_prob, entropy, std, self.qualifier.n_obs)
             sel = f", {selection_score[0]}={selection_score[1]:.4f}" if selection_score else ""
             logger.debug(
-                "%s uncertain (prob=%.3f, entropy=%.4f, std=%.4f%s) — querying LLM",
-                public_id, pred_prob, entropy, std, sel,
+                "%s uncertain (%s%s) — querying LLM",
+                public_id, stats, sel,
             )
         else:
             logger.debug(

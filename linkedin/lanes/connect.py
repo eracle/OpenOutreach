@@ -54,12 +54,9 @@ class ConnectLane:
 
         from linkedin.ml.embeddings import get_qualification_reason
         reason = get_qualification_reason(public_id)
-        if reason:
-            tag = "[Partner] " if self._is_partner else ""
-            logger.log(self._log_level, "%sQualify motivation for %s: \n%s", tag, public_id, reason)
-
-        explanation = self.qualifier.explain_profile(candidate)
-        logger.debug("ML explanation for %s:\n%s", public_id, explanation)
+        stats = self.qualifier.explain_profile(candidate)
+        tag = "[Partner] " if self._is_partner else ""
+        logger.log(self._log_level, "%s%s (%s) — %s", tag, public_id, stats, reason or "")
 
         try:
             # Check actual connection status on the page before attempting to connect.
