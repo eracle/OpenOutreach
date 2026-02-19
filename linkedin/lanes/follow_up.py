@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 
+from termcolor import colored
+
 from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import get_connected_profiles, set_profile_state, save_chat_message
 from linkedin.navigation.enums import ProfileState
@@ -32,7 +34,7 @@ class FollowUpLane:
 
     def execute(self):
         tag = "[Partner] " if self._is_partner else ""
-        logger.log(self._log_level, "%s▶ follow_up", tag)
+        logger.log(self._log_level, "%s%s", tag, colored("▶ follow_up", "green", attrs=["bold"]))
         from linkedin.actions.message import send_follow_up_message
 
         profiles = get_connected_profiles(self.session)

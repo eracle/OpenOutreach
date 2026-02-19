@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 
+from termcolor import colored
+
 from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import (
     count_qualified_profiles,
@@ -38,7 +40,7 @@ class ConnectLane:
 
     def execute(self):
         tag = "[Partner] " if self._is_partner else ""
-        logger.log(self._log_level, "%s▶ connect", tag)
+        logger.log(self._log_level, "%s%s", tag, colored("▶ connect", "cyan", attrs=["bold"]))
         from linkedin.actions.connect import send_connection_request
         from linkedin.actions.connection_status import get_connection_status
 
