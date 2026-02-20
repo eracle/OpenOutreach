@@ -30,8 +30,8 @@ RUN sed -i 's/\r$//g' /start && chmod +x /start
 COPY . ${APP_HOME}
 
 # Run as non-root user to avoid creating root-owned files on bind mounts
-RUN useradd -m -u 1000 -s /bin/bash appuser
-USER appuser
+# Base image already has 'ubuntu' user with UID 1000
+USER ubuntu
 
 # Set the working directory
 WORKDIR ${APP_HOME}
