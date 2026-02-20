@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run tests
-        run: docker compose -f local.yml run --rm --remove-orphans app pytest -vv
+        run: HOST_UID=$(id -u) HOST_GID=$(id -g) make docker-test
 
   build-and-push:
     needs: test
