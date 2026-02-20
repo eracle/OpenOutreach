@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 
-from linkedin.conf import ENV_FILE
+from linkedin.conf import COOKIES_DIR, ENV_FILE
 
 logger = logging.getLogger(__name__)
+
+LEGAL_ACCEPTANCE_MARKER = COOKIES_DIR / ".legal_notice_accepted"
 
 
 def _read_multiline(prompt_msg: str) -> str:
@@ -217,7 +219,10 @@ def _onboard_account(campaign):
 
 
 def _require_legal_acceptance() -> None:
-    """Require the user to read and accept the legal notice before continuing."""
+    """Require the user to read and accept the legal notice (once)."""
+    if LEGAL_ACCEPTANCE_MARKER.exists():
+        return
+
     url = "https://github.com/eracle/linkedin/blob/master/LEGAL_NOTICE.md"
     print()
     print("=" * 60)
@@ -229,6 +234,8 @@ def _require_legal_acceptance() -> None:
     while True:
         answer = input("Do you accept the Legal Notice? (y/n): ").strip().lower()
         if answer == "y":
+            LEGAL_ACCEPTANCE_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            LEGAL_ACCEPTANCE_MARKER.touch()
             return
         if answer == "n":
             print()
