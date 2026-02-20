@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run tests
-        run: make docker-test
+        run: UID=$(id -u) GID=$(id -g) make docker-test
 
   analytics:
     runs-on: ubuntu-latest
