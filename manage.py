@@ -25,7 +25,7 @@ from linkedin.management.setup_crm import setup_crm
 
 logging.getLogger().handlers.clear()
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(message)s",
 )
 

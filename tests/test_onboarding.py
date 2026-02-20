@@ -17,6 +17,7 @@ class TestEnsureOnboardingAlreadyExist:
             patch.object(onboarding, "_onboard_campaign") as mock_campaign,
             patch.object(onboarding, "_onboard_account") as mock_account,
             patch.object(onboarding, "_ensure_llm_config"),
+            patch.object(onboarding, "_require_legal_acceptance"),
         ):
             ensure_onboarding()
             mock_campaign.assert_not_called()
@@ -32,6 +33,7 @@ class TestEnsureOnboardingAlreadyExist:
             patch.object(onboarding, "_onboard_campaign", return_value=mock_campaign_obj) as mock_campaign,
             patch.object(onboarding, "_onboard_account") as mock_account,
             patch.object(onboarding, "_ensure_llm_config"),
+            patch.object(onboarding, "_require_legal_acceptance"),
         ):
             ensure_onboarding()
             mock_campaign.assert_called_once()
@@ -50,6 +52,7 @@ class TestEnsureOnboardingAlreadyExist:
             patch.object(onboarding, "_onboard_campaign") as mock_campaign,
             patch.object(onboarding, "_onboard_account") as mock_account,
             patch.object(onboarding, "_ensure_llm_config"),
+            patch.object(onboarding, "_require_legal_acceptance"),
         ):
             ensure_onboarding()
             mock_campaign.assert_not_called()
