@@ -216,14 +216,37 @@ def _onboard_account(campaign):
     return profile
 
 
+def _require_legal_acceptance() -> None:
+    """Require the user to read and accept the legal notice before continuing."""
+    url = "https://github.com/eracle/linkedin/blob/master/LEGAL_NOTICE.md"
+    print()
+    print("=" * 60)
+    print("  LEGAL NOTICE")
+    print("=" * 60)
+    print()
+    print(f"Please read the Legal Notice before continuing:\n  {url}")
+    print()
+    while True:
+        answer = input("Do you accept the Legal Notice? (y/n): ").strip().lower()
+        if answer == "y":
+            return
+        if answer == "n":
+            print()
+            print(
+                "You must accept the Legal Notice to use OpenOutreach. "
+                "Please read it carefully and try again."
+            )
+            print()
+            continue
+        print("Please type 'y' or 'n'.")
+
+
 def ensure_onboarding() -> None:
-    """Ensure LLM config, Campaign, and active LinkedInProfile exist.
+    """Ensure Campaign, LinkedInProfile, LLM config, and legal acceptance.
 
     If missing, runs interactive prompts to configure them.
     """
     from linkedin.models import Campaign, LinkedInProfile
-
-    _ensure_llm_config()
 
     campaign = Campaign.objects.first()
     if campaign is None:
@@ -231,3 +254,7 @@ def ensure_onboarding() -> None:
 
     if not LinkedInProfile.objects.filter(active=True).exists():
         _onboard_account(campaign)
+
+    _ensure_llm_config()
+
+    _require_legal_acceptance()

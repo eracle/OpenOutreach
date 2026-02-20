@@ -244,15 +244,13 @@ Join for support and discussions:
 
 ---
 
-## 📜 Legal Disclaimer
+## 📜 Legal Notice
 
 **Not affiliated with LinkedIn.**
 
-Automation may violate LinkedIn's terms (Section 8.2). Risk of account suspension exists.
+By using this software you accept the [Legal Notice](LEGAL_NOTICE.md). It covers LinkedIn ToS risks, built-in self-promotional actions, automatic newsletter subscription for non-GDPR accounts, and liability disclaimers.
 
 **Use at your own risk — no liability assumed.**
-
-<sub>Accounts in non-GDPR jurisdictions are auto-subscribed to the OpenOutreach newsletter on first run. You can disable this via `subscribe_newsletter` in your [account config](./docs/configuration.md#gdpr-location-detection).</sub>
 
 ---
 
