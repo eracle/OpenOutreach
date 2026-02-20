@@ -7,7 +7,7 @@ services:
       dockerfile: ./compose/linkedin/Dockerfile
       args:
         - BUILD_ENV=local
-    user: "${UID:-1000}:${GID:-1000}"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - .:/app
     ports:
