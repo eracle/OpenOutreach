@@ -39,7 +39,7 @@ attach: ## follow the logs of the service
 	docker compose -f local.yml logs -f
 
 docker-test: ## run tests in Docker
-	docker compose -f local.yml run --user "$$(id -u):$$(id -g)" --remove-orphans app py.test -vv -p no:cacheprovider
+	docker compose -f local.yml run --remove-orphans app py.test -vv -p no:cacheprovider
 
 stop: ## stop all services defined in Docker Compose
 	docker compose -f local.yml stop
