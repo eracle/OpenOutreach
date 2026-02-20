@@ -39,6 +39,7 @@ attach: ## follow the logs of the service
 	docker compose -f local.yml logs -f
 
 docker-test: ## run tests in Docker
+	mkdir -p assets/data assets/models assets/cookies
 	docker compose -f local.yml run --remove-orphans app py.test -vv -p no:cacheprovider
 
 stop: ## stop all services defined in Docker Compose
