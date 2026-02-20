@@ -10,6 +10,11 @@ Usage:
 import logging
 import os
 import sys
+import warnings
+
+# langchain-openai stores a Pydantic model in a dict-typed field, triggering
+# a harmless serialization warning on every structured-output call.
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
 
