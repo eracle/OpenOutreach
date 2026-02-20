@@ -29,6 +29,10 @@ RUN sed -i 's/\r$//g' /start && chmod +x /start
 # Copy the entire application code to the app directory
 COPY . ${APP_HOME}
 
+# Run as non-root user to avoid creating root-owned files on bind mounts
+RUN useradd -m -u 1000 -s /bin/bash appuser
+USER appuser
+
 # Set the working directory
 WORKDIR ${APP_HOME}
 
