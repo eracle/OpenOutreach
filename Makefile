@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help attach test docker-test stop build up up-view install setup run admin analytics analytics-test view
+.PHONY: help attach test docker-test stop build up up-view install setup run admin analytics analytics-test view mcp
 
 help:
 	@perl -nle'print $& if m{^[a-zA-Z_-]+:.*?## .*$$}' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-25s\033[0m %s\n", $$1, $$2}'
@@ -16,6 +16,9 @@ setup: install ## install deps + Playwright browsers + migrate + bootstrap CRM
 
 run: ## run the daemon
 	python manage.py
+
+mcp: ## run the MCP server over stdio
+	python -m mcp_server
 
 test: ## run the test suite
 	pytest
