@@ -7,6 +7,8 @@ services:
       dockerfile: ./compose/linkedin/Dockerfile
       args:
         - BUILD_ENV=local
+    stdin_open: true
+    tty: true
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - .:/app
