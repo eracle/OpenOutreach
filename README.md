@@ -228,6 +228,7 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 - [Templating](./docs/templating.md)
 - [Template Variables](./docs/template-variables.md)
 - [Testing](./docs/testing.md)
+- [MCP Server](./docs/mcp.md)
 
 ---
 

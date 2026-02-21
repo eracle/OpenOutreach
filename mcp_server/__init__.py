@@ -1,0 +1,2 @@
+"""OpenOutreach MCP server package."""
+
