@@ -26,16 +26,15 @@ RUN playwright install --with-deps chromium
 COPY ./compose/linkedin/start /start
 RUN sed -i 's/\r$//g' /start && chmod +x /start
 
-# Copy the entire application code to the app directory
-COPY . ${APP_HOME}
-
-# Ensure assets directory is writable by the non-root user
-RUN mkdir -p ${APP_HOME}/assets/data ${APP_HOME}/assets/models ${APP_HOME}/assets/cookies \
-    && chown -R ubuntu:ubuntu ${APP_HOME}/assets
+# Copy the entire application code to the app directory (owned by non-root user)
+COPY --chown=ubuntu:ubuntu . ${APP_HOME}
 
 # Run as non-root user to avoid creating root-owned files on bind mounts
 # Base image already has 'ubuntu' user with UID 1000
 USER ubuntu
+
+# Ensure assets directories exist (runs as ubuntu since COPY --chown made /app writable)
+RUN mkdir -p ${APP_HOME}/assets/data ${APP_HOME}/assets/models ${APP_HOME}/assets/cookies
 
 # Set the working directory
 WORKDIR ${APP_HOME}
