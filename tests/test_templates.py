@@ -1,6 +1,7 @@
 # tests/test_templates.py
 from unittest.mock import MagicMock, patch
 
+from linkedin.conf import DEFAULT_FOLLOWUP_TEMPLATE_PATH
 from linkedin.templates.renderer import render_template
 
 
@@ -71,3 +72,24 @@ class TestRenderTemplate:
 
         prompt = mock_llm.call_args[0][0]
         assert "Product: ''" in prompt
+
+    @patch("linkedin.templates.renderer.call_llm", return_value="Hi Alice, great to connect!")
+    def test_default_followup_template_forbids_signature(self, mock_llm):
+        template_content = DEFAULT_FOLLOWUP_TEMPLATE_PATH.read_text()
+
+        session = self._make_session(product_docs="We sell widgets")
+        render_template(
+            session,
+            template_content,
+            {
+                "full_name": "Alice Smith",
+                "headline": "Engineer",
+                "current_company": "Acme",
+                "location": "London",
+                "shared_connections": 3,
+            },
+        )
+
+        prompt = mock_llm.call_args[0][0]
+        assert "Do **not** sign the message" in prompt
+        assert "never with a name" in prompt
