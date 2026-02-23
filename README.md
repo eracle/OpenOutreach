@@ -45,15 +45,27 @@ Perfect for founders, sales teams, and agencies who want powerful automation **w
 
 ---
 
+## 📋 What You Need
+
+| # | What | Example |
+|---|------|---------|
+| 1 | **A LinkedIn account** | Your email + password |
+| 2 | **An LLM API key** | OpenAI, Anthropic, or any OpenAI-compatible endpoint |
+| 3 | **A product description + target market** | "We sell cloud cost optimization for DevOps teams at mid-market SaaS companies" |
+
+That's it. No spreadsheets, no lead databases, no scraping setup.
+
+---
+
 ## ⚡ Quick Start (Docker — Recommended)
 
-The fastest way to get started. Pre-built images are published to GitHub Container Registry on every push to `master`.
+Pre-built images are published to GitHub Container Registry on every push to `master`.
 
 ```bash
 docker run --pull always -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest
 ```
 
-The interactive onboarding will prompt you for LinkedIn credentials, LLM API key, and campaign details on first run. Your data persists in the `openoutreach_data` Docker volume across restarts.
+The interactive onboarding walks you through the three inputs above on first run. Your data persists in the `openoutreach_data` Docker volume across restarts.
 
 Connect a VNC client to `localhost:5900` to watch the browser live.
 
@@ -117,49 +129,6 @@ Then open:
 
 ---
 
-### ❤️ Support OpenOutreach – Keep the Leads Flowing!
-
-This project is built in spare time to provide powerful, **free** open-source growth tools.
-
-Maintaining stealth, fixing bugs, adding features (multi-account scaling, better templates, AI enhancements), and staying ahead of LinkedIn changes takes serious effort.
-
-**Your sponsorship funds faster updates and keeps it free for everyone.**
-
-<div align="center">
-
-[![Sponsor with GitHub](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4?style=for-the-badge&logo=github)](https://github.com/sponsors/eracle)
-
-<br/>
-
-**Popular Tiers & Perks:**
-
-| Tier        | Monthly | Benefits                                                              |
-|-------------|---------|-----------------------------------------------------------------------|
-| ☕ Supporter | $5      | Huge thanks + name in README supporters list                          |
-| 🚀 Booster  | $25     | All above + priority feature requests + early access to new campaigns |
-| 🦸 Hero     | $100    | All above + personal 1-on-1 support + influence roadmap               |
-| 💎 Legend   | $500+   | All above + custom feature development + shoutout in releases         |
-
-**Thank you to all sponsors — you're powering open-source B2B growth!** 🚀
-
-</div>
-
----
-
-### 🗓️ Book a Free 15-Minute Call
-
-Got a specific use case, feature request, or questions about setup?
-
-Book a **free 15-minute call** — I’d love to hear your needs and improve the tool based on real feedback.
-
-<div align="center">
-
-[![Book a 15-min call](https://img.shields.io/badge/Book%20a%2015--min%20call-28A745?style=for-the-badge&logo=calendar)](https://calendly.com/eracle/new-meeting)
-
-</div>
-
----
-
 ## 📖 How the ML Pipeline Works
 
 The daemon runs a continuous loop with priority-scheduled action lanes:
@@ -182,6 +151,8 @@ Profiles discovered during navigation are automatically scraped and embedded (38
 For each selected profile, the Gaussian Process model checks if it's confident enough to auto-decide (low entropy + low posterior uncertainty). If confident, it qualifies or disqualifies automatically. If uncertain, it falls back to an LLM call. Every decision — human or auto — feeds back into the model, making it progressively smarter.
 
 **Cold start:** With fewer than 2 labelled profiles, the model can't fit — all decisions go through the LLM. As labels accumulate, the GP auto-decides more profiles, reducing LLM calls over time.
+
+**Cost curve:** The system gets cheaper to run the longer it operates. Early on, every profile requires an LLM call (~100% LLM usage). As the Gaussian Process learns your preferences, it auto-decides with high confidence on an increasing share of profiles — the LLM is only queried for genuinely uncertain cases. A mature model can auto-decide the majority of profiles, cutting LLM costs dramatically.
 
 Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign models).
 
@@ -238,8 +209,43 @@ Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign 
 
 ## 💬 Community
 
-Join for support and discussions:  
+Join for support and discussions:
 [Telegram Group](https://t.me/+Y5bh9Vg8UVg5ODU0)
+
+---
+
+### 🗓️ Book a Free 15-Minute Call
+
+Got a specific use case, feature request, or questions about setup?
+
+Book a **free 15-minute call** — I'd love to hear your needs and improve the tool based on real feedback.
+
+<div align="center">
+
+[![Book a 15-min call](https://img.shields.io/badge/Book%20a%2015--min%20call-28A745?style=for-the-badge&logo=calendar)](https://calendly.com/eracle/new-meeting)
+
+</div>
+
+---
+
+### ❤️ Support OpenOutreach
+
+This project is built in spare time to provide powerful, **free** open-source growth tools. Your sponsorship funds faster updates and keeps it free for everyone.
+
+<div align="center">
+
+[![Sponsor with GitHub](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4?style=for-the-badge&logo=github)](https://github.com/sponsors/eracle)
+
+<br/>
+
+| Tier        | Monthly | Benefits                                                              |
+|-------------|---------|-----------------------------------------------------------------------|
+| ☕ Supporter | $5      | Huge thanks + name in README supporters list                          |
+| 🚀 Booster  | $25     | All above + priority feature requests + early access to new campaigns |
+| 🦸 Hero     | $100    | All above + personal 1-on-1 support + influence roadmap               |
+| 💎 Legend   | $500+   | All above + custom feature development + shoutout in releases         |
+
+</div>
 
 ---
 
