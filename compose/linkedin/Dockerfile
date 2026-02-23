@@ -29,6 +29,9 @@ RUN sed -i 's/\r$//g' /start && chmod +x /start
 # Copy the entire application code to the app directory (owned by non-root user)
 COPY --chown=ubuntu:ubuntu . ${APP_HOME}
 
+# Ensure /app itself is owned by ubuntu (WORKDIR creates it as root)
+RUN chown ubuntu:ubuntu ${APP_HOME}
+
 # Run as non-root user to avoid creating root-owned files on bind mounts
 # Base image already has 'ubuntu' user with UID 1000
 USER ubuntu

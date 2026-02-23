@@ -7,7 +7,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).parent.parent / "assets" / ".env")
+load_dotenv()  # also check project root for backwards compat
 
 # Log level for partner-campaign messages (below DEBUG → invisible at normal verbosity).
 PARTNER_LOG_LEVEL = logging.DEBUG
@@ -39,7 +40,7 @@ FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
 MIN_DELAY = 5
 MAX_DELAY = 8
 
-ENV_FILE = ROOT_DIR / ".env"
+ENV_FILE = ASSETS_DIR / ".env"
 
 # ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)
