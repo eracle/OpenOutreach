@@ -1,6 +1,6 @@
 ![OpenOutreach Logo](docs/logo.png)
 
-> **The open-source growth engine that puts your LinkedIn B2B lead generation on autopilot.**
+> **Describe your product. Define your target market. The AI finds the leads for you.**
 
 <div align="center">
 
@@ -21,23 +21,25 @@
 
 ### 🚀 What is OpenOutreach?
 
-OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** designed for B2B lead generation, without the risks and costs of cloud SaaS services.
+OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** for B2B lead generation. Unlike other tools, **you don't need a list of profiles to contact** — you describe your product and your target market, and the system autonomously discovers, qualifies, and contacts the right people.
 
-It automates the entire outreach process in a **stealthy, human-like way**:
+**How it works:**
 
-- Discovers and enriches target profiles
-- Qualifies and ranks profiles using online Bayesian active learning (BALD acquisition + entropy-gated auto-decisions)
-- Sends personalized connection requests
-- Follows up with custom messages after acceptance
-- Tracks everything in a built-in CRM with web UI (full data ownership, resumable workflows)
+1. **You provide** a product description and a campaign objective (e.g. "SaaS analytics platform" targeting "VP of Engineering at Series B startups")
+2. **The AI generates** LinkedIn search queries to discover candidate profiles
+3. **A Bayesian ML model** (Gaussian Process on profile embeddings) learns which profiles match your ideal customer — using an explore/exploit strategy to balance finding the best leads now vs. learning what makes a good lead
+4. **Early on**, an LLM classifies each profile; **as the model learns**, it auto-decides with increasing confidence, reducing LLM calls
+5. **Qualified leads** are automatically contacted with personalized connection requests and follow-up messages
+
+The system gets smarter with every decision. It starts by exploring broadly, then progressively focuses on the highest-value profiles as it learns your ideal customer profile from its own classification history.
 
 **Why choose OpenOutreach?**
 
+- 🧠 **Autonomous lead discovery** — No contact lists needed; AI finds your ideal customers
 - 🛡️ **Undetectable** — Playwright + stealth plugins mimic real user behavior
-- 🐍 **Fully customizable** — Python-based campaigns for unlimited flexibility
-- 💾 **Local execution + CRM** — You own your data, browse it in a web UI
-- 🐳 **Easy deployment** — Dockerized, one-command setup
-- ✨ **AI-ready** — Built-in templating for hyper-personalized messages (easy integration with latest models like GPT-5.3-Codex)
+- 💾 **Self-hosted + full data ownership** — Everything runs locally, browse your CRM in a web UI
+- 🐳 **One-command setup** — Dockerized deployment, interactive onboarding
+- ✨ **AI-powered messaging** — LLM-generated personalized outreach (bring your own model)
 
 Perfect for founders, sales teams, and agencies who want powerful automation **without account bans or subscription lock-in**.
 
@@ -103,16 +105,15 @@ Then open:
 
 | Feature                            | Description                                                                                                          |
 |------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| 🤖 **Advanced Browser Automation** | Powered by Playwright with stealth plugins for human-like, undetectable interactions.                                |
-| 🛡️ **Reliable Data Scraping**     | Uses LinkedIn's internal Voyager API for accurate, structured profile data (no fragile HTML parsing).                |
-| 🐍 **Python-Native Campaigns**     | Write flexible, powerful automation sequences directly in Python.                                                    |
-| 🧠 **ML-Driven Qualification**    | Gaussian Process Classifier with BALD active learning qualifies and ranks profiles -- lazily re-fitted on all accumulated labels when predictions are needed. |
-| 🔄 **Stateful Workflow Engine**    | Tracks profile states (`DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB -- resumable at any time. |
-| ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically. |
-| 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI -- browse Leads, Contacts, Companies, and Deals in your browser. |
-| 🐳 **Containerized Setup**         | One-command Docker + Make deployment.                                                                                |
-| 🖥️ **Visual Debugging**           | Real-time browser view via built-in VNC server (`localhost:5900`).                                                   |
-| ✍️ **AI-Ready Templating**         | Jinja or AI-prompt templates for hyper-personalized messages (plug in latest models like GPT-5.3-Codex easily).     |
+| 🧠 **Autonomous Lead Discovery**   | No contact lists needed — LLM generates search queries from your product description and campaign objective.         |
+| 🎯 **Bayesian Active Learning**    | Gaussian Process model on profile embeddings learns your ideal customer via explore/exploit, auto-qualifying with increasing accuracy. |
+| 🤖 **Stealth Browser Automation**  | Playwright + stealth plugins mimic real user behavior for undetectable interactions.                                 |
+| 🛡️ **Voyager API Scraping**       | Uses LinkedIn's internal API for accurate, structured profile data (no fragile HTML parsing).                        |
+| 🔄 **Stateful Pipeline**          | Tracks profile states (`NEW` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB — fully resumable.             |
+| ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically.                      |
+| 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI — browse Leads, Contacts, Companies, and Deals.              |
+| 🐳 **One-Command Deployment**      | Dockerized setup with interactive onboarding and VNC browser view (`localhost:5900`).                                |
+| ✍️ **AI-Powered Messaging**        | LLM-generated personalized connection and follow-up messages via Jinja2 templates.                                  |
 
 ---
 
@@ -159,24 +160,30 @@ Book a **free 15-minute call** — I’d love to hear your needs and improve the
 
 ---
 
-## 📖 Usage & Customization
+## 📖 How the ML Pipeline Works
 
-The daemon (`linkedin/daemon.py`) priority-schedules five action lanes:
+The daemon runs a continuous loop with priority-scheduled action lanes:
 
-| Lane | What it does | Rate limited? |
-|------|-------------|---------------|
-| **Connect** | Ranks QUALIFIED profiles by GPC posterior probability, sends connection requests | Daily + weekly limits |
-| **Check Pending** | Checks if PENDING requests were accepted | Exponential backoff |
-| **Follow Up** | Sends personalized messages to CONNECTED profiles | Daily limit |
-| **Enrich** | Scrapes DISCOVERED profiles via LinkedIn's Voyager API, computes embeddings | Gap-filling |
-| **Qualify** | Qualifies ENRICHED profiles via Bayesian active learning (BALD selects, entropy gates LLM calls) | Gap-filling |
-| **Search** | Discovers new profiles via LLM-generated LinkedIn People search keywords | Lowest-priority gap-filler |
+| Priority | Lane | What it does |
+|----------|------|-------------|
+| 1 | **Connect** | Ranks qualified profiles by Bayesian model probability, sends connection requests (daily + weekly limits) |
+| 2 | **Check Pending** | Checks if pending requests were accepted (exponential backoff) |
+| 3 | **Follow Up** | Sends LLM-personalized messages to connected profiles (daily limit) |
+| Gap-filler | **Qualify** | Bayesian active learning — embeds profiles, then explore/exploit to select and classify candidates |
+| Lowest | **Search** | LLM-generated LinkedIn People search keywords discover new profiles when the pipeline runs low |
 
-**Profile states:** `DISCOVERED` → `ENRICHED` → `QUALIFIED` → `PENDING` → `CONNECTED` → `COMPLETED` (or `FAILED` / `IGNORED` / `DISQUALIFIED`)
+**The qualification loop in detail:**
 
-Pre-existing connections (already connected before automation) are automatically set to `IGNORED` during enrichment. If `connection_degree` was unknown at scrape time, they're caught during the connect step. Profiles rejected by the qualification pipeline are set to `DISQUALIFIED`.
+Profiles discovered during navigation are automatically scraped and embedded (384-dim FastEmbed vectors). The **Qualify** lane then decides which profile to evaluate next using a balance-driven strategy:
 
-Configure rate limits, timing, and behavior in the `campaign:` section of `accounts.secrets.yaml`.
+- **When negatives outnumber positives** → **exploit**: pick the profile with highest predicted qualification probability (seek likely positives to fill the pipeline)
+- **Otherwise** → **explore**: pick the profile with highest BALD (Bayesian Active Learning by Disagreement) score (seek the most informative label to improve the model)
+
+For each selected profile, the Gaussian Process model checks if it's confident enough to auto-decide (low entropy + low posterior uncertainty). If confident, it qualifies or disqualifies automatically. If uncertain, it falls back to an LLM call. Every decision — human or auto — feeds back into the model, making it progressively smarter.
+
+**Cold start:** With fewer than 2 labelled profiles, the model can't fit — all decisions go through the LLM. As labels accumulate, the GP auto-decides more profiles, reducing LLM calls over time.
+
+Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign models).
 
 ---
 
@@ -187,10 +194,8 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 │   ├── models/staging/              # Staging views (stg_leads, stg_deals, stg_stages)
 │   └── models/marts/                # ML training set (ml_connection_accepted)
 ├── assets/
-│   ├── accounts.secrets.yaml        # Credentials + campaign + LLM config (gitignored)
-│   ├── inputs/                      # Optional input files
-│   ├── campaign/                    # Onboarding files (product_docs.txt, campaign_objective.txt)
-│   └── data/                        # crm.db (SQLite), analytics.duckdb (embeddings + analytics)
+│   ├── data/                        # crm.db (SQLite), analytics.duckdb (embeddings + analytics)
+│   └── models/                      # Persisted ML model (model.joblib)
 ├── docs/
 │   ├── architecture.md              # System architecture
 │   ├── configuration.md             # Configuration reference
@@ -200,15 +205,15 @@ Configure rate limits, timing, and behavior in the `campaign:` section of `accou
 ├── linkedin/
 │   ├── actions/                     # Browser actions (connect, message, scrape)
 │   ├── api/                         # Voyager API client + parser
-│   ├── conf.py                      # Configuration loading (secrets YAML + env vars)
+│   ├── conf.py                      # Configuration loading (.env + defaults)
 │   ├── daemon.py                    # Main daemon loop (priority-scheduled lanes)
 │   ├── db/crm_profiles.py           # CRM-backed profile CRUD (Lead, Contact, Company, Deal)
 │   ├── django_settings.py           # Django/CRM settings (SQLite at assets/data/crm.db)
-│   ├── lanes/                       # Action lanes (enrich, qualify, connect, check_pending, follow_up, search)
+│   ├── lanes/                       # Action lanes (qualify, connect, check_pending, follow_up, search)
 │   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Users)
 │   ├── ml/                          # Bayesian qualifier, DuckDB embeddings, profile text, search keywords
 │   ├── navigation/                  # Login, throttling, browser utilities, enums
-│   ├── onboarding.py                # Interactive onboarding (product docs + campaign objective)
+│   ├── onboarding.py                # Interactive onboarding (campaign, credentials, LLM config)
 │   ├── gdpr.py                      # GDPR location detection for newsletter
 │   ├── rate_limiter.py              # Daily/weekly rate limiting
 │   ├── sessions/                    # Session management (AccountSession)
