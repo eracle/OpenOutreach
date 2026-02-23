@@ -62,10 +62,10 @@ That's it. No spreadsheets, no lead databases, no scraping setup.
 Pre-built images are published to GitHub Container Registry on every push to `master`.
 
 ```bash
-docker run --pull always -it -p 5900:5900 -v openoutreach_data:/app/assets ghcr.io/eracle/openoutreach:latest
+docker run --pull always -it -p 5900:5900 --user "$(id -u):$(id -g)" -v ./assets:/app/assets ghcr.io/eracle/openoutreach:latest
 ```
 
-The interactive onboarding walks you through the three inputs above on first run. Your data persists in the `openoutreach_data` Docker volume across restarts.
+The interactive onboarding walks you through the three inputs above on first run. Your data persists in the local `assets/` directory across restarts — the same database used by `python manage.py`.
 
 Connect a VNC client to `localhost:5900` to watch the browser live.
 
