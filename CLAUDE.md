@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 When modifying code, always update CLAUDE.md and MEMORY.md to reflect the changes. This includes changes to models, function signatures, module structure, configuration keys, state machines, lane behavior, ML pipeline, and any other architectural details documented in these files. Documentation must stay in sync with the code at all times.
 
+## Commit Rule
+
+Do not add `Co-Authored-By` lines to commit messages.
+
 ## Dependency Rule
 
 Dependencies are managed in `requirements/*.txt` files. `requirements/` files are used by both local dev and Docker.
