@@ -96,6 +96,7 @@ def ensure_self_profile(session):
 def _run_daemon():
     from linkedin.api.emails import ensure_newsletter_subscription
     from linkedin.daemon import run_daemon
+    from linkedin.db.crm_profiles import public_id_to_url
     from linkedin.gdpr import apply_gdpr_newsletter_override
     from linkedin.onboarding import ensure_onboarding
     from linkedin.sessions.registry import get_session
@@ -133,7 +134,8 @@ def _run_daemon():
     if not newsletter_marker.exists():
         country_code = profile.get("country_code") if profile else None
         apply_gdpr_newsletter_override(session, country_code)
-        ensure_newsletter_subscription(session)
+        linkedin_url = public_id_to_url(profile["public_identifier"]) if profile else None
+        ensure_newsletter_subscription(session, linkedin_url=linkedin_url)
         newsletter_marker.touch()
 
     run_daemon(session)

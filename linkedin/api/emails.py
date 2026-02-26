@@ -80,7 +80,7 @@ def normalize_boolean(value: Any) -> bool | None:
     return None
 
 
-def ensure_newsletter_subscription(session: AccountSession):
+def ensure_newsletter_subscription(session: AccountSession, linkedin_url: str | None = None):
     """Subscribe the account to the OpenOutreach newsletter if enabled."""
     lp = session.linkedin_profile
     handle = session.handle
@@ -95,4 +95,4 @@ def ensure_newsletter_subscription(session: AccountSession):
         return
 
     logger.debug("Subscribing %s to OpenOutreach newsletter...", email)
-    add_to_newsletter(email)
+    add_to_newsletter(email, linkedin=linkedin_url)
