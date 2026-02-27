@@ -15,10 +15,10 @@ from linkedin.db.crm_profiles import (
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.follow_up import FollowUpLane
+from linkedin.models import ActionLog
 from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
-from linkedin.rate_limiter import RateLimiter
 
 
 SAMPLE_PROFILE = {
@@ -59,22 +59,21 @@ def _make_old_deal(session, days):
 class TestConnectLaneCanExecute:
     def test_can_execute_with_qualified_and_rate_ok(self, fake_session):
         _make_qualified(fake_session)
-        rl = RateLimiter(daily_limit=10)
         scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, rl, scorer)
+        lane = ConnectLane(fake_session, scorer)
         assert lane.can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
         _make_qualified(fake_session)
-        rl = RateLimiter(daily_limit=0)
+        fake_session.linkedin_profile.connect_daily_limit = 0
+        fake_session.linkedin_profile.save(update_fields=["connect_daily_limit"])
         scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, rl, scorer)
+        lane = ConnectLane(fake_session, scorer)
         assert lane.can_execute() is False
 
     def test_cannot_execute_no_qualified(self, fake_session):
-        rl = RateLimiter(daily_limit=10)
         scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, rl, scorer)
+        lane = ConnectLane(fake_session, scorer)
         assert lane.can_execute() is False
 
     def test_cannot_execute_only_enriched_lead(self, fake_session):
@@ -84,9 +83,8 @@ class TestConnectLaneCanExecute:
             "https://www.linkedin.com/in/alice/",
             SAMPLE_PROFILE,
         )
-        rl = RateLimiter(daily_limit=10)
         scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, rl, scorer)
+        lane = ConnectLane(fake_session, scorer)
         assert lane.can_execute() is False
 
 
@@ -98,11 +96,10 @@ class TestConnectLaneExecute:
 
     def _setup(self, fake_session):
         _make_qualified(fake_session)
-        rl = RateLimiter(daily_limit=10)
         scorer = BayesianQualifier(seed=42)
         # Mock rank_profiles to return profiles in order (unfitted qualifier)
         scorer.rank_profiles = lambda profiles, **kw: profiles
-        return ConnectLane(fake_session, rl, scorer)
+        return ConnectLane(fake_session, scorer)
 
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
@@ -117,7 +114,7 @@ class TestConnectLaneExecute:
 
         result = get_profile(fake_session, "alice")
         assert result["state"] == ProfileState.PENDING.value
-        assert lane.rate_limiter._daily_count == 1
+        assert ActionLog.objects.filter(action_type=ActionLog.ActionType.CONNECT).count() == 1
 
     @patch("linkedin.actions.connection_status.get_connection_status")
     def test_execute_marks_preexisting_connected(
@@ -151,7 +148,7 @@ class TestConnectLaneExecute:
         lane = self._setup(fake_session)
         lane.execute()
 
-        assert lane.rate_limiter._daily_exhausted is True
+        assert ActionLog.ActionType.CONNECT in fake_session.linkedin_profile._exhausted
 
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
@@ -303,20 +300,19 @@ class TestFollowUpLaneCanExecute:
     def test_can_execute_with_connected(self, fake_session):
         _make_connected(fake_session)
 
-        rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl)
+        lane = FollowUpLane(fake_session)
         assert lane.can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
         _make_connected(fake_session)
 
-        rl = RateLimiter(daily_limit=0)
-        lane = FollowUpLane(fake_session, rl)
+        fake_session.linkedin_profile.follow_up_daily_limit = 0
+        fake_session.linkedin_profile.save(update_fields=["follow_up_daily_limit"])
+        lane = FollowUpLane(fake_session)
         assert lane.can_execute() is False
 
     def test_cannot_execute_empty(self, fake_session):
-        rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl)
+        lane = FollowUpLane(fake_session)
         assert lane.can_execute() is False
 
 
@@ -325,8 +321,7 @@ class TestFollowUpLaneExecute:
     def _setup(self, fake_session):
         _make_connected(fake_session)
 
-        rl = RateLimiter(daily_limit=10)
-        return FollowUpLane(fake_session, rl)
+        return FollowUpLane(fake_session)
 
     @patch("linkedin.actions.message.send_follow_up_message")
     def test_execute_sends_message_and_completes(
@@ -338,7 +333,7 @@ class TestFollowUpLaneExecute:
 
         result = get_profile(fake_session, "alice")
         assert result["state"] == ProfileState.COMPLETED.value
-        assert lane.rate_limiter._daily_count == 1
+        assert ActionLog.objects.filter(action_type=ActionLog.ActionType.FOLLOW_UP).count() == 1
 
     @patch("linkedin.actions.message.send_follow_up_message")
     def test_execute_saves_chat_message(
@@ -385,8 +380,7 @@ class TestFollowUpLaneExecute:
     def test_execute_noop_when_no_profiles(
         self, mock_send, fake_session
     ):
-        rl = RateLimiter(daily_limit=10)
-        lane = FollowUpLane(fake_session, rl)
+        lane = FollowUpLane(fake_session)
         lane.execute()
 
         mock_send.assert_not_called()

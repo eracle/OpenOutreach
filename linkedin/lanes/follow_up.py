@@ -7,16 +7,15 @@ from termcolor import colored
 
 from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import get_connected_profiles, set_profile_state, save_chat_message
+from linkedin.models import ActionLog
 from linkedin.navigation.enums import ProfileState
-from linkedin.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
 
 class FollowUpLane:
-    def __init__(self, session, rate_limiter: RateLimiter):
+    def __init__(self, session):
         self.session = session
-        self.rate_limiter = rate_limiter
 
     @property
     def _is_partner(self):
@@ -28,7 +27,7 @@ class FollowUpLane:
 
     def can_execute(self) -> bool:
         return (
-            self.rate_limiter.can_execute()
+            self.session.linkedin_profile.can_execute(ActionLog.ActionType.FOLLOW_UP)
             and len(get_connected_profiles(self.session)) > 0
         )
 
@@ -61,7 +60,9 @@ class FollowUpLane:
             finally:
                 # Guarantee these once the message is sent,
                 # even if chat save crashes.
-                self.rate_limiter.record()
+                self.session.linkedin_profile.record_action(
+                    ActionLog.ActionType.FOLLOW_UP, self.session.campaign,
+                )
                 set_profile_state(self.session, public_id, ProfileState.COMPLETED.value)
             return public_id
 

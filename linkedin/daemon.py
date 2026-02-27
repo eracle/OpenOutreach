@@ -13,7 +13,6 @@ from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.follow_up import FollowUpLane
 from linkedin.lanes.search import SearchLane
 from linkedin.ml.qualifier import BayesianQualifier
-from linkedin.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +83,6 @@ def run_daemon(session):
     from linkedin.ml.hub import get_kit, import_partner_campaign
 
     cfg = CAMPAIGN_CONFIG
-    lp = session.linkedin_profile
 
     # Initialize embeddings table and GPC qualifier
     ensure_embeddings_table()
@@ -102,15 +100,6 @@ def run_daemon(session):
             + " on %d labelled samples (%d positive, %d negative)",
             len(y), int((y == 1).sum()), int((y == 0).sum()),
         )
-
-    # Shared rate limiters across all campaigns
-    connect_limiter = RateLimiter(
-        daily_limit=lp.connect_daily_limit,
-        weekly_limit=lp.connect_weekly_limit,
-    )
-    follow_up_limiter = RateLimiter(
-        daily_limit=lp.follow_up_daily_limit,
-    )
 
     # Load kit model for partner campaigns
     kit = get_kit()
@@ -139,9 +128,9 @@ def run_daemon(session):
         ensure_campaign_pipeline(campaign.department)
 
         if campaign.is_partner:
-            connect_lane = ConnectLane(session, connect_limiter, qualifier, pipeline=kit_model)
+            connect_lane = ConnectLane(session, qualifier, pipeline=kit_model)
             check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
-            follow_up_lane = FollowUpLane(session, follow_up_limiter)
+            follow_up_lane = FollowUpLane(session)
 
             all_schedules.extend([
                 LaneSchedule("connect", connect_lane, min_action_interval, campaign=campaign),
@@ -149,9 +138,9 @@ def run_daemon(session):
                 LaneSchedule("follow_up", follow_up_lane, min_action_interval, campaign=campaign),
             ])
         else:
-            connect_lane = ConnectLane(session, connect_limiter, qualifier)
+            connect_lane = ConnectLane(session, qualifier)
             check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
-            follow_up_lane = FollowUpLane(session, follow_up_limiter)
+            follow_up_lane = FollowUpLane(session)
 
             # Qualify and search lanes are only for non-partner campaigns
             qualify_lane = QualifyLane(session, qualifier)
