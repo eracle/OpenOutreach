@@ -15,4 +15,4 @@ pyyaml
 duckdb
 fastembed
 scikit-learn
-huggingface_hub
+huggingface_hub==1.5.0
