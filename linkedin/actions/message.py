@@ -44,11 +44,11 @@ def send_follow_up_message(
     if template_content:
         message = render_template(session, template_content, profile)
 
-    if _send_msg_pop_up(session, profile, message) or _send_message(session, profile, message):
-        logger.debug("Message body: %s", message)
-        return message
+    if not _send_msg_pop_up(session, profile, message):
+        _send_message(session, profile, message)
 
-    return None
+    logger.debug("Message body: %s", message)
+    return message
 
 
 def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:
@@ -108,27 +108,21 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
         timeout=30_000,
         error_message="Error opening messaging",
     )
-    try:
-        # Search person
-        human_type(session.page.locator(SELECTORS["connections_input"]), full_name)
-        session.wait(0.5, 1)
+    # Search person
+    human_type(session.page.locator(SELECTORS["connections_input"]), full_name, min_delay=10, max_delay=50)
+    session.wait(0.5, 1)
 
-        item = session.page.locator(SELECTORS["search_result_row"]).first
-        session.wait(0.5, 1)
+    item = session.page.locator(SELECTORS["search_result_row"]).first
+    session.wait(0.5, 1)
 
-        # Scroll into view + click (very reliable on LinkedIn)
-        item.scroll_into_view_if_needed()
-        item.click(delay=200)  # small delay between mousedown/mouseup = very human
+    # Scroll into view + click (very reliable on LinkedIn)
+    item.scroll_into_view_if_needed()
+    item.click(delay=200)  # small delay between mousedown/mouseup = very human
 
-        human_type(session.page.locator(SELECTORS["compose_input"]), message)
+    human_type(session.page.locator(SELECTORS["compose_input"]), message, min_delay=10, max_delay=50)
 
-        session.page.locator(SELECTORS["compose_send"]).click(delay=200)
-        session.wait(0.5, 1)
-        return True
-    except Exception as e:
-        public_identifier = profile.get("public_identifier")
-        logger.error("Failed to send message to %s → %s", public_identifier, e)
-        return False
+    session.page.locator(SELECTORS["compose_send"]).click(delay=200)
+    session.wait(0.5, 1)
 
 
 if __name__ == "__main__":
