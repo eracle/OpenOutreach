@@ -7,6 +7,7 @@ import time
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG, _LEGACY_MODEL_PATH, model_path_for_campaign
+from linkedin.diagnostics import failure_diagnostics
 from linkedin.db.crm_profiles import count_leads_for_qualification, pipeline_needs_refill, seed_partner_deals
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
@@ -233,7 +234,8 @@ def run_daemon(session):
 
             if pipeline_needs_refill(session, min_qualifiable_leads):
                 if sl.can_execute():
-                    sl.execute()
+                    with failure_diagnostics(session):
+                        sl.execute()
                     continue
 
             to_qualify = count_leads_for_qualification(session)
@@ -248,7 +250,8 @@ def run_daemon(session):
                 time.sleep(qualify_wait)
 
                 if ql.can_execute():
-                    ql.execute()
+                    with failure_diagnostics(session):
+                        ql.execute()
                     continue
 
         # ── Wait for major action ──
@@ -276,7 +279,8 @@ def run_daemon(session):
                 continue
 
         if next_schedule.lane.can_execute():
-            next_schedule.lane.execute()
+            with failure_diagnostics(session):
+                next_schedule.lane.execute()
             next_schedule.reschedule()
             promo.tick()
         else:
