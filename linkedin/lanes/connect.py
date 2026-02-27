@@ -11,19 +11,17 @@ from linkedin.db.crm_profiles import (
     get_qualified_profiles,
     set_profile_state,
 )
+from linkedin.models import ActionLog
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
-from linkedin.rate_limiter import RateLimiter
 from linkedin.ml.qualifier import BayesianQualifier
 
 logger = logging.getLogger(__name__)
 
 
 class ConnectLane:
-    def __init__(self, session, rate_limiter: RateLimiter, qualifier: BayesianQualifier,
-                 pipeline=None):
+    def __init__(self, session, qualifier: BayesianQualifier, pipeline=None):
         self.session = session
-        self.rate_limiter = rate_limiter
         self.qualifier = qualifier
         self.pipeline = pipeline
 
@@ -36,7 +34,10 @@ class ConnectLane:
         return PARTNER_LOG_LEVEL if self._is_partner else logging.INFO
 
     def can_execute(self) -> bool:
-        return self.rate_limiter.can_execute() and count_qualified_profiles(self.session) > 0
+        return (
+            self.session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT)
+            and count_qualified_profiles(self.session) > 0
+        )
 
     def execute(self) -> str | None:
         """Connect to the top-ranked qualified profile.
@@ -82,11 +83,13 @@ class ConnectLane:
                 profile=profile,
             )
             set_profile_state(self.session, public_id, new_state.value)
-            self.rate_limiter.record()
+            self.session.linkedin_profile.record_action(
+                ActionLog.ActionType.CONNECT, self.session.campaign,
+            )
 
         except ReachedConnectionLimit as e:
             logger.warning("Rate limited: %s", e)
-            self.rate_limiter.mark_daily_exhausted()
+            self.session.linkedin_profile.mark_exhausted(ActionLog.ActionType.CONNECT)
         except SkipProfile as e:
             logger.warning("Skipping %s: %s", public_id, e)
             set_profile_state(self.session, public_id, ProfileState.FAILED.value)
