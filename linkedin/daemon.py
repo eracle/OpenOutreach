@@ -6,7 +6,7 @@ import random
 import time
 from termcolor import colored
 
-from linkedin.conf import CAMPAIGN_CONFIG, MODEL_PATH
+from linkedin.conf import CAMPAIGN_CONFIG, _LEGACY_MODEL_PATH, model_path_for_campaign
 from linkedin.db.crm_profiles import count_leads_for_qualification, pipeline_needs_refill, seed_partner_deals
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
@@ -76,36 +76,87 @@ def _rebuild_analytics():
         return False
 
 
+def _migrate_legacy_model(campaigns):
+    """Migrate old global model.joblib to per-campaign path if possible."""
+    if not _LEGACY_MODEL_PATH.exists():
+        return
+
+    non_partner = [c for c in campaigns if not c.is_partner]
+    if len(non_partner) == 1:
+        dest = model_path_for_campaign(non_partner[0].pk)
+        if dest.exists():
+            logger.info("Legacy model.joblib exists but %s already present — skipping migration", dest.name)
+            return
+        _LEGACY_MODEL_PATH.rename(dest)
+        logger.info("Migrated legacy model.joblib → %s", dest.name)
+    else:
+        logger.warning(
+            "Legacy model.joblib found but %d non-partner campaigns exist — "
+            "cannot auto-migrate. Remove it manually once per-campaign models are trained.",
+            len(non_partner),
+        )
+
+
+def _build_qualifiers(campaigns, cfg):
+    """Create per-campaign BayesianQualifiers and a shared partner qualifier.
+
+    Returns (qualifiers, partner_qualifier) where qualifiers is a
+    dict[int, BayesianQualifier] keyed by campaign PK (non-partner only).
+    """
+    from linkedin.ml.embeddings import get_labeled_data
+
+    X, y = get_labeled_data()
+
+    qualifiers: dict[int, BayesianQualifier] = {}
+    for campaign in campaigns:
+        if campaign.is_partner:
+            continue
+        q = BayesianQualifier(
+            seed=42,
+            n_mc_samples=cfg["qualification_n_mc_samples"],
+            save_path=model_path_for_campaign(campaign.pk),
+        )
+        if len(X) > 0:
+            q.warm_start(X, y)
+        qualifiers[campaign.pk] = q
+
+    if qualifiers and len(X) > 0:
+        logger.info(
+            colored("GP qualifiers warm-started", "cyan")
+            + " on %d labelled samples (%d positive, %d negative)"
+            + " for %d campaign(s)",
+            len(y), int((y == 1).sum()), int((y == 0).sum()), len(qualifiers),
+        )
+
+    partner_qualifier = BayesianQualifier(
+        seed=42,
+        n_mc_samples=cfg["qualification_n_mc_samples"],
+        save_path=None,
+    )
+    return qualifiers, partner_qualifier
+
+
 def run_daemon(session):
     from linkedin.lanes.qualify import QualifyLane
     from linkedin.management.setup_crm import ensure_campaign_pipeline
-    from linkedin.ml.embeddings import ensure_embeddings_table, get_labeled_data
+    from linkedin.ml.embeddings import ensure_embeddings_table
     from linkedin.ml.hub import get_kit, import_partner_campaign
 
     cfg = CAMPAIGN_CONFIG
 
-    # Initialize embeddings table and GPC qualifier
+    # Initialize embeddings table
     ensure_embeddings_table()
-
-    qualifier = BayesianQualifier(
-        seed=42,
-        n_mc_samples=cfg["qualification_n_mc_samples"],
-        save_path=MODEL_PATH,
-    )
-    X, y = get_labeled_data()
-    if len(X) > 0:
-        qualifier.warm_start(X, y)
-        logger.info(
-            colored("GP qualifier warm-started", "cyan")
-            + " on %d labelled samples (%d positive, %d negative)",
-            len(y), int((y == 1).sum()), int((y == 0).sum()),
-        )
 
     # Load kit model for partner campaigns
     kit = get_kit()
     if kit:
         import_partner_campaign(kit["config"])
     kit_model = kit["model"] if kit else None
+
+    # Migrate legacy single model file before creating per-campaign qualifiers
+    _migrate_legacy_model(list(session.campaigns))
+
+    qualifiers, partner_qualifier = _build_qualifiers(session.campaigns, cfg)
 
     check_pending_interval = cfg["check_pending_recheck_after_hours"] * 3600
     min_enrich_interval = cfg["enrich_min_interval"]
@@ -120,15 +171,15 @@ def run_daemon(session):
 
     # Build schedules for ALL campaigns
     all_schedules = []
-    qualify_lane = None
-    search_lane = None
+    qualify_lanes: dict[int, QualifyLane] = {}
+    search_lanes: dict[int, SearchLane] = {}
 
     for campaign in session.campaigns:
         session.campaign = campaign
         ensure_campaign_pipeline(campaign.department)
 
         if campaign.is_partner:
-            connect_lane = ConnectLane(session, qualifier, pipeline=kit_model)
+            connect_lane = ConnectLane(session, partner_qualifier, pipeline=kit_model)
             check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
             follow_up_lane = FollowUpLane(session)
 
@@ -138,13 +189,13 @@ def run_daemon(session):
                 LaneSchedule("follow_up", follow_up_lane, min_action_interval, campaign=campaign),
             ])
         else:
+            qualifier = qualifiers[campaign.pk]
             connect_lane = ConnectLane(session, qualifier)
             check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
             follow_up_lane = FollowUpLane(session)
 
-            # Qualify and search lanes are only for non-partner campaigns
-            qualify_lane = QualifyLane(session, qualifier)
-            search_lane = SearchLane(session, qualifier)
+            qualify_lanes[campaign.pk] = QualifyLane(session, qualifier)
+            search_lanes[campaign.pk] = SearchLane(session, qualifier)
 
             all_schedules.extend([
                 LaneSchedule("connect", connect_lane, min_action_interval, campaign=campaign),
@@ -173,15 +224,16 @@ def run_daemon(session):
         gap = max(next_schedule.next_run - now, 0)
 
         # ── Fill gap with search (pipeline low) + qualifications (non-partner only) ──
-        has_non_partner = qualify_lane is not None and search_lane is not None
-        if has_non_partner and gap > min_enrich_interval:
-            # Set campaign to the non-partner one for gap-filling
+        if qualify_lanes and gap > min_enrich_interval:
+            # Pick the first non-partner campaign for gap-filling
             non_partner = next(c for c in session.campaigns if not c.is_partner)
             session.campaign = non_partner
+            ql = qualify_lanes[non_partner.pk]
+            sl = search_lanes[non_partner.pk]
 
             if pipeline_needs_refill(session, min_qualifiable_leads):
-                if search_lane.can_execute():
-                    search_lane.execute()
+                if sl.can_execute():
+                    sl.execute()
                     continue
 
             to_qualify = count_leads_for_qualification(session)
@@ -195,8 +247,8 @@ def run_daemon(session):
                 )
                 time.sleep(qualify_wait)
 
-                if qualify_lane.can_execute():
-                    qualify_lane.execute()
+                if ql.can_execute():
+                    ql.execute()
                     continue
 
         # ── Wait for major action ──

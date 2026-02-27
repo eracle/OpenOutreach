@@ -27,7 +27,7 @@ PROMPTS_DIR = ASSETS_DIR / "templates" / "prompts"
 DEFAULT_FOLLOWUP_TEMPLATE_PATH = PROMPTS_DIR / "followup2.j2"
 
 EMBEDDINGS_DB = DATA_DIR / "analytics.duckdb"
-MODEL_PATH = MODELS_DIR / "model.joblib"
+_LEGACY_MODEL_PATH = MODELS_DIR / "model.joblib"
 
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
@@ -67,6 +67,11 @@ AI_MODEL = os.getenv("AI_MODEL")
 # ----------------------------------------------------------------------
 # Public API
 # ----------------------------------------------------------------------
+
+
+def model_path_for_campaign(campaign_id: int) -> Path:
+    """Return the model file path for a specific campaign."""
+    return MODELS_DIR / f"campaign_{campaign_id}_model.joblib"
 
 
 def get_first_active_profile_handle() -> str | None:
