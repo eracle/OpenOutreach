@@ -31,7 +31,12 @@ class SearchLane:
             used=False,
         ).exists()
 
-    def execute(self):
+    def execute(self) -> str | None:
+        """Search LinkedIn People using the next unused keyword.
+
+        Returns the keyword string that was searched, or ``None`` if no
+        keywords were available.
+        """
         from linkedin.actions.search import search_people
         from linkedin.models import SearchKeyword
 
@@ -44,7 +49,7 @@ class SearchLane:
             .first()
         )
         if not kw:
-            return
+            return None
 
         kw.used = True
         kw.used_at = timezone.now()
@@ -57,6 +62,7 @@ class SearchLane:
         )
 
         search_people(self.session, kw.keyword)
+        return kw.keyword
 
     def _ensure_keywords(self):
         """Refill the keyword queue from the LLM if no unused keywords remain."""

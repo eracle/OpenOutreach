@@ -34,24 +34,32 @@ class QualifyLane:
         unlabeled = get_unlabeled_profiles(limit=1)
         return len(unlabeled) > 0
 
-    def execute(self):
-        """Embed one profile or qualify one profile per tick."""
+    def execute(self) -> str | None:
+        """Embed one profile or qualify one profile per tick.
+
+        Returns the ``public_id`` of the profile processed, or ``None`` if
+        there was nothing to do.
+        """
         logger.info(colored("▶ qualify", "blue", attrs=["bold"]))
         # Phase 1: embed leads that don't have embeddings yet
-        if self._embed_next_profile():
-            return
+        public_id = self._embed_next_profile()
+        if public_id:
+            return public_id
 
         # Phase 2: qualify embedded profiles using BALD-based active learning
-        self._qualify_next_profile()
+        return self._qualify_next_profile()
 
-    def _embed_next_profile(self) -> bool:
-        """Embed one lead that lacks an embedding. Returns True if work was done."""
+    def _embed_next_profile(self) -> str | None:
+        """Embed one lead that lacks an embedding.
+
+        Returns the ``public_id`` of the embedded profile, or ``None``.
+        """
         from linkedin.db.crm_profiles import get_leads_for_qualification
         from linkedin.ml.embeddings import embed_profile, get_embedded_lead_ids
 
         leads = get_leads_for_qualification(self.session)
         if not leads:
-            return False
+            return None
 
         embedded_ids = get_embedded_lead_ids()
 
@@ -65,11 +73,11 @@ class QualifyLane:
 
             if embed_profile(lead_id, public_id, profile_data):
                 logger.info("%s %s", public_id, colored("EMBEDDED", "yellow"))
-                return True
+                return public_id
 
-        return False
+        return None
 
-    def _qualify_next_profile(self):
+    def _qualify_next_profile(self) -> str | None:
         """Select candidate via balance-driven explore/exploit, then auto-decide or query LLM.
 
         When negatives outnumber positives, exploit by selecting the candidate
@@ -77,13 +85,15 @@ class QualifyLane:
         Otherwise, explore by selecting the candidate with highest BALD score
         (seek the most informative label).  This keeps the training set balanced
         and ensures promising profiles get qualified sooner.
+
+        Returns the ``public_id`` of the qualified profile, or ``None``.
         """
         from linkedin.ml.embeddings import get_all_unlabeled_embeddings
         from linkedin.ml.qualifier import qualify_profile_llm
 
         candidates = get_all_unlabeled_embeddings()
         if not candidates:
-            return
+            return None
 
         entropy_threshold = self._cfg["qualification_entropy_threshold"]
         max_auto_std = self._cfg["qualification_max_auto_std"]
@@ -133,7 +143,7 @@ class QualifyLane:
                     f"prob={pred_prob:.1%}, std={std:.4f}, entropy={entropy:.4f}."
                 )
                 self._record_decision(lead_id, public_id, embedding, label, reason)
-                return
+                return public_id
 
             stats = format_stats(pred_prob, entropy, std, self.qualifier.n_obs)
             sel = f", {selection_score[0]}={selection_score[1]:.4f}" if selection_score else ""
@@ -152,7 +162,7 @@ class QualifyLane:
         if not profile_text:
             logger.warning("No profile text for lead %d — disqualifying", lead_id)
             self._record_decision(lead_id, public_id, embedding, 0, "no profile text available")
-            return
+            return public_id
 
         campaign = self.session.campaign
         label, reason = qualify_profile_llm(
@@ -161,6 +171,7 @@ class QualifyLane:
             campaign_objective=campaign.campaign_objective,
         )
         self._record_decision(lead_id, public_id, embedding, label, reason)
+        return public_id
 
     def _record_decision(self, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
         """Store label, update model, promote or disqualify Lead."""

@@ -38,7 +38,12 @@ class ConnectLane:
     def can_execute(self) -> bool:
         return self.rate_limiter.can_execute() and count_qualified_profiles(self.session) > 0
 
-    def execute(self):
+    def execute(self) -> str | None:
+        """Connect to the top-ranked qualified profile.
+
+        Returns the ``public_id`` of the profile processed, or ``None`` if
+        there was nothing to do.
+        """
         tag = "[Partner] " if self._is_partner else ""
         logger.log(self._log_level, "%s%s", tag, colored("▶ connect", "cyan", attrs=["bold"]))
         from linkedin.actions.connect import send_connection_request
@@ -46,7 +51,7 @@ class ConnectLane:
 
         profiles = get_qualified_profiles(self.session)
         if not profiles:
-            return
+            return None
 
         ranked = self.qualifier.rank_profiles(profiles, pipeline=self.pipeline)
         candidate = ranked[0]
@@ -66,11 +71,11 @@ class ConnectLane:
 
             if connection_status == ProfileState.CONNECTED:
                 set_profile_state(self.session, public_id, ProfileState.CONNECTED.value)
-                return
+                return public_id
 
             if connection_status == ProfileState.PENDING:
                 set_profile_state(self.session, public_id, ProfileState.PENDING.value)
-                return
+                return public_id
 
             new_state = send_connection_request(
                 session=self.session,
@@ -79,10 +84,11 @@ class ConnectLane:
             set_profile_state(self.session, public_id, new_state.value)
             self.rate_limiter.record()
 
-
         except ReachedConnectionLimit as e:
             logger.warning("Rate limited: %s", e)
             self.rate_limiter.mark_daily_exhausted()
         except SkipProfile as e:
             logger.warning("Skipping %s: %s", public_id, e)
             set_profile_state(self.session, public_id, ProfileState.FAILED.value)
+
+        return public_id

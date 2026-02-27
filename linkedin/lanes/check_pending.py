@@ -30,7 +30,12 @@ class CheckPendingLane:
     def can_execute(self) -> bool:
         return len(get_pending_profiles(self.session, self.recheck_after_hours)) > 0
 
-    def execute(self):
+    def execute(self) -> list[str]:
+        """Check all pending profiles that are due for recheck.
+
+        Returns a list of ``public_id`` strings for profiles that transitioned
+        to CONNECTED.
+        """
         tag = "[Partner] " if self._is_partner else ""
         logger.log(self._log_level, "%s%s", tag, colored("▶ check_pending", "magenta", attrs=["bold"]))
         from crm.models import Deal
@@ -39,8 +44,9 @@ class CheckPendingLane:
 
         profiles = get_pending_profiles(self.session, self.recheck_after_hours)
         if not profiles:
-            return
+            return []
 
+        accepted = []
         for candidate in profiles:
             public_id = candidate["public_identifier"]
             profile = candidate.get("profile") or candidate
@@ -54,7 +60,9 @@ class CheckPendingLane:
 
             set_profile_state(self.session, public_id, new_state.value)
 
-            if new_state == ProfileState.PENDING:
+            if new_state == ProfileState.CONNECTED:
+                accepted.append(public_id)
+            elif new_state == ProfileState.PENDING:
                 # Double the backoff for next recheck
                 current_backoff = candidate.get("meta", {}).get(
                     "backoff_hours", self.recheck_after_hours
@@ -70,4 +78,6 @@ class CheckPendingLane:
                     "%s still pending — backoff %.1fh → %.1fh",
                     public_id, current_backoff, new_backoff,
                 )
+
+        return accepted
 

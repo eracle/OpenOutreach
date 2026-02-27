@@ -32,14 +32,19 @@ class FollowUpLane:
             and len(get_connected_profiles(self.session)) > 0
         )
 
-    def execute(self):
+    def execute(self) -> str | None:
+        """Send a follow-up message to the first connected profile.
+
+        Returns the ``public_id`` of the profile messaged, or ``None`` if
+        there was nothing to do or the message failed.
+        """
         tag = "[Partner] " if self._is_partner else ""
         logger.log(self._log_level, "%s%s", tag, colored("▶ follow_up", "green", attrs=["bold"]))
         from linkedin.actions.message import send_follow_up_message
 
         profiles = get_connected_profiles(self.session)
         if not profiles:
-            return
+            return None
 
         candidate = profiles[0]
         public_id = candidate["public_identifier"]
@@ -58,3 +63,6 @@ class FollowUpLane:
                 # even if chat save crashes.
                 self.rate_limiter.record()
                 set_profile_state(self.session, public_id, ProfileState.COMPLETED.value)
+            return public_id
+
+        return None
