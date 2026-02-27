@@ -8,7 +8,7 @@ When modifying code, always update CLAUDE.md and MEMORY.md to reflect the change
 
 ## Commit Rule
 
-Do not add `Co-Authored-By` lines to commit messages.
+Do not add `Co-Authored-By` lines to commit messages. Commit messages must be a single line (no body or multi-line descriptions).
 
 ## Dependency Rule
 
