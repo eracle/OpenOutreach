@@ -3,7 +3,7 @@ playwright
 playwright-stealth
 pydantic
 python-dotenv
-jsonpath-ng
+jsonpath-ng==1.8.0
 pandas
 langchain
 langchain-openai
