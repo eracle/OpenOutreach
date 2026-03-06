@@ -133,17 +133,29 @@ class QualifyLane:
         result = self.qualifier.predict(embedding)
 
         # Auto-decide if model is fitted, entropy is low, AND posterior std is low
+        # Require minimum positive labels before trusting GP auto-reject.
+        # Without this, early class imbalance (neg/pos > 10:1) collapses the
+        # GP posterior (std → 0) and the model blindly rejects all candidates.
+        MIN_POS_FOR_AUTO_REJECT = 100
         if result is not None:
             pred_prob, entropy, std = result
             if entropy < entropy_threshold and std < max_auto_std:
                 label = 1 if pred_prob >= min_accept_prob else 0
-                decision = "Auto-accepted" if label == 1 else "Auto-rejected"
-                reason = (
-                    f"{decision} by GP model ({self.qualifier.n_obs} labels). "
-                    f"prob={pred_prob:.1%}, std={std:.4f}, entropy={entropy:.4f}."
-                )
-                self._record_decision(lead_id, public_id, embedding, label, reason)
-                return public_id
+                if label == 0 and self.qualifier.class_counts[1] < MIN_POS_FOR_AUTO_REJECT:
+                    logger.debug(
+                        "%s GP would auto-reject (prob=%.1f%%) but only %d positive labels "
+                        "(need %d) — forwarding to LLM",
+                        public_id, pred_prob * 100,
+                        self.qualifier.class_counts[1], MIN_POS_FOR_AUTO_REJECT,
+                    )
+                else:
+                    decision = "Auto-accepted" if label == 1 else "Auto-rejected"
+                    reason = (
+                        f"{decision} by GP model ({self.qualifier.n_obs} labels). "
+                        f"prob={pred_prob:.1%}, std={std:.4f}, entropy={entropy:.4f}."
+                    )
+                    self._record_decision(lead_id, public_id, embedding, label, reason)
+                    return public_id
 
             stats = format_stats(pred_prob, entropy, std, self.qualifier.n_obs)
             sel = f", {selection_score[0]}={selection_score[1]:.4f}" if selection_score else ""
