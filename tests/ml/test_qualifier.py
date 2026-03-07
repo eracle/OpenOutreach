@@ -122,9 +122,9 @@ class TestRankProfiles:
     def test_rank_profiles_orders_by_posterior(self, embeddings_db):
         qualifier, pos_emb, neg_emb = _make_trained_qualifier()
 
-        from linkedin.ml.embeddings import store_embedding
-        store_embedding(1, "positive", pos_emb)
-        store_embedding(2, "negative", neg_emb)
+        from linkedin.models import ProfileEmbedding
+        ProfileEmbedding.objects.create(lead_id=1, public_identifier="positive", embedding=pos_emb.tobytes())
+        ProfileEmbedding.objects.create(lead_id=2, public_identifier="negative", embedding=neg_emb.tobytes())
 
         profiles = [
             {"public_identifier": "negative"},
@@ -174,10 +174,10 @@ class TestExplainProfile:
         assert "no embedding" in explanation.lower()
 
     def test_explain_with_embedding(self, embeddings_db):
-        from linkedin.ml.embeddings import store_embedding
+        from linkedin.models import ProfileEmbedding
 
         qualifier, pos_emb, _ = _make_trained_qualifier()
-        store_embedding(1, "alice", pos_emb)
+        ProfileEmbedding.objects.create(lead_id=1, public_identifier="alice", embedding=pos_emb.tobytes())
 
         profile = {"public_identifier": "alice"}
         explanation = qualifier.explain(profile)
@@ -185,11 +185,11 @@ class TestExplainProfile:
         assert "entropy=" in explanation
 
     def test_explain_unfitted(self, embeddings_db):
-        from linkedin.ml.embeddings import store_embedding
+        from linkedin.models import ProfileEmbedding
 
         qualifier = BayesianQualifier(seed=42)
         emb = np.ones(384, dtype=np.float32)
-        store_embedding(1, "alice", emb)
+        ProfileEmbedding.objects.create(lead_id=1, public_identifier="alice", embedding=emb.tobytes())
 
         profile = {"public_identifier": "alice"}
         explanation = qualifier.explain(profile)

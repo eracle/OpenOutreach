@@ -1,5 +1,5 @@
 # tests/ml/test_embeddings.py
-"""Tests for embedding + DuckDB store."""
+"""Tests for embedding computation and ProfileEmbedding model."""
 from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
@@ -34,90 +34,118 @@ class TestEmbedText:
         assert result.shape == (2, 384)
 
 
-class TestDuckDBOps:
-    def test_store_and_retrieve_embedding(self, embeddings_db):
-        from linkedin.ml.embeddings import (
-            get_labeled_data,
-            store_embedding,
-            store_label,
+class TestProfileEmbeddingModel:
+    def test_store_and_retrieve(self, embeddings_db):
+        from linkedin.models import ProfileEmbedding
+
+        emb = np.random.randn(384).astype(np.float32)
+        ProfileEmbedding.objects.create(
+            lead_id=1, public_identifier="alice", embedding=emb.tobytes(),
         )
 
+        row = ProfileEmbedding.objects.get(lead_id=1)
+        np.testing.assert_array_almost_equal(row.embedding_array, emb)
+
+    def test_embedding_array_setter(self, embeddings_db):
+        from linkedin.models import ProfileEmbedding
+
         emb = np.random.randn(384).astype(np.float32)
-        store_embedding(1, "alice", emb)
-        store_label(1, label=1, reason="Good prospect")
+        obj = ProfileEmbedding(lead_id=1, public_identifier="alice")
+        obj.embedding_array = emb
+        obj.save()
 
-        X, y = get_labeled_data()
-        assert len(X) == 1
-        assert y[0] == 1
+        row = ProfileEmbedding.objects.get(lead_id=1)
+        np.testing.assert_array_almost_equal(row.embedding_array, emb)
 
-    def test_store_label(self, embeddings_db):
-        from linkedin.ml.embeddings import (
-            count_labeled,
-            store_embedding,
-            store_label,
+    def test_label_and_count(self, embeddings_db):
+        from django.utils import timezone
+        from linkedin.models import ProfileEmbedding
+
+        emb = np.random.randn(384).astype(np.float32)
+        ProfileEmbedding.objects.create(
+            lead_id=1, public_identifier="alice", embedding=emb.tobytes(),
         )
 
-        emb = np.random.randn(384).astype(np.float32)
-        store_embedding(1, "alice", emb)
+        assert ProfileEmbedding.objects.filter(label__isnull=False).count() == 0
 
-        counts = count_labeled()
-        assert counts["total"] == 0
+        ProfileEmbedding.objects.filter(lead_id=1).update(
+            label=1, llm_reason="Good prospect", labeled_at=timezone.now(),
+        )
 
-        store_label(1, label=1, reason="Good prospect")
+        assert ProfileEmbedding.objects.filter(label=1).count() == 1
 
-        counts = count_labeled()
-        assert counts["positive"] == 1
-        assert counts["total"] == 1
-
-    def test_upsert_preserves_existing_data(self, embeddings_db):
-        from linkedin.ml.embeddings import store_embedding, store_label, count_labeled
+    def test_upsert_preserves_label(self, embeddings_db):
+        from django.utils import timezone
+        from linkedin.models import ProfileEmbedding
 
         emb = np.random.randn(384).astype(np.float32)
-        store_embedding(1, "alice", emb)
-        store_label(1, label=1, reason="Good")
+        ProfileEmbedding.objects.create(
+            lead_id=1, public_identifier="alice", embedding=emb.tobytes(),
+        )
+        ProfileEmbedding.objects.filter(lead_id=1).update(
+            label=1, llm_reason="Good", labeled_at=timezone.now(),
+        )
 
         # Re-store with different embedding — label should be preserved
         emb2 = np.random.randn(384).astype(np.float32)
-        store_embedding(1, "alice", emb2)
-
-        counts = count_labeled()
-        assert counts["positive"] == 1
-
-    def test_get_all_unlabeled_embeddings(self, embeddings_db):
-        from linkedin.ml.embeddings import (
-            get_all_unlabeled_embeddings,
-            store_embedding,
-            store_label,
+        ProfileEmbedding.objects.update_or_create(
+            lead_id=1,
+            defaults={"public_identifier": "alice", "embedding": emb2.tobytes()},
         )
 
-        emb1 = np.random.randn(384).astype(np.float32)
-        emb2 = np.random.randn(384).astype(np.float32)
-        emb3 = np.random.randn(384).astype(np.float32)
-        store_embedding(1, "alice", emb1)
-        store_embedding(2, "bob", emb2)
-        store_embedding(3, "carol", emb3)
+        row = ProfileEmbedding.objects.get(lead_id=1)
+        assert row.label == 1
 
-        # Label one
-        store_label(1, label=1, reason="Good")
+    def test_unlabeled_filter(self, embeddings_db):
+        from django.utils import timezone
+        from linkedin.models import ProfileEmbedding
 
-        results = get_all_unlabeled_embeddings()
-        assert len(results) == 2
-        ids = {r["public_identifier"] for r in results}
+        for i, name in enumerate(["alice", "bob", "carol"], start=1):
+            emb = np.random.randn(384).astype(np.float32)
+            ProfileEmbedding.objects.create(
+                lead_id=i, public_identifier=name, embedding=emb.tobytes(),
+            )
+
+        ProfileEmbedding.objects.filter(lead_id=1).update(
+            label=1, llm_reason="Good", labeled_at=timezone.now(),
+        )
+
+        unlabeled = ProfileEmbedding.objects.filter(label__isnull=True)
+        assert unlabeled.count() == 2
+        ids = set(unlabeled.values_list("public_identifier", flat=True))
         assert ids == {"bob", "carol"}
 
-    def test_get_labeled_data_empty(self, embeddings_db):
-        from linkedin.ml.embeddings import get_labeled_data
+    def test_get_labeled_arrays_empty(self, embeddings_db):
+        from linkedin.models import ProfileEmbedding
 
-        X, y = get_labeled_data()
+        X, y = ProfileEmbedding.get_labeled_arrays()
         assert X.shape == (0, 384)
         assert y.shape == (0,)
 
-    def test_get_embedded_lead_ids(self, embeddings_db):
-        from linkedin.ml.embeddings import get_embedded_lead_ids, store_embedding
+    def test_get_labeled_arrays(self, embeddings_db):
+        from django.utils import timezone
+        from linkedin.models import ProfileEmbedding
 
         emb = np.random.randn(384).astype(np.float32)
-        store_embedding(1, "alice", emb)
-        store_embedding(2, "bob", emb)
+        ProfileEmbedding.objects.create(
+            lead_id=1, public_identifier="alice", embedding=emb.tobytes(),
+            label=1, llm_reason="Good", labeled_at=timezone.now(),
+        )
 
-        ids = get_embedded_lead_ids()
+        X, y = ProfileEmbedding.get_labeled_arrays()
+        assert len(X) == 1
+        assert y[0] == 1
+
+    def test_embedded_lead_ids(self, embeddings_db):
+        from linkedin.models import ProfileEmbedding
+
+        emb = np.random.randn(384).astype(np.float32)
+        ProfileEmbedding.objects.create(
+            lead_id=1, public_identifier="alice", embedding=emb.tobytes(),
+        )
+        ProfileEmbedding.objects.create(
+            lead_id=2, public_identifier="bob", embedding=emb.tobytes(),
+        )
+
+        ids = set(ProfileEmbedding.objects.values_list("lead_id", flat=True))
         assert ids == {1, 2}

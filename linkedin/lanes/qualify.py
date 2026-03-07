@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from django.utils import timezone
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
@@ -22,17 +23,16 @@ class QualifyLane:
     def can_execute(self) -> bool:
         """True if there are unembedded leads or unlabeled profiles to qualify."""
         from linkedin.db.crm_profiles import get_leads_for_qualification
-        from linkedin.ml.embeddings import get_embedded_lead_ids, get_unlabeled_profiles
+        from linkedin.models import ProfileEmbedding
 
         # Leads awaiting qualification that need embedding first
         leads = get_leads_for_qualification(self.session)
         if leads:
-            embedded_ids = get_embedded_lead_ids()
+            embedded_ids = set(ProfileEmbedding.objects.values_list("lead_id", flat=True))
             if any(l["lead_id"] not in embedded_ids for l in leads):
                 return True
 
-        unlabeled = get_unlabeled_profiles(limit=1)
-        return len(unlabeled) > 0
+        return ProfileEmbedding.objects.filter(label__isnull=True).exists()
 
     def execute(self) -> str | None:
         """Embed one profile or qualify one profile per tick.
@@ -55,13 +55,14 @@ class QualifyLane:
         Returns the ``public_id`` of the embedded profile, or ``None``.
         """
         from linkedin.db.crm_profiles import get_leads_for_qualification
-        from linkedin.ml.embeddings import embed_profile, get_embedded_lead_ids
+        from linkedin.ml.embeddings import embed_profile
+        from linkedin.models import ProfileEmbedding
 
         leads = get_leads_for_qualification(self.session)
         if not leads:
             return None
 
-        embedded_ids = get_embedded_lead_ids()
+        embedded_ids = set(ProfileEmbedding.objects.values_list("lead_id", flat=True))
 
         for lead_data in leads:
             lead_id = lead_data["lead_id"]
@@ -88,10 +89,12 @@ class QualifyLane:
 
         Returns the ``public_id`` of the qualified profile, or ``None``.
         """
-        from linkedin.ml.embeddings import get_all_unlabeled_embeddings
+        from linkedin.models import ProfileEmbedding
         from linkedin.ml.qualifier import qualify_with_llm
 
-        candidates = get_all_unlabeled_embeddings()
+        candidates = list(
+            ProfileEmbedding.objects.filter(label__isnull=True).order_by("created_at")
+        )
         if not candidates:
             return None
 
@@ -104,7 +107,7 @@ class QualifyLane:
         if len(candidates) == 1:
             candidate = candidates[0]
         else:
-            embeddings = np.array([c["embedding"] for c in candidates], dtype=np.float32)
+            embeddings = np.array([c.embedding_array for c in candidates], dtype=np.float32)
             n_neg, n_pos = self.qualifier.class_counts
 
             if n_neg > n_pos:
@@ -126,9 +129,9 @@ class QualifyLane:
                 logger.info("Strategy: %s (neg=%d, pos=%d)",
                             colored(strategy, "cyan", attrs=["bold"]), n_neg, n_pos)
 
-        lead_id = candidate["lead_id"]
-        public_id = candidate["public_identifier"]
-        embedding = candidate["embedding"]
+        lead_id = candidate.lead_id
+        public_id = candidate.public_identifier
+        embedding = candidate.embedding_array
 
         result = self.qualifier.predict(embedding)
 
@@ -176,9 +179,11 @@ class QualifyLane:
     def _record_decision(self, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
         """Store label, update model, promote or disqualify Lead."""
         from linkedin.db.crm_profiles import disqualify_lead, promote_lead_to_contact
-        from linkedin.ml.embeddings import store_label
+        from linkedin.models import ProfileEmbedding
 
-        store_label(lead_id, label=label, reason=reason)
+        ProfileEmbedding.objects.filter(lead_id=lead_id).update(
+            label=label, llm_reason=reason, labeled_at=timezone.now(),
+        )
         self.qualifier.update(embedding, label)
 
         if label == 1:

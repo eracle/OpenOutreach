@@ -80,9 +80,9 @@ def _build_qualifiers(campaigns, cfg):
     Returns (qualifiers, partner_qualifier) where qualifiers is a
     dict[int, BayesianQualifier] keyed by campaign PK (non-partner only).
     """
-    from linkedin.ml.embeddings import get_labeled_data
+    from linkedin.models import ProfileEmbedding
 
-    X, y = get_labeled_data()
+    X, y = ProfileEmbedding.get_labeled_arrays()
 
     qualifiers: dict[int, BayesianQualifier] = {}
     for campaign in campaigns:
@@ -116,13 +116,9 @@ def _build_qualifiers(campaigns, cfg):
 def run_daemon(session):
     from linkedin.lanes.qualify import QualifyLane
     from linkedin.management.setup_crm import ensure_campaign_pipeline
-    from linkedin.ml.embeddings import ensure_embeddings_table
     from linkedin.ml.hub import get_kit, import_partner_campaign
 
     cfg = CAMPAIGN_CONFIG
-
-    # Initialize embeddings table
-    ensure_embeddings_table()
 
     # Load kit model for partner campaigns
     kit = get_kit()

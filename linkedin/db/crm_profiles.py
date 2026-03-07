@@ -516,14 +516,14 @@ def seed_partner_deals(session) -> int:
     Returns the number of new deals created.
     """
     from crm.models import Lead, Deal
-    from linkedin.ml.embeddings import get_embedded_lead_ids
+    from linkedin.models import ProfileEmbedding
 
     dept = session.campaign.department
 
     disqualified_pks = set(
         Lead.objects.filter(disqualified=True).values_list("pk", flat=True)
     )
-    embedded_ids = get_embedded_lead_ids()
+    embedded_ids = set(ProfileEmbedding.objects.values_list("lead_id", flat=True))
     eligible_pks = sorted(disqualified_pks & embedded_ids)
 
     if not eligible_pks:

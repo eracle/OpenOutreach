@@ -354,20 +354,11 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def _load_embedding(self, profile: dict) -> np.ndarray | None:
-        """Look up profile embedding from DuckDB."""
-        from linkedin.ml.embeddings import _connect
+        """Look up profile embedding from the database."""
+        from linkedin.models import ProfileEmbedding
 
         public_id = profile.get("public_identifier")
         if not public_id:
             return None
-
-        con = _connect(read_only=True)
-        row = con.execute(
-            "SELECT embedding FROM profile_embeddings WHERE public_identifier = ?",
-            [public_id],
-        ).fetchone()
-        con.close()
-
-        if row:
-            return np.array(row[0], dtype=np.float32)
-        return None
+        row = ProfileEmbedding.objects.filter(public_identifier=public_id).first()
+        return row.embedding_array if row else None

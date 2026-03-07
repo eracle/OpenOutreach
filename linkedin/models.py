@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 
+import numpy as np
 from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
@@ -158,3 +159,45 @@ class ActionLog(models.Model):
 
     def __str__(self):
         return f"{self.action_type} by {self.linkedin_profile} at {self.created_at}"
+
+
+class ProfileEmbedding(models.Model):
+    lead_id = models.IntegerField(primary_key=True)
+    public_identifier = models.CharField(max_length=200)
+    embedding = models.BinaryField()
+    label = models.IntegerField(null=True, blank=True)
+    llm_reason = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    labeled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "linkedin"
+
+    @property
+    def embedding_array(self) -> np.ndarray:
+        """384-dim float32 numpy array from stored bytes."""
+        return np.frombuffer(bytes(self.embedding), dtype=np.float32).copy()
+
+    @embedding_array.setter
+    def embedding_array(self, arr: np.ndarray):
+        self.embedding = np.asarray(arr, dtype=np.float32).tobytes()
+
+    @classmethod
+    def get_labeled_arrays(cls) -> tuple[np.ndarray, np.ndarray]:
+        """All labeled embeddings as (X, y) numpy arrays for warm start."""
+        rows = list(
+            cls.objects.filter(label__isnull=False)
+            .order_by("labeled_at")
+            .values_list("embedding", "label")
+        )
+        if not rows:
+            return np.empty((0, 384), dtype=np.float32), np.empty(0, dtype=np.int32)
+        X = np.array(
+            [np.frombuffer(bytes(emb), dtype=np.float32) for emb, _ in rows],
+            dtype=np.float32,
+        )
+        y = np.array([label for _, label in rows], dtype=np.int32)
+        return X, y
+
+    def __str__(self):
+        return f"Embedding for lead {self.lead_id} ({self.public_identifier})"

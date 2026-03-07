@@ -27,7 +27,6 @@ DIAGNOSTICS_DIR = ASSETS_DIR / "diagnostics"
 PROMPTS_DIR = ASSETS_DIR / "templates" / "prompts"
 DEFAULT_FOLLOWUP_TEMPLATE_PATH = PROMPTS_DIR / "followup2.j2"
 
-EMBEDDINGS_DB = DATA_DIR / "analytics.duckdb"
 _LEGACY_MODEL_PATH = MODELS_DIR / "model.joblib"
 
 COOKIES_DIR.mkdir(exist_ok=True)

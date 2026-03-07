@@ -1,7 +1,7 @@
 # linkedin/admin.py
 from django.contrib import admin
 
-from linkedin.models import ActionLog, Campaign, LinkedInProfile, SearchKeyword
+from linkedin.models import ActionLog, Campaign, LinkedInProfile, ProfileEmbedding, SearchKeyword
 
 
 @admin.register(Campaign)
@@ -22,6 +22,13 @@ class SearchKeywordAdmin(admin.ModelAdmin):
     list_display = ("keyword", "campaign", "used", "used_at")
     list_filter = ("used", "campaign")
     raw_id_fields = ("campaign",)
+
+
+@admin.register(ProfileEmbedding)
+class ProfileEmbeddingAdmin(admin.ModelAdmin):
+    list_display = ("lead_id", "public_identifier", "label", "created_at", "labeled_at")
+    list_filter = ("label",)
+    readonly_fields = ("lead_id", "public_identifier", "embedding", "label", "llm_reason", "created_at", "labeled_at")
 
 
 @admin.register(ActionLog)
