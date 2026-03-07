@@ -113,7 +113,7 @@ def _check_legacy_stages(dept):
     summary = ", ".join(f"{name}: {count}" for name, count in legacy_with_deals)
     logger.error(
         "Database contains deals at legacy stages: %s. "
-        "Delete assets/data/crm.db and assets/data/analytics.duckdb, then restart.",
+        "Delete assets/data/crm.db, then restart.",
         summary,
     )
     sys.exit(1)
