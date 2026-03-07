@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help attach test docker-test stop build up up-view install setup run admin analytics analytics-test view
+.PHONY: help attach test docker-test stop build up up-view install setup run admin view
 
 help:
 	@perl -nle'print $& if m{^[a-zA-Z_-]+:.*?## .*$$}' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-25s\033[0m %s\n", $$1, $$2}'
@@ -27,12 +27,6 @@ admin: ## start the Django Admin web server
 	@echo "  No superuser yet? Run: python manage.py createsuperuser"
 	@echo ""
 	python manage.py runserver
-
-analytics: ## run dbt models (build analytics tables)
-	cd analytics && dbt run
-
-analytics-test: ## run dbt schema tests
-	cd analytics && dbt test
 
 # Docker targets
 attach: ## follow the logs of the service

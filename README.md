@@ -161,11 +161,8 @@ Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign 
 ## 📂 Project Structure
 
 ```
-├── analytics/                       # dbt project (DuckDB analytics, ML training sets)
-│   ├── models/staging/              # Staging views (stg_leads, stg_deals, stg_stages)
-│   └── models/marts/                # ML training set (ml_connection_accepted)
 ├── assets/
-│   ├── data/                        # crm.db (SQLite), analytics.duckdb (embeddings + analytics)
+│   ├── data/                        # crm.db (SQLite), analytics.duckdb (embeddings)
 │   └── models/                      # Persisted ML model (model.joblib)
 ├── docs/
 │   ├── architecture.md              # System architecture

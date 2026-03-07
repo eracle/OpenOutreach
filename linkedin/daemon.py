@@ -53,30 +53,6 @@ class LaneSchedule:
         self.next_run = time.time() + self.base_interval * jitter
 
 
-def _rebuild_analytics():
-    """Run dbt to rebuild the analytics DB."""
-    import subprocess
-
-    from linkedin.conf import ROOT_DIR
-
-    analytics_dir = ROOT_DIR / "analytics"
-    logger.info(colored("Rebuilding analytics (dbt run)...", "cyan", attrs=["bold"]))
-    try:
-        subprocess.run(
-            ["dbt", "run"],
-            cwd=str(analytics_dir),
-            timeout=120,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        logger.info(colored("dbt run completed", "green"))
-        return True
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
-        logger.warning("dbt run failed: %s", e)
-        return False
-
-
 def _migrate_legacy_model(campaigns):
     """Migrate old global model.joblib to per-campaign path if possible."""
     if not _LEGACY_MODEL_PATH.exists():

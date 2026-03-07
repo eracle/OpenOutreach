@@ -36,8 +36,6 @@ make view     # open VNC viewer (vinagre)
 make setup                           # install deps + Playwright browsers + migrate + bootstrap CRM
 make run                             # run the daemon (interactive onboarding on first run)
 make admin                           # Django Admin at http://localhost:8000/admin/
-make analytics                       # build dbt models (DuckDB analytics)
-make analytics-test                  # run dbt schema tests
 python manage.py migrate             # run Django migrations
 python manage.py createsuperuser     # create Django admin user
 ```
@@ -54,7 +52,7 @@ pytest -k test_name               # run single test by name
 
 ### Entry Flow
 `manage.py` (Django bootstrap + auto-migrate + CRM setup):
-- Suppresses Pydantic serialization warning from langchain-openai. Configures logging: DEBUG level, suppresses noisy third-party loggers (urllib3, httpx, langchain, openai, dbt, playwright, httpcore, fastembed, huggingface_hub, filelock).
+- Suppresses Pydantic serialization warning from langchain-openai. Configures logging: DEBUG level, suppresses noisy third-party loggers (urllib3, httpx, langchain, openai, playwright, httpcore, fastembed, huggingface_hub, filelock).
 - No args → runs the daemon: `ensure_onboarding()` → validate `LLM_API_KEY` → get session (sets default campaign: first non-partner or first available) → `ensure_browser()` → `ensure_self_profile()` (creates disqualified Lead + `/in/me/` sentinel via Voyager API) → GDPR newsletter override (guarded by marker file `.{handle}_newsletter_processed`) → `run_daemon(session)` which initializes the `BayesianQualifier` (GPR pipeline, warm-started from historical labels) and spreads actions at a configurable pace across multiple campaigns. New profiles are auto-discovered as the daemon navigates LinkedIn pages. When all lanes are idle, LLM-generated search keywords discover new profiles.
 - Any args → delegates to Django's `execute_from_command_line` (e.g. `runserver`, `migrate`, `createsuperuser`).
 
@@ -110,7 +108,7 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 
 ### Key Modules
 - **`models.py`** — Django models: `Campaign` (1:1 with Department; product_docs, campaign_objective, followup_template, booking_link, is_partner, action_fraction), `LinkedInProfile` (1:1 with User; credentials, rate limits, newsletter preference; rate-limit methods `can_execute`/`record_action`/`mark_exhausted`), `SearchKeyword` (FK to Campaign; keyword, used, used_at), and `ActionLog` (FK to LinkedInProfile + Campaign; action_type, created_at). Registered in `admin.py`.
-- **`daemon.py`** — Main daemon loop. `LaneSchedule` class tracks `next_run` per major lane; `reschedule()` adds ±20% jitter. `_PromoRotator` logs rotating promotional messages every N ticks. `_rebuild_analytics()` runs `dbt run` with 120s timeout. `_migrate_legacy_model(campaigns)` renames old global `model.joblib` to per-campaign path when exactly 1 non-partner campaign exists (warns otherwise). `_build_qualifiers(campaigns, cfg)` creates a `dict[int, BayesianQualifier]` keyed by campaign PK (one per non-partner campaign, each with `save_path=model_path_for_campaign(campaign.pk)`), warm-started from shared `get_labeled_data()`, plus a no-save-path partner qualifier; returns `(qualifiers, partner_qualifier)`. `run_daemon(session)` calls `_build_qualifiers()`, builds `LaneSchedule` objects per campaign for three major lanes, plus per-campaign `QualifyLane`/`SearchLane` dicts for gap-filling. All lane `.execute()` calls are wrapped with `failure_diagnostics(session)` — on unhandled exception, page HTML, screenshot, and traceback are saved to `assets/diagnostics/<timestamp>_<ErrorClass>/` before the error propagates. Rate limiting is handled by `LinkedInProfile` methods (DB-backed via `ActionLog`). Partner campaigns use probabilistic gating (`action_fraction`); regular campaigns inversely gated with probability = `max(partner.action_fraction)`. Initializes embeddings table at startup. Also imports partner campaigns via `ml/hub.py`.
+- **`daemon.py`** — Main daemon loop. `LaneSchedule` class tracks `next_run` per major lane; `reschedule()` adds ±20% jitter. `_PromoRotator` logs rotating promotional messages every N ticks. `_migrate_legacy_model(campaigns)` renames old global `model.joblib` to per-campaign path when exactly 1 non-partner campaign exists (warns otherwise). `_build_qualifiers(campaigns, cfg)` creates a `dict[int, BayesianQualifier]` keyed by campaign PK (one per non-partner campaign, each with `save_path=model_path_for_campaign(campaign.pk)`), warm-started from shared `get_labeled_data()`, plus a no-save-path partner qualifier; returns `(qualifiers, partner_qualifier)`. `run_daemon(session)` calls `_build_qualifiers()`, builds `LaneSchedule` objects per campaign for three major lanes, plus per-campaign `QualifyLane`/`SearchLane` dicts for gap-filling. All lane `.execute()` calls are wrapped with `failure_diagnostics(session)` — on unhandled exception, page HTML, screenshot, and traceback are saved to `assets/diagnostics/<timestamp>_<ErrorClass>/` before the error propagates. Rate limiting is handled by `LinkedInProfile` methods (DB-backed via `ActionLog`). Partner campaigns use probabilistic gating (`action_fraction`); regular campaigns inversely gated with probability = `max(partner.action_fraction)`. Initializes embeddings table at startup. Also imports partner campaigns via `ml/hub.py`.
 - **`diagnostics.py`** — Failure diagnostics capture. `capture_failure(session, error)` saves page HTML (`page.html`), screenshot (`screenshot.png`), and traceback (`error.txt`) into a per-failure folder under `assets/diagnostics/`. `failure_diagnostics(session)` is a context manager that calls `capture_failure` on unhandled exceptions, then re-raises.
 - **`lanes/`** — Action lanes executed by the daemon:
   - `qualify.py` — Two-phase qualification lane: (1) embeds enriched profiles that lack embeddings (backfill), (2) qualifies embedded profiles via GPR active learning — balance-driven explore/exploit (more negatives → exploit highest prob, otherwise → explore highest BALD). Auto-decision requires both `entropy < threshold` AND `std < max_auto_std`; auto-accept also requires `prob >= min_accept_prob`. Otherwise → LLM query via `qualify_lead.j2` prompt. Reads `product_docs`/`campaign_objective` from `session.campaign`.
@@ -154,16 +152,7 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
 - **`assets/templates/prompts/qualify_lead.j2`** — LLM-based lead qualification. Receives `product_docs`, `campaign_objective`, `profile_text`. Structured output: `QualificationDecision(qualified: bool, reason: str)`. LLM temperature: **0.7**, timeout: 60s.
 - **`assets/templates/prompts/search_keywords.j2`** — LLM-based search keyword generation. Receives `product_docs`, `campaign_objective`, `n_keywords`, `exclude_keywords`. Structured output: `SearchKeywords(keywords: list[str])`. LLM temperature: **0.9** (high diversity).
 - **`assets/templates/prompts/followup2.j2`** — Follow-up message template. Receives `full_name`, `headline`, `current_company`, `location`, `product_description`, `shared_connections`. Constraints: 2-4 sentences, max 400 chars, NO placeholders, warm tone, soft CTA.
-- **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps, includes `analytics.txt`), `analytics.txt` (dbt-core + dbt-duckdb), `local.txt` (adds pytest/factory-boy), `production.txt`. Used by both local dev and Docker.
-
-### Analytics Layer (dbt + DuckDB)
-The `analytics/` directory contains a dbt project that reads from the CRM SQLite DB (via DuckDB's SQLite attach) to build ML training sets. No CRM data is modified.
-
-- **`analytics/profiles.yml`** — DuckDB profile config. Attaches `assets/data/crm.db` as `crm`. Memory limit set to 2GB.
-- **`analytics/models/staging/`** — Staging views over CRM tables (`stg_leads`, `stg_deals`, `stg_stages`). Lead JSON fields (including `industry_name`, `geo_name`) are parsed here.
-- **`analytics/models/marts/ml_connection_accepted.sql`** — Binary classification training set: did a connection request get accepted? Target=1 (reached CONNECTED/COMPLETED), Target=0 (stuck at PENDING). Excludes DISCOVERED/ENRICHED/FAILED profiles. Uses LATERAL UNNEST CTEs to extract 24 mechanical features from positions/educations JSON arrays, plus a concatenated `profile_text` column for keyword feature extraction in Python.
-- **Output:** `assets/data/analytics.duckdb` — query with `duckdb.connect("assets/data/analytics.duckdb")`.
-- **Deps:** `dbt-core 1.11.x` + `dbt-duckdb 1.10.x` + `protobuf` 6.33.x (pinned; earlier 6.32.x had a memory regression ~5GB RSS on startup, resolved in 6.33+).
+- **`requirements/`** — `crm.txt` (DjangoCRM, installed with `--no-deps`), `base.txt` (runtime deps), `local.txt` (adds pytest/factory-boy), `production.txt`. Used by both local dev and Docker.
 
 ### Error Handling Convention
 The application should crash on unexpected errors. `try/except` blocks should only handle expected, recoverable errors. Custom exceptions in `navigation/exceptions.py`: `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
@@ -176,7 +165,7 @@ The application should crash on unexpected errors. `try/except` blocks should on
 - **Startup:** `/start` script (CRLF normalized with sed).
 
 ### CI/CD
-- **`.github/workflows/tests.yml`** — Runs pytest (in Docker) and dbt tests (Python 3.12, ubuntu-latest) on push to `master` and PRs.
+- **`.github/workflows/tests.yml`** — Runs pytest (in Docker) on push to `master` and PRs.
 - **`.github/workflows/deploy.yml`** — On push to `master` or version tags (`v*`): runs tests, then builds and pushes the production Docker image to `ghcr.io/eracle/openoutreach`. Tags: `latest`, `sha-<commit>`, semver (`v1.0.0` → `1.0.0` + `1.0`).
 
 ### Dependencies
@@ -184,4 +173,3 @@ Managed via `requirements/` files. DjangoCRM's `mysqlclient` is excluded via `--
 
 Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin`, `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
 ML/Embeddings: `scikit-learn` (GaussianProcessRegressor), `numpy`, `duckdb`, `fastembed`, `joblib`
-Analytics: `dbt-core` 1.11.x, `dbt-duckdb` 1.10.x, `protobuf` 6.33.x (6.32.x had memory regression, resolved in 6.33+)

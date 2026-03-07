@@ -157,15 +157,6 @@ Low-level, reusable browser actions composed by the lanes:
 
 - `generate_search_keywords()` — Calls LLM via `search_keywords.j2` prompt template with product docs and campaign objective to generate LinkedIn People search queries. Returns a list of search query strings.
 
-## Analytics Layer (`analytics/`)
-
-A dbt project that builds ML training sets from the CRM data:
-
-- **Engine**: DuckDB, attaches the CRM SQLite DB read-only.
-- **Staging models**: `stg_leads`, `stg_deals`, `stg_stages` — parse raw CRM tables.
-- **Mart**: `ml_connection_accepted` — binary classification training set (accepted=1 for CONNECTED/COMPLETED, accepted=0 for stuck at PENDING). Outputs 24 mechanical features + `profile_text` for keyword extraction.
-- **Output**: `assets/data/analytics.duckdb`.
-
 ## Templates (`linkedin/templates/renderer.py`)
 
 Two template types for follow-up messages:
