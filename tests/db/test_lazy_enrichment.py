@@ -127,11 +127,11 @@ class TestEnsureProfileEmbedded:
 
 
 class TestEmbedNextProfileLazyEnrich:
-    """Test that _embed_next_profile lazily enriches url-only leads."""
+    """Test that embed_one lazily enriches url-only leads."""
 
     def test_url_only_lead_gets_enriched_then_embedded(self, fake_session, embeddings_db):
         from crm.models import Lead
-        from linkedin.lanes.qualify import QualifyLane
+        from linkedin.pipeline.qualify import embed_one
         from linkedin.ml.qualifier import BayesianQualifier
 
         # Create a url-only lead (no description)
@@ -143,7 +143,6 @@ class TestEmbedNextProfileLazyEnrich:
         )
 
         qualifier = BayesianQualifier(seed=42)
-        lane = QualifyLane(fake_session, qualifier)
 
         with (
             patch(
@@ -155,14 +154,14 @@ class TestEmbedNextProfileLazyEnrich:
                 return_value=True,
             ) as mock_embed,
         ):
-            result = lane._embed_next_profile()
+            result = embed_one(fake_session, qualifier)
 
         assert result == "bob"
         mock_embed.assert_called_once()
 
     def test_url_only_lead_skipped_on_api_failure(self, fake_session, embeddings_db):
         from crm.models import Lead
-        from linkedin.lanes.qualify import QualifyLane
+        from linkedin.pipeline.qualify import embed_one
         from linkedin.ml.qualifier import BayesianQualifier
 
         Lead.objects.create(
@@ -173,12 +172,11 @@ class TestEmbedNextProfileLazyEnrich:
         )
 
         qualifier = BayesianQualifier(seed=42)
-        lane = QualifyLane(fake_session, qualifier)
 
         with patch(
             "linkedin.db.crm_profiles._fetch_profile",
             return_value=(None, None),
         ):
-            result = lane._embed_next_profile()
+            result = embed_one(fake_session, qualifier)
 
         assert result is None

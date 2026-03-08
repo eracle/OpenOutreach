@@ -8,11 +8,10 @@ from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG, _LEGACY_MODEL_PATH, model_path_for_campaign
 from linkedin.diagnostics import failure_diagnostics
-from linkedin.db.crm_profiles import count_leads_for_qualification, seed_partner_deals
+from linkedin.db.crm_profiles import seed_partner_deals
 from linkedin.lanes.check_pending import CheckPendingLane
 from linkedin.lanes.connect import ConnectLane
 from linkedin.lanes.follow_up import FollowUpLane
-from linkedin.lanes.search import SearchLane
 from linkedin.ml.qualifier import BayesianQualifier
 
 logger = logging.getLogger(__name__)
@@ -114,7 +113,6 @@ def _build_qualifiers(campaigns, cfg):
 
 
 def run_daemon(session):
-    from linkedin.lanes.qualify import QualifyLane
     from linkedin.management.setup_crm import ensure_campaign_pipeline
     from linkedin.ml.hub import get_kit, import_partner_campaign
 
@@ -132,9 +130,7 @@ def run_daemon(session):
     qualifiers, partner_qualifier = _build_qualifiers(session.campaigns, cfg)
 
     check_pending_interval = cfg["check_pending_recheck_after_hours"] * 3600
-    min_enrich_interval = cfg["enrich_min_interval"]
     min_action_interval = cfg["min_action_interval"]
-    min_qualifiable_leads = cfg["min_qualifiable_leads"]
 
     # Compute partner action_fraction (max across all partner campaigns)
     partner_fraction = max(
@@ -144,8 +140,6 @@ def run_daemon(session):
 
     # Build schedules for ALL campaigns
     all_schedules = []
-    qualify_lanes: dict[int, QualifyLane] = {}
-    search_lanes: dict[int, SearchLane] = {}
 
     for campaign in session.campaigns:
         session.campaign = campaign
@@ -166,9 +160,6 @@ def run_daemon(session):
             connect_lane = ConnectLane(session, qualifier)
             check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
             follow_up_lane = FollowUpLane(session)
-
-            qualify_lanes[campaign.pk] = QualifyLane(session, qualifier)
-            search_lanes[campaign.pk] = SearchLane(session, qualifier)
 
             all_schedules.extend([
                 LaneSchedule("connect", connect_lane, min_action_interval, campaign=campaign),
@@ -195,36 +186,6 @@ def run_daemon(session):
         now = time.time()
         next_schedule = min(all_schedules, key=lambda s: s.next_run)
         gap = max(next_schedule.next_run - now, 0)
-
-        # ── Fill gap with search (pipeline low) + qualifications (non-partner only) ──
-        if qualify_lanes and gap > min_enrich_interval:
-            # Pick the first non-partner campaign for gap-filling
-            non_partner = next(c for c in session.campaigns if not c.is_partner)
-            session.campaign = non_partner
-            ql = qualify_lanes[non_partner.pk]
-            sl = search_lanes[non_partner.pk]
-
-            if count_leads_for_qualification(session) < min_qualifiable_leads:
-                if sl.can_execute():
-                    with failure_diagnostics(session):
-                        sl.execute()
-                    continue
-
-            to_qualify = count_leads_for_qualification(session)
-            if to_qualify > 0:
-                qualify_wait = max(gap / to_qualify, min_enrich_interval)
-                qualify_wait *= random.uniform(0.8, 1.2)
-                qualify_wait = min(qualify_wait, gap)
-                logger.debug(
-                    "gap-fill in %.0fs (gap %.0fs, %d to qualify)",
-                    qualify_wait, gap, to_qualify,
-                )
-                time.sleep(qualify_wait)
-
-                if ql.can_execute():
-                    with failure_diagnostics(session):
-                        ql.execute()
-                    continue
 
         # ── Wait for major action ──
         if gap > 0:

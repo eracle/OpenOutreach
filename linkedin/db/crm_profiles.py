@@ -96,11 +96,13 @@ def lead_exists(url: str) -> bool:
 
 @transaction.atomic
 def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optional[Dict[str, Any]] = None) -> Optional[int]:
-    """Create Lead with full profile data + Company. Returns lead PK or None if exists.
+    """Create Lead with full profile data, Company, and embedding.
 
+    Returns lead PK or None if exists.
     Does NOT create Contact or Deal — those come at qualification.
     """
     from crm.models import Lead
+    from linkedin.ml.embeddings import embed_profile
 
     public_id = url_to_public_id(url)
     clean_url = public_id_to_url(public_id)
@@ -120,6 +122,8 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optio
 
     if data:
         _attach_raw_data(lead, public_id, data)
+
+    embed_profile(lead.pk, public_id, profile)
 
     logger.debug("Created enriched lead for %s (pk=%d)", public_id, lead.pk)
     return lead.pk
@@ -243,6 +247,7 @@ def _deal_to_profile_dict(deal) -> dict:
     profile = _lead_profile(lead) or {}
     public_id = url_to_public_id(lead.website) if lead.website else ""
     return {
+        "lead_id": lead.pk,
         "public_identifier": public_id,
         "url": lead.website or "",
         "profile": profile,

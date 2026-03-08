@@ -54,6 +54,7 @@ CAMPAIGN_CONFIG = {
     "qualification_max_auto_std": 0.05,
     "qualification_min_auto_accept_prob": 0.9,
     "qualification_n_mc_samples": 100,
+    "min_connect_prob": 0.9,
     "embedding_model": "BAAI/bge-small-en-v1.5",
     "min_qualifiable_leads": 50,
 }

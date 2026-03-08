@@ -60,13 +60,12 @@ def _extract_in_urls(session):
 
 
 def _enrich_new_urls(session, urls: set):
-    """For each new URL, call Voyager API, create enriched Lead, embed.
+    """For each new URL, call Voyager API, create enriched Lead (with embedding).
 
     Skips URLs that already have a Lead. Rate-limits with enrich_min_interval.
     NO pre-existing connection check — handled by connect lane.
     """
     from linkedin.db.crm_profiles import lead_exists, create_enriched_lead, url_to_public_id
-    from linkedin.ml.embeddings import embed_profile
 
     new_urls = [u for u in urls if not lead_exists(u)]
     if not new_urls:
@@ -98,9 +97,7 @@ def _enrich_new_urls(session, urls: set):
             logger.warning("Empty profile for %s — skipping", url)
             continue
 
-        lead_pk = create_enriched_lead(session, url, profile, data)
-        if lead_pk is not None:
-            embed_profile(lead_pk, public_id, profile)
+        if create_enriched_lead(session, url, profile, data) is not None:
             enriched += 1
 
         time.sleep(min_interval)

@@ -274,7 +274,7 @@ class BayesianQualifier:
         If *pipeline* is provided (partner campaign model), use it instead
         of the internal model.  Both paths extract mean+std from the GPR
         step to compute proper posterior probabilities.
-        Raises if no model is available or any profile lacks an embedding.
+        Raises if a non-partner profile lacks an embedding after lazy loading.
         """
         if not profiles:
             return []
@@ -353,12 +353,16 @@ class BayesianQualifier:
     # Internals
     # ------------------------------------------------------------------
 
-    def _load_embedding(self, profile: dict) -> np.ndarray | None:
-        """Look up profile embedding from the database."""
+    @staticmethod
+    def _load_embedding(profile: dict) -> np.ndarray | None:
+        """Look up profile embedding from the database, lazily creating it if missing."""
         from linkedin.models import ProfileEmbedding
 
         public_id = profile.get("public_identifier")
         if not public_id:
             return None
+        lead_id = profile.get("lead_id")
+        if lead_id is not None:
+            return ProfileEmbedding.get_or_embed(lead_id, public_id)
         row = ProfileEmbedding.objects.filter(public_identifier=public_id).first()
         return row.embedding_array if row else None
