@@ -268,7 +268,7 @@ class BayesianQualifier:
     # Ranking for connect lane
     # ------------------------------------------------------------------
 
-    def rank_profiles(self, profiles: list, pipeline=None) -> list:
+    def rank_profiles(self, profiles: list, session, pipeline=None) -> list:
         """Rank QUALIFIED profiles by P(f > 0.5) probability (descending).
 
         If *pipeline* is provided (partner campaign model), use it instead
@@ -276,6 +276,8 @@ class BayesianQualifier:
         step to compute proper posterior probabilities.
         Raises if a non-partner profile lacks an embedding after lazy loading.
         """
+        from linkedin.db.crm_profiles import load_embedding
+
         if not profiles:
             return []
 
@@ -283,7 +285,7 @@ class BayesianQualifier:
 
         scored = []
         for p in profiles:
-            emb = self._load_embedding(p)
+            emb = load_embedding(p.get("lead_id"), p.get("public_identifier"), session)
             if emb is None:
                 if pipeline is not None:
                     continue  # partner: skip missing embeddings
@@ -326,9 +328,11 @@ class BayesianQualifier:
     # Explain
     # ------------------------------------------------------------------
 
-    def explain(self, profile: dict) -> str:
+    def explain(self, profile: dict, session) -> str:
         """Human-readable compact scoring explanation."""
-        emb = self._load_embedding(profile)
+        from linkedin.db.crm_profiles import load_embedding
+
+        emb = load_embedding(profile.get("lead_id"), profile.get("public_identifier"), session)
         if emb is None:
             return "No embedding found for profile"
         result = self.predict(emb)
@@ -349,20 +353,3 @@ class BayesianQualifier:
         if len(self._X) >= 2:
             self._fit_if_needed()
 
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _load_embedding(profile: dict) -> np.ndarray | None:
-        """Look up profile embedding from the database, lazily creating it if missing."""
-        from linkedin.models import ProfileEmbedding
-
-        public_id = profile.get("public_identifier")
-        if not public_id:
-            return None
-        lead_id = profile.get("lead_id")
-        if lead_id is not None:
-            return ProfileEmbedding.get_or_embed(lead_id, public_id)
-        row = ProfileEmbedding.objects.filter(public_identifier=public_id).first()
-        return row.embedding_array if row else None

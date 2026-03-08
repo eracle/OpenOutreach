@@ -31,6 +31,11 @@ def _create_embedding(lead_id, public_id, label=None):
     )
 
 
+def _fake_leads(lead_id=1, public_id="alice"):
+    """Return a list matching get_leads_for_qualification output."""
+    return [{"lead_id": lead_id, "public_identifier": public_id, "url": "", "profile": {}}]
+
+
 class TestQualifyAutoDecisions:
     def test_auto_accept(self, embeddings_db):
         from linkedin.models import ProfileEmbedding
@@ -40,6 +45,7 @@ class TestQualifyAutoDecisions:
         _create_embedding(1, "alice")
 
         with (
+            patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
             patch.object(qualifier, "predict", return_value=(0.95, 0.01, 0.01)),
             patch.object(qualifier, "update"),
             patch("linkedin.db.crm_profiles.promote_lead_to_contact") as mock_promote,
@@ -60,6 +66,7 @@ class TestQualifyAutoDecisions:
         _create_embedding(1, "alice")
 
         with (
+            patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
             patch.object(qualifier, "predict", return_value=(0.05, 0.01, 0.01)),
             patch.object(qualifier, "update"),
             patch("linkedin.db.crm_profiles.promote_lead_to_contact"),
@@ -79,6 +86,7 @@ class TestQualifyAutoDecisions:
         _create_embedding(1, "alice")
 
         with (
+            patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
             patch.object(qualifier, "predict", return_value=(0.50, 0.693, 0.5)),
             patch("linkedin.pipeline.qualify._get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_with_llm", return_value=(1, "Good fit")) as mock_llm,
@@ -95,6 +103,7 @@ class TestQualifyAutoDecisions:
         _create_embedding(1, "alice")
 
         with (
+            patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
             patch("linkedin.pipeline.qualify._get_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_with_llm", return_value=(0, "Bad fit")) as mock_llm,
             patch.object(qualifier, "update"),
@@ -109,6 +118,7 @@ class TestQualifyAutoDecisions:
         _create_embedding(1, "alice")
 
         with (
+            patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
             patch.object(qualifier, "predict", return_value=(0.95, 0.01, 0.01)),
             patch.object(qualifier, "update"),
             patch("linkedin.db.crm_profiles.promote_lead_to_contact",

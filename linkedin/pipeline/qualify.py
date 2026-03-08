@@ -1,5 +1,5 @@
 # linkedin/pipeline/qualify.py
-"""Embed and qualify orchestration for the lazy chain."""
+"""Qualify orchestration for the lazy chain."""
 from __future__ import annotations
 
 import logging
@@ -14,47 +14,46 @@ from linkedin.ml.qualifier import BayesianQualifier
 logger = logging.getLogger(__name__)
 
 
-def embed_one(session, qualifier: BayesianQualifier) -> str | None:
-    """Embed the next un-embedded lead. Returns public_id or None."""
-    from linkedin.db.crm_profiles import (
-        get_leads_for_qualification,
-        ensure_lead_enriched,
-        ensure_profile_embedded,
-    )
+def _get_unlabeled_candidates(session):
+    """Return unlabeled ProfileEmbedding rows, embedding one new lead if the list is empty."""
+    from linkedin.db.crm_profiles import get_leads_for_qualification, ensure_profile_embedded
     from linkedin.models import ProfileEmbedding
 
     leads = get_leads_for_qualification(session)
     if not leads:
-        return None
+        return []
 
-    embedded_ids = set(ProfileEmbedding.objects.values_list("lead_id", flat=True))
+    lead_ids = {ld["lead_id"] for ld in leads}
 
-    for lead_data in leads:
-        lead_id = lead_data["lead_id"]
-        if lead_id in embedded_ids:
+    candidates = list(
+        ProfileEmbedding.objects.filter(lead_id__in=lead_ids, label__isnull=True)
+        .order_by("created_at")
+    )
+    if candidates:
+        return candidates
+
+    # Embed the next un-embedded lead
+    embedded_ids = set(
+        ProfileEmbedding.objects.filter(lead_id__in=lead_ids)
+        .values_list("lead_id", flat=True)
+    )
+    for ld in leads:
+        lid = ld["lead_id"]
+        if lid in embedded_ids:
             continue
+        if ensure_profile_embedded(lid, ld["public_identifier"], session):
+            row = ProfileEmbedding.objects.filter(lead_id=lid, label__isnull=True).first()
+            if row:
+                return [row]
 
-        public_id = lead_data["public_identifier"]
-
-        if not lead_data.get("profile"):
-            if not ensure_lead_enriched(session, lead_id, public_id):
-                continue
-
-        if ensure_profile_embedded(lead_id, public_id):
-            logger.info("%s %s", public_id, colored("EMBEDDED", "yellow"))
-            return public_id
-
-    return None
+    return []
 
 
 def qualify_one(session, qualifier: BayesianQualifier) -> str | None:
     """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns public_id or None."""
-    from linkedin.models import ProfileEmbedding
     from linkedin.ml.qualifier import qualify_with_llm, format_prediction
 
-    candidates = list(
-        ProfileEmbedding.objects.filter(label__isnull=True).order_by("created_at")
-    )
+    candidates = _get_unlabeled_candidates(session)
     if not candidates:
         return None
 

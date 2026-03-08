@@ -521,11 +521,12 @@ def ensure_lead_enriched(session, lead_id: int, public_id: str) -> bool:
     return True
 
 
-def ensure_profile_embedded(lead_id: int, public_id: str) -> bool:
-    """Lazily embed a Lead that has no ProfileEmbedding row.
+def ensure_profile_embedded(lead_id: int, public_id: str, session) -> bool:
+    """Lazily enrich + embed a Lead as a single operation.
 
     No-op (returns True) when the embedding already exists.
-    Returns False when the lead has no description to embed.
+    Url-only leads are enriched via Voyager API before embedding.
+    Returns False when embedding is not possible.
     """
     from linkedin.models import ProfileEmbedding
 
@@ -534,11 +535,24 @@ def ensure_profile_embedded(lead_id: int, public_id: str) -> bool:
 
     profile_data = lead_profile_by_id(lead_id)
     if not profile_data:
-        return False
+        if not ensure_lead_enriched(session, lead_id, public_id):
+            return False
+        profile_data = lead_profile_by_id(lead_id)
+        if not profile_data:
+            return False
 
     from linkedin.ml.embeddings import embed_profile
 
     return embed_profile(lead_id, public_id, profile_data)
+
+
+def load_embedding(lead_id: int, public_id: str, session):
+    """Load embedding array, lazily enriching+embedding if needed."""
+    from linkedin.models import ProfileEmbedding
+
+    ensure_profile_embedded(lead_id, public_id, session)
+    row = ProfileEmbedding.objects.filter(lead_id=lead_id).first()
+    return row.embedding_array if row else None
 
 
 # ── Internal helpers ──

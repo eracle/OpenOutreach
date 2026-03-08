@@ -117,7 +117,7 @@ class TestBaldScores:
 class TestRankProfiles:
     def test_rank_profiles_empty(self):
         qualifier = BayesianQualifier(seed=42)
-        assert qualifier.rank_profiles([]) == []
+        assert qualifier.rank_profiles([], session=MagicMock()) == []
 
     def test_rank_profiles_orders_by_posterior(self, embeddings_db):
         qualifier, pos_emb, neg_emb = _make_trained_qualifier()
@@ -127,10 +127,10 @@ class TestRankProfiles:
         ProfileEmbedding.objects.create(lead_id=2, public_identifier="negative", embedding=neg_emb.tobytes())
 
         profiles = [
-            {"public_identifier": "negative"},
-            {"public_identifier": "positive"},
+            {"lead_id": 2, "public_identifier": "negative"},
+            {"lead_id": 1, "public_identifier": "positive"},
         ]
-        ranked = qualifier.rank_profiles(profiles)
+        ranked = qualifier.rank_profiles(profiles, session=MagicMock())
         assert ranked[0]["public_identifier"] == "positive"
 
 
@@ -169,8 +169,8 @@ class TestWarmStart:
 class TestExplainProfile:
     def test_explain_no_embedding(self, embeddings_db):
         qualifier = BayesianQualifier(seed=42)
-        profile = {"public_identifier": "nonexistent"}
-        explanation = qualifier.explain(profile)
+        profile = {"lead_id": 999, "public_identifier": "nonexistent"}
+        explanation = qualifier.explain(profile, session=MagicMock())
         assert "no embedding" in explanation.lower()
 
     def test_explain_with_embedding(self, embeddings_db):
@@ -179,8 +179,8 @@ class TestExplainProfile:
         qualifier, pos_emb, _ = _make_trained_qualifier()
         ProfileEmbedding.objects.create(lead_id=1, public_identifier="alice", embedding=pos_emb.tobytes())
 
-        profile = {"public_identifier": "alice"}
-        explanation = qualifier.explain(profile)
+        profile = {"lead_id": 1, "public_identifier": "alice"}
+        explanation = qualifier.explain(profile, session=MagicMock())
         assert "prob=" in explanation
         assert "entropy=" in explanation
 
@@ -191,6 +191,6 @@ class TestExplainProfile:
         emb = np.ones(384, dtype=np.float32)
         ProfileEmbedding.objects.create(lead_id=1, public_identifier="alice", embedding=emb.tobytes())
 
-        profile = {"public_identifier": "alice"}
-        explanation = qualifier.explain(profile)
+        profile = {"lead_id": 1, "public_identifier": "alice"}
+        explanation = qualifier.explain(profile, session=MagicMock())
         assert "not fitted" in explanation.lower()

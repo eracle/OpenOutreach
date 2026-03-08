@@ -67,7 +67,7 @@ class ConnectLane:
         reason = ProfileEmbedding.objects.filter(
             public_identifier=public_id, label__isnull=False,
         ).values_list("llm_reason", flat=True).first()
-        stats = self.qualifier.explain(candidate)
+        stats = self.qualifier.explain(candidate, self.session)
         tag = "[Partner] " if self._is_partner else ""
         logger.log(self._log_level, "%s%s (%s) — %s", tag, public_id, stats, reason or "")
 
