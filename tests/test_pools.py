@@ -36,7 +36,7 @@ class TestTopAboveThreshold:
 
         with (
             patch.object(scorer, "predict", return_value=(0.5, 0.1, 0.01)),
-            patch.object(scorer, "_load_embedding", return_value=np.ones(384)),
+            patch("linkedin.pipeline.pools.load_embedding", return_value=np.ones(384)),
         ):
             assert top_above_threshold(fake_session, scorer, 0.9) is None
 
@@ -47,7 +47,7 @@ class TestTopAboveThreshold:
 
         with (
             patch.object(scorer, "predict", return_value=(0.95, 0.1, 0.01)),
-            patch.object(scorer, "_load_embedding", return_value=np.ones(384)),
+            patch("linkedin.pipeline.pools.load_embedding", return_value=np.ones(384)),
         ):
             assert top_above_threshold(fake_session, scorer, 0.9) is not None
 
@@ -64,7 +64,7 @@ class TestGetCandidate:
 
         with (
             patch("linkedin.pipeline.pools.top_above_threshold", side_effect=[None, candidate]),
-            patch("linkedin.pipeline.pools.embed_one", return_value="alice"),
+            patch("linkedin.pipeline.pools.qualify_one", return_value="alice"),
         ):
             assert get_candidate(fake_session, scorer, 0.9) == candidate
 
@@ -73,7 +73,6 @@ class TestGetCandidate:
 
         with (
             patch("linkedin.pipeline.pools.top_above_threshold", return_value=None),
-            patch("linkedin.pipeline.pools.embed_one", return_value=None),
             patch("linkedin.pipeline.pools.qualify_one", return_value=None),
             patch("linkedin.pipeline.pools.search_one", return_value=None),
         ):
@@ -84,20 +83,19 @@ class TestGetCandidate:
 
         with (
             patch("linkedin.pipeline.pools.top_above_threshold", return_value=None),
-            patch("linkedin.pipeline.pools.embed_one") as mock_embed,
+            patch("linkedin.pipeline.pools.qualify_one") as mock_qualify,
         ):
             assert get_candidate(fake_session, scorer, 0.9, is_partner=True) is None
-            mock_embed.assert_not_called()
+            mock_qualify.assert_not_called()
 
-    def test_backfill_chain_embed_then_qualify_then_search(self, fake_session):
+    def test_backfill_chain_qualify_then_search(self, fake_session):
         scorer = BayesianQualifier(seed=42)
 
-        # embed returns None, qualify returns None, search returns keyword
+        # qualify returns None, search returns keyword first time then None
         with (
-            patch("linkedin.pipeline.pools.top_above_threshold", side_effect=[None, None]),
-            patch("linkedin.pipeline.pools.embed_one", return_value=None),
+            patch("linkedin.pipeline.pools.top_above_threshold", return_value=None),
             patch("linkedin.pipeline.pools.qualify_one", return_value=None),
-            patch("linkedin.pipeline.pools.search_one", return_value="ML engineer"),
+            patch("linkedin.pipeline.pools.search_one", side_effect=["ML engineer", None]),
         ):
-            # search found keyword but no candidate above threshold
+            # search found keyword but no candidate above threshold; second round exhausted
             assert get_candidate(fake_session, scorer, 0.9) is None
