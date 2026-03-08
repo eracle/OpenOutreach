@@ -1,20 +1,21 @@
 # linkedin/lanes/connect.py
+"""Connect lane — thin wrapper around pool management.
+
+execute() calls get_candidate() from pools, then connects.
+"""
 from __future__ import annotations
 
 import logging
 
 from termcolor import colored
 
-from linkedin.conf import PARTNER_LOG_LEVEL
-from linkedin.db.crm_profiles import (
-    count_qualified_profiles,
-    get_qualified_profiles,
-    set_profile_state,
-)
+from linkedin.conf import CAMPAIGN_CONFIG, PARTNER_LOG_LEVEL
+from linkedin.db.crm_profiles import set_profile_state
+from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.models import ActionLog
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
-from linkedin.ml.qualifier import BayesianQualifier
+from linkedin.pipeline.pools import get_candidate
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class ConnectLane:
         self.session = session
         self.qualifier = qualifier
         self.pipeline = pipeline
+        self._cfg = CAMPAIGN_CONFIG
 
     @property
     def _is_partner(self):
@@ -34,33 +36,34 @@ class ConnectLane:
         return PARTNER_LOG_LEVEL if self._is_partner else logging.INFO
 
     def can_execute(self) -> bool:
-        return (
-            self.session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT)
-            and count_qualified_profiles(self.session) > 0
-        )
+        return self.session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT)
 
     def execute(self) -> str | None:
-        """Connect to the top-ranked qualified profile.
-
-        Returns the ``public_id`` of the profile processed, or ``None`` if
-        there was nothing to do.
-        """
-        tag = "[Partner] " if self._is_partner else ""
-        logger.log(self._log_level, "%s%s", tag, colored("▶ connect", "cyan", attrs=["bold"]))
-        from linkedin.actions.connect import send_connection_request
-        from linkedin.actions.connection_status import get_connection_status
-
-        profiles = get_qualified_profiles(self.session)
-        if not profiles:
+        candidate = get_candidate(
+            self.session, self.qualifier,
+            min_prob=self._cfg["min_connect_prob"],
+            pipeline=self.pipeline,
+            is_partner=self._is_partner,
+        )
+        if candidate is None:
             return None
 
-        ranked = self.qualifier.rank_profiles(profiles, pipeline=self.pipeline)
-        candidate = ranked[0]
+        tag = "[Partner] " if self._is_partner else ""
+        logger.log(self._log_level, "%s%s", tag, colored("\u25b6 connect", "cyan", attrs=["bold"]))
+        return self._connect(candidate)
+
+    # ------------------------------------------------------------------
+    # Connect action
+    # ------------------------------------------------------------------
+
+    def _connect(self, candidate: dict) -> str | None:
+        from linkedin.actions.connect import send_connection_request
+        from linkedin.actions.connection_status import get_connection_status
+        from linkedin.models import ProfileEmbedding
 
         public_id = candidate["public_identifier"]
         profile = candidate.get("profile") or candidate
 
-        from linkedin.models import ProfileEmbedding
         reason = ProfileEmbedding.objects.filter(
             public_identifier=public_id, label__isnull=False,
         ).values_list("llm_reason", flat=True).first()
@@ -69,21 +72,13 @@ class ConnectLane:
         logger.log(self._log_level, "%s%s (%s) — %s", tag, public_id, stats, reason or "")
 
         try:
-            # Check actual connection status on the page before attempting to connect.
-            connection_status = get_connection_status(self.session, profile)
+            status = get_connection_status(self.session, profile)
 
-            if connection_status == ProfileState.CONNECTED:
-                set_profile_state(self.session, public_id, ProfileState.CONNECTED.value)
+            if status in (ProfileState.CONNECTED, ProfileState.PENDING):
+                set_profile_state(self.session, public_id, status.value)
                 return public_id
 
-            if connection_status == ProfileState.PENDING:
-                set_profile_state(self.session, public_id, ProfileState.PENDING.value)
-                return public_id
-
-            new_state = send_connection_request(
-                session=self.session,
-                profile=profile,
-            )
+            new_state = send_connection_request(session=self.session, profile=profile)
             set_profile_state(self.session, public_id, new_state.value)
             self.session.linkedin_profile.record_action(
                 ActionLog.ActionType.CONNECT, self.session.campaign,

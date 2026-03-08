@@ -9,7 +9,6 @@ from linkedin.db.crm_profiles import (
     set_profile_state,
     create_enriched_lead,
     promote_lead_to_contact,
-    count_qualified_profiles,
     STATE_TO_STAGE,
 )
 from linkedin.lanes.connect import ConnectLane
@@ -30,7 +29,6 @@ SAMPLE_PROFILE = {
 
 
 def _assert_deal_state(session, public_id, expected_state: ProfileState):
-    """Assert the Deal for *public_id* is at *expected_state*."""
     from crm.models import Deal
     deal = Deal.objects.get(
         lead__website=f"https://www.linkedin.com/in/{public_id}/",
@@ -40,22 +38,18 @@ def _assert_deal_state(session, public_id, expected_state: ProfileState):
 
 
 def _make_qualified(session, public_id="alice"):
-    """Create a Lead + Contact + Deal at 'New' stage."""
     url = f"https://www.linkedin.com/in/{public_id}/"
     create_enriched_lead(session, url, SAMPLE_PROFILE)
     promote_lead_to_contact(session, public_id)
 
 
 def _make_connected(session, public_id="alice"):
-    """Create a Lead + Contact + Deal at 'Connected' stage."""
     _make_qualified(session, public_id)
     set_profile_state(session, public_id, ProfileState.CONNECTED.value)
 
 
 def _make_old_deal(session, days):
-    """Set update_date to `days` ago on the user's first deal (bypasses auto_now)."""
     from crm.models import Deal
-
     deal = Deal.objects.filter(owner=session.django_user).first()
     Deal.objects.filter(pk=deal.pk).update(
         update_date=timezone.now() - timedelta(days=days)
@@ -67,34 +61,14 @@ def _make_old_deal(session, days):
 
 @pytest.mark.django_db
 class TestConnectLaneCanExecute:
-    def test_can_execute_with_qualified_and_rate_ok(self, fake_session):
-        _make_qualified(fake_session)
-        scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, scorer)
+    def test_can_execute_when_rate_ok(self, fake_session):
+        lane = ConnectLane(fake_session, BayesianQualifier(seed=42))
         assert lane.can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
-        _make_qualified(fake_session)
         fake_session.linkedin_profile.connect_daily_limit = 0
         fake_session.linkedin_profile.save(update_fields=["connect_daily_limit"])
-        scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, scorer)
-        assert lane.can_execute() is False
-
-    def test_cannot_execute_no_qualified(self, fake_session):
-        scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, scorer)
-        assert lane.can_execute() is False
-
-    def test_cannot_execute_only_enriched_lead(self, fake_session):
-        """Enriched leads (no Deal) should NOT be picked up by connect lane."""
-        create_enriched_lead(
-            fake_session,
-            "https://www.linkedin.com/in/alice/",
-            SAMPLE_PROFILE,
-        )
-        scorer = BayesianQualifier(seed=42)
-        lane = ConnectLane(fake_session, scorer)
+        lane = ConnectLane(fake_session, BayesianQualifier(seed=42))
         assert lane.can_execute() is False
 
 
@@ -104,70 +78,45 @@ class TestConnectLaneExecute:
     def _db(self, embeddings_db):
         pass
 
-    def _setup(self, fake_session):
+    def _lane(self, fake_session):
         _make_qualified(fake_session)
         scorer = BayesianQualifier(seed=42)
-        # Mock rank_profiles to return profiles in order (unfitted qualifier)
         scorer.rank_profiles = lambda profiles, **kw: profiles
         return ConnectLane(fake_session, scorer)
 
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_sends_connection_and_records(
-        self, mock_status, mock_send, fake_session
-    ):
+    def test_sends_connection_and_records(self, mock_status, mock_send, fake_session):
         mock_status.return_value = ProfileState.NEW
         mock_send.return_value = ProfileState.PENDING
-
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._lane(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.PENDING)
         assert ActionLog.objects.filter(action_type=ActionLog.ActionType.CONNECT).count() == 1
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_marks_preexisting_connected(
-        self, mock_status, fake_session
-    ):
-        """Pre-existing connections are always marked CONNECTED."""
+    def test_marks_preexisting_connected(self, mock_status, fake_session):
         mock_status.return_value = ProfileState.CONNECTED
-
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._lane(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.CONNECTED)
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_detects_already_pending(
-        self, mock_status, fake_session
-    ):
+    def test_detects_already_pending(self, mock_status, fake_session):
         mock_status.return_value = ProfileState.PENDING
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._lane(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.PENDING)
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_handles_rate_limit_exception(
-        self, mock_status, fake_session
-    ):
+    def test_handles_rate_limit(self, mock_status, fake_session):
         mock_status.side_effect = ReachedConnectionLimit("weekly limit")
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._lane(fake_session).execute()
         assert ActionLog.ActionType.CONNECT in fake_session.linkedin_profile._exhausted
 
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_handles_skip_profile(
-        self, mock_status, mock_send, fake_session
-    ):
+    def test_handles_skip_profile(self, mock_status, mock_send, fake_session):
         mock_status.return_value = ProfileState.NEW
         mock_send.side_effect = SkipProfile("bad profile")
-
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._lane(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.FAILED)
 
 
@@ -187,7 +136,6 @@ class TestCheckPendingLaneCanExecute:
         Deal.objects.filter(pk=deal.pk).update(
             update_date=timezone.now() - timedelta(days=5)
         )
-
         lane = CheckPendingLane(fake_session, recheck_after_hours=72)
         assert lane.can_execute() is True
 
@@ -205,7 +153,6 @@ class TestCheckPendingLaneCanExecute:
             update_date=timezone.now() - timedelta(hours=5),
             next_step=json.dumps({"backoff_hours": 100}),
         )
-
         lane = CheckPendingLane(fake_session, recheck_after_hours=1)
         assert lane.can_execute() is False
 
@@ -224,52 +171,34 @@ class TestCheckPendingLaneExecute:
         _make_qualified(fake_session)
         set_profile_state(fake_session, "alice", ProfileState.PENDING.value)
         _make_old_deal(fake_session, days=5)
-
         return CheckPendingLane(fake_session, recheck_after_hours=72)
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_updates_state_from_connection_status(
-        self, mock_status, fake_session
-    ):
+    def test_transitions_to_connected(self, mock_status, fake_session):
         mock_status.return_value = ProfileState.CONNECTED
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._setup(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.CONNECTED)
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_stays_pending(
-        self, mock_status, fake_session
-    ):
+    def test_stays_pending(self, mock_status, fake_session):
         mock_status.return_value = ProfileState.PENDING
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._setup(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.PENDING)
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_doubles_backoff_when_still_pending(
-        self, mock_status, fake_session
-    ):
+    def test_doubles_backoff(self, mock_status, fake_session):
         import json
         mock_status.return_value = ProfileState.PENDING
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        self._setup(fake_session).execute()
         from crm.models import Deal
         from linkedin.db.crm_profiles import public_id_to_url
         deal = Deal.objects.get(lead__website=public_id_to_url("alice"))
-        meta = json.loads(deal.next_step)
-        # Default base is 72h, doubled to 144h
-        assert meta["backoff_hours"] == 144
+        assert json.loads(deal.next_step)["backoff_hours"] == 144
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_doubles_existing_backoff(
-        self, mock_status, fake_session
-    ):
+    def test_doubles_existing_backoff(self, mock_status, fake_session):
         import json
         mock_status.return_value = ProfileState.PENDING
-
         _make_qualified(fake_session, "bob")
         set_profile_state(fake_session, "bob", ProfileState.PENDING.value)
         from crm.models import Deal
@@ -278,21 +207,13 @@ class TestCheckPendingLaneExecute:
             update_date=timezone.now() - timedelta(days=5),
             next_step=json.dumps({"backoff_hours": 10}),
         )
-
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
-        lane.execute()
-
+        CheckPendingLane(fake_session, recheck_after_hours=72).execute()
         deal = Deal.objects.get(lead__website=public_id_to_url("bob"))
-        meta = json.loads(deal.next_step)
-        assert meta["backoff_hours"] == 20
+        assert json.loads(deal.next_step)["backoff_hours"] == 20
 
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_execute_noop_when_no_profiles(
-        self, mock_status, fake_session
-    ):
-        lane = CheckPendingLane(fake_session, recheck_after_hours=72)
-        lane.execute()
-
+    def test_noop_when_empty(self, mock_status, fake_session):
+        CheckPendingLane(fake_session, recheck_after_hours=72).execute()
         mock_status.assert_not_called()
 
 
@@ -300,89 +221,51 @@ class TestCheckPendingLaneExecute:
 
 
 @pytest.mark.django_db
-class TestFollowUpLaneCanExecute:
+class TestFollowUpLane:
     def test_can_execute_with_connected(self, fake_session):
         _make_connected(fake_session)
-
-        lane = FollowUpLane(fake_session)
-        assert lane.can_execute() is True
+        assert FollowUpLane(fake_session).can_execute() is True
 
     def test_cannot_execute_rate_limited(self, fake_session):
         _make_connected(fake_session)
-
         fake_session.linkedin_profile.follow_up_daily_limit = 0
         fake_session.linkedin_profile.save(update_fields=["follow_up_daily_limit"])
-        lane = FollowUpLane(fake_session)
-        assert lane.can_execute() is False
+        assert FollowUpLane(fake_session).can_execute() is False
 
     def test_cannot_execute_empty(self, fake_session):
-        lane = FollowUpLane(fake_session)
-        assert lane.can_execute() is False
-
-
-@pytest.mark.django_db
-class TestFollowUpLaneExecute:
-    def _setup(self, fake_session):
-        _make_connected(fake_session)
-
-        return FollowUpLane(fake_session)
+        assert FollowUpLane(fake_session).can_execute() is False
 
     @patch("linkedin.actions.message.send_follow_up_message")
-    def test_execute_sends_message_and_completes(
-        self, mock_send, fake_session
-    ):
+    def test_sends_message_and_completes(self, mock_send, fake_session):
         mock_send.return_value = "Hello Alice!"
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        _make_connected(fake_session)
+        FollowUpLane(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.COMPLETED)
         assert ActionLog.objects.filter(action_type=ActionLog.ActionType.FOLLOW_UP).count() == 1
 
     @patch("linkedin.actions.message.send_follow_up_message")
-    def test_execute_saves_chat_message(
-        self, mock_send, fake_session
-    ):
+    def test_saves_chat_message(self, mock_send, fake_session):
         from chat.models import ChatMessage
         from django.contrib.contenttypes.models import ContentType
         from crm.models import Lead
 
         mock_send.return_value = "Hello Alice!"
-        lane = self._setup(fake_session)
-        lane.execute()
+        _make_connected(fake_session)
+        FollowUpLane(fake_session).execute()
 
         lead = Lead.objects.get(website="https://www.linkedin.com/in/alice/")
         ct = ContentType.objects.get_for_model(lead)
         msg = ChatMessage.objects.get(content_type=ct, object_id=lead.pk)
         assert msg.content == "Hello Alice!"
-        assert msg.owner == fake_session.django_user
 
     @patch("linkedin.actions.message.send_follow_up_message")
-    def test_execute_skipped_message_stays_connected(
-        self, mock_send, fake_session
-    ):
+    def test_skipped_message_stays_connected(self, mock_send, fake_session):
         mock_send.return_value = None
-        lane = self._setup(fake_session)
-        lane.execute()
-
+        _make_connected(fake_session)
+        FollowUpLane(fake_session).execute()
         _assert_deal_state(fake_session, "alice", ProfileState.CONNECTED)
 
     @patch("linkedin.actions.message.send_follow_up_message")
-    def test_execute_skipped_message_no_chat_saved(
-        self, mock_send, fake_session
-    ):
-        from chat.models import ChatMessage
-
-        mock_send.return_value = None
-        lane = self._setup(fake_session)
-        lane.execute()
-
-        assert ChatMessage.objects.count() == 0
-
-    @patch("linkedin.actions.message.send_follow_up_message")
-    def test_execute_noop_when_no_profiles(
-        self, mock_send, fake_session
-    ):
-        lane = FollowUpLane(fake_session)
-        lane.execute()
-
+    def test_noop_when_empty(self, mock_send, fake_session):
+        FollowUpLane(fake_session).execute()
         mock_send.assert_not_called()

@@ -183,6 +183,20 @@ class ProfileEmbedding(models.Model):
         self.embedding = np.asarray(arr, dtype=np.float32).tobytes()
 
     @classmethod
+    def get_or_embed(cls, lead_id: int, public_id: str) -> np.ndarray | None:
+        """Return embedding array, lazily creating it if missing."""
+        row = cls.objects.filter(public_identifier=public_id).first()
+        if row is not None:
+            return row.embedding_array
+
+        from linkedin.db.crm_profiles import ensure_profile_embedded
+
+        if not ensure_profile_embedded(lead_id, public_id):
+            return None
+        row = cls.objects.filter(public_identifier=public_id).first()
+        return row.embedding_array if row else None
+
+    @classmethod
     def get_labeled_arrays(cls) -> tuple[np.ndarray, np.ndarray]:
         """All labeled embeddings as (X, y) numpy arrays for warm start."""
         rows = list(
