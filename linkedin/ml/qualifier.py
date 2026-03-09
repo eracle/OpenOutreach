@@ -97,10 +97,11 @@ class BayesianQualifier:
     """
 
     def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100,
-                 save_path: Path | None = None):
+                 save_path: Path | None = None, calibration_strength: float = 0.0):
         self.embedding_dim = embedding_dim
         self._seed = seed
         self._n_mc_samples = n_mc_samples
+        self._calibration_strength = calibration_strength
         self._pipeline = None  # Pipeline([('pca', PCA), ('scaler', StandardScaler), ('gpr', GPR)])
         self._save_path = save_path
         self._X: list[np.ndarray] = []
@@ -205,6 +206,26 @@ class BayesianQualifier:
         logger.debug("Pipeline saved to %s", self._save_path)
 
     # ------------------------------------------------------------------
+    # Temperature-scaled calibration
+    # ------------------------------------------------------------------
+
+    def _calibrate_probs(self, probs: np.ndarray) -> np.ndarray:
+        """Temperature scaling: push probabilities toward 0.5 when data is sparse.
+
+        T = 1 + c / sqrt(n_obs).  With few labels T >> 1 compresses
+        probabilities toward 0.5; as labels grow T → 1 and raw GP
+        probabilities pass through unchanged.  This is Platt-style
+        post-hoc calibration applied to the GP's P(f > 0.5).
+        """
+        if self._calibration_strength <= 0:
+            return probs
+        from scipy.special import expit, logit as sp_logit
+
+        T = 1.0 + self._calibration_strength / max(self.n_obs, 1) ** 0.5
+        probs = np.clip(probs, 1e-12, 1.0 - 1e-12)
+        return expit(sp_logit(probs) / T)
+
+    # ------------------------------------------------------------------
     # Prediction
     # ------------------------------------------------------------------
 
@@ -218,8 +239,9 @@ class BayesianQualifier:
         if not self._fit_if_needed():
             return None
 
-        mean, std = self._gpr_predict(self._pipeline,embedding)
-        p = float(_prob_above_half(mean[0], std[0]))
+        mean, std = self._gpr_predict(self._pipeline, embedding)
+        raw_p = _prob_above_half(mean, std)
+        p = float(self._calibrate_probs(raw_p)[0])
         entropy = float(_binary_entropy(p))
         return p, entropy, float(std[0])
 
@@ -267,7 +289,7 @@ class BayesianQualifier:
         if not self._fit_if_needed():
             return None
         mean, std = self._gpr_predict(self._pipeline, embeddings)
-        return _prob_above_half(mean, std)
+        return self._calibrate_probs(_prob_above_half(mean, std))
 
     # ------------------------------------------------------------------
     # Ranking for connect lane
@@ -303,7 +325,7 @@ class BayesianQualifier:
 
         X = np.array([emb for _, emb in scored], dtype=np.float64)
         mean, std = self._gpr_predict(pipe, X)
-        probs = _prob_above_half(mean, std)
+        probs = self._calibrate_probs(_prob_above_half(mean, std))
 
         ranked = sorted(zip(probs, [p for p, _ in scored]), key=lambda t: t[0], reverse=True)
         return [p for _, p in ranked]
