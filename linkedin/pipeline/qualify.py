@@ -32,7 +32,7 @@ def _get_unlabeled_candidates(session):
     if candidates:
         return candidates
 
-    # Embed the next un-embedded lead
+    # Robustness fallback: embed any lead that was missed at discovery time
     embedded_ids = set(
         ProfileEmbedding.objects.filter(lead_id__in=lead_ids)
         .values_list("lead_id", flat=True)
