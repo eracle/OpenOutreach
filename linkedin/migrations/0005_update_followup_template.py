@@ -16,6 +16,9 @@ NEW_TEMPLATE_PATH = (
 
 def forwards(apps, schema_editor):
     Campaign = apps.get_model("linkedin", "Campaign")
+    if not Campaign.objects.exists():
+        return
+
     new_content = NEW_TEMPLATE_PATH.read_text()
 
     for campaign in Campaign.objects.all():
