@@ -490,11 +490,23 @@ def seed_partner_deals(session) -> int:
     return created
 
 
-# ── Lazy enrichment / embedding helpers ──
+# ── Lazy enrichment / embedding helpers (robustness only) ──
+#
+# Normal path: profiles are enriched + embedded eagerly at discovery time
+# via _enrich_new_urls() → create_enriched_lead() → embed_profile().
+#
+# These lazy helpers exist for robustness, not as part of normal flow.
+# They cover rare edge cases such as:
+#   - Manual lead creation (e.g., Django Admin) without Voyager data
+#   - Interrupted enrichment (crash between Lead creation and embedding)
+#   - DB inconsistency (embedding row deleted but Lead still exists)
 
 
 def ensure_lead_enriched(session, lead_id: int, public_id: str) -> bool:
-    """Lazily enrich a url-only Lead via Voyager API.
+    """Lazily enrich a url-only Lead via Voyager API (robustness fallback).
+
+    Kept for robustness — normal flow enriches eagerly at discovery time
+    (see _enrich_new_urls). Should rarely fire in practice.
 
     No-op (returns True) when the lead already has a description.
     Returns False when enrichment is not possible (API error, private profile,
@@ -517,12 +529,15 @@ def ensure_lead_enriched(session, lead_id: int, public_id: str) -> bool:
     if data:
         _attach_raw_data(lead, public_id, data)
 
-    logger.info("Lazy-enriched %s (lead_id=%d)", public_id, lead_id)
+    logger.warning("Lazy-enriched %s (lead_id=%d) — should already have been enriched at discovery", public_id, lead_id)
     return True
 
 
 def ensure_profile_embedded(lead_id: int, public_id: str, session) -> bool:
-    """Lazily enrich + embed a Lead as a single operation.
+    """Lazily enrich + embed a Lead as a single operation (robustness fallback).
+
+    Kept for robustness — normal flow embeds eagerly at discovery time
+    (see create_enriched_lead). Should rarely fire in practice.
 
     No-op (returns True) when the embedding already exists.
     Url-only leads are enriched via Voyager API before embedding.
@@ -543,11 +558,16 @@ def ensure_profile_embedded(lead_id: int, public_id: str, session) -> bool:
 
     from linkedin.ml.embeddings import embed_profile
 
+    logger.warning("Lazy-embedded %s (lead_id=%d) — should already have been embedded at discovery", public_id, lead_id)
     return embed_profile(lead_id, public_id, profile_data)
 
 
 def load_embedding(lead_id: int, public_id: str, session):
-    """Load embedding array, lazily enriching+embedding if needed."""
+    """Load embedding array, lazily enriching+embedding if needed.
+
+    The embedding should already exist from eager discovery. The lazy
+    fallback is kept for robustness and should rarely fire in practice.
+    """
     from linkedin.models import ProfileEmbedding
 
     ensure_profile_embedded(lead_id, public_id, session)
