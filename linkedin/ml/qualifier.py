@@ -135,6 +135,11 @@ class BayesianQualifier:
     # Lazy refit
     # ------------------------------------------------------------------
 
+    # Maximum ratio of majority-to-minority samples for GP fitting.
+    # Beyond this, the majority class is subsampled to prevent degenerate
+    # predictions when labels are heavily imbalanced.
+    _MAX_IMBALANCE_RATIO = 2
+
     def _fit_if_needed(self) -> bool:
         """Fit StandardScaler + GPR pipeline if dirty and feasible.  Returns True when model is usable."""
         if self._fitted:
@@ -151,7 +156,8 @@ class BayesianQualifier:
         from sklearn.preprocessing import StandardScaler
 
         X_arr = np.array(self._X, dtype=np.float64)
-        n = X_arr.shape[0]
+        X_fit, y_fit = self._balance(X_arr, y_arr)
+        n = X_fit.shape[0]
 
         self._pipeline = Pipeline([
             ('scaler', StandardScaler()),
@@ -162,13 +168,44 @@ class BayesianQualifier:
                 alpha=0.1,
             )),
         ])
-        self._pipeline.fit(X_arr, y_arr)
+        self._pipeline.fit(X_fit, y_fit)
         lml = self._pipeline.named_steps['gpr'].log_marginal_likelihood_value_
 
         self._fitted = True
-        logger.debug("GPR fitted on %d observations (LML=%.2f)", n, lml)
+        logger.debug("GPR fitted on %d observations (%d after balancing, LML=%.2f)",
+                      len(self._y), n, lml)
         self._persist_pipeline()
         return True
+
+    def _balance(self, X: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Subsample the majority class to at most _MAX_IMBALANCE_RATIO * minority.
+
+        Prevents the GP from becoming degenerate when one class dominates.
+        Keeps all minority samples and selects majority samples randomly.
+        """
+        n_pos = int(y.sum())
+        n_neg = len(y) - n_pos
+        n_min = min(n_pos, n_neg)
+        n_max = max(n_pos, n_neg)
+        cap = self._MAX_IMBALANCE_RATIO * n_min
+
+        if n_max <= cap:
+            return X, y  # already balanced enough
+
+        minority_label = 1.0 if n_pos < n_neg else 0.0
+        minority_idx = np.where(y == minority_label)[0]
+        majority_idx = np.where(y != minority_label)[0]
+
+        chosen = self._rng.choice(majority_idx, size=cap, replace=False)
+        keep = np.concatenate([minority_idx, chosen])
+        keep.sort()
+
+        logger.debug(
+            "Balancing training set: %d → %d (kept all %d minority, "
+            "subsampled %d → %d majority)",
+            len(y), len(keep), n_min, n_max, cap,
+        )
+        return X[keep], y[keep]
 
     def _persist_pipeline(self):
         """Persist the fitted pipeline to disk (if save_path is set)."""
