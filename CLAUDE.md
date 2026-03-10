@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 When modifying code, always update CLAUDE.md and MEMORY.md to reflect the changes. This includes changes to models, function signatures, module structure, configuration keys, state machines, lane behavior, ML pipeline, and any other architectural details documented in these files. Documentation must stay in sync with the code at all times.
 
+## Python Environment
+
+Always use `.venv/bin/python` (not system `python3`) when running commands in this project.
+
 ## Commit Rule
 
 Do not add `Co-Authored-By` lines to commit messages. Commit messages must be a single line (no body or multi-line descriptions).
@@ -149,7 +153,7 @@ Cold start (< 2 labels or single class) returns `None` from `predict`/`bald_scor
   - `min_ready_to_connect_prob` (0.9) — GP probability threshold for promoting QUALIFIED profiles to READY_TO_CONNECT
   - `min_positive_pool_prob` (0.25) — P(f > 0.5) threshold for positive pool check in exploit mode; uncertainty-aware (expands to `mean > 0.5 - 0.674*std`)
 
-  - `embedding_model` ("BAAI/bge-small-en-v1.5"), `min_qualifiable_leads` (50)
+  - `embedding_model` ("BAAI/bge-small-en-v1.5")
 - **Campaign model** — `product_docs`, `campaign_objective`, `followup_template`, `booking_link` — managed via Django Admin or onboarding.
 - **LinkedInProfile model** — `linkedin_username`, `linkedin_password`, `subscribe_newsletter`, `active`, `connect_daily_limit` (20), `connect_weekly_limit` (100), `follow_up_daily_limit` (30) — managed via Django Admin or onboarding.
 - **`assets/templates/prompts/qualify_lead.j2`** — LLM-based lead qualification. Receives `product_docs`, `campaign_objective`, `profile_text`. Structured output: `QualificationDecision(qualified: bool, reason: str)`. LLM temperature: **0.7**, timeout: 60s.
