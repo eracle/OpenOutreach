@@ -56,6 +56,16 @@ def _positive_pool_empty(qualifier: BayesianQualifier, candidates) -> bool:
         # cold start
         return False
 
+    # If the GP can't differentiate profiles (all predictions identical),
+    # searching won't help — qualify from existing pool to build up labels.
+    if len(probs) > 1 and np.ptp(probs) < 1e-6:
+        logger.debug(
+            "GP predictions degenerate (all ~%.3f) with %d obs — "
+            "skipping search, qualifying from existing pool",
+            float(probs[0]), qualifier.n_obs,
+        )
+        return False
+
     threshold = CAMPAIGN_CONFIG["min_positive_pool_prob"]
     if bool(np.any(probs > threshold)):
         return False

@@ -56,18 +56,7 @@ class TestPositivePoolEmpty:
             assert _positive_pool_empty(scorer, candidates) is False
 
     def test_exploit_no_high_prob(self):
-        """Exploit mode with all P < 0.5 → True."""
-        scorer = BayesianQualifier(seed=42)
-        candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
-
-        with (
-            patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(5, 2)),
-            patch.object(scorer, "predict_probs", return_value=np.array([0.1])),
-        ):
-            assert _positive_pool_empty(scorer, candidates) is True
-
-    def test_exploit_has_high_prob(self):
-        """Exploit mode with some P > 0.5 → False."""
+        """Exploit mode with all P below threshold (but differentiated) → True."""
         scorer = BayesianQualifier(seed=42)
         candidates = [
             _make_candidate(1, np.zeros(384, dtype=np.float32)),
@@ -76,7 +65,35 @@ class TestPositivePoolEmpty:
 
         with (
             patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(5, 2)),
-            patch.object(scorer, "predict_probs", return_value=np.array([0.3, 0.7])),
+            patch.object(scorer, "predict_probs", return_value=np.array([0.1, 0.2])),
+        ):
+            assert _positive_pool_empty(scorer, candidates) is True
+
+    def test_exploit_degenerate_predictions(self):
+        """Exploit mode with degenerate GP (all identical P) → False (skip search)."""
+        scorer = BayesianQualifier(seed=42)
+        candidates = [
+            _make_candidate(1, np.zeros(384, dtype=np.float32)),
+            _make_candidate(2, np.ones(384, dtype=np.float32)),
+        ]
+
+        with (
+            patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(5, 2)),
+            patch.object(scorer, "predict_probs", return_value=np.array([0.15, 0.15])),
+        ):
+            assert _positive_pool_empty(scorer, candidates) is False
+
+    def test_exploit_has_high_prob(self):
+        """Exploit mode with some P above threshold → False."""
+        scorer = BayesianQualifier(seed=42)
+        candidates = [
+            _make_candidate(1, np.zeros(384, dtype=np.float32)),
+            _make_candidate(2, np.ones(384, dtype=np.float32)),
+        ]
+
+        with (
+            patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(5, 2)),
+            patch.object(scorer, "predict_probs", return_value=np.array([0.1, 0.7])),
         ):
             assert _positive_pool_empty(scorer, candidates) is False
 
@@ -95,7 +112,7 @@ class TestSearchSource:
 
 class TestQualifySource:
     def test_qualifies_without_search_when_pool_ok(self):
-        """When pool has candidates and no exploit gap, qualifies directly."""
+        """When pool has candidates and _positive_pool_empty=False, qualifies directly."""
         scorer = BayesianQualifier(seed=42)
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
@@ -110,21 +127,44 @@ class TestQualifySource:
         assert results == ["alice"]
         mock_search.assert_not_called()
 
-    def test_searches_once_when_pool_empty_exploit(self):
-        """In exploit mode with no P > 0.5, searches once upfront then qualifies multiple."""
+    def test_searches_until_exhausted_when_pool_empty_exploit(self):
+        """In exploit mode with empty positive pool, searches until search exhausts then qualifies."""
         scorer = BayesianQualifier(seed=42)
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
             patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
+            # Always empty — search exhausts (returns None) and loop breaks
             patch("linkedin.pipeline.pools._positive_pool_empty", return_value=True),
-            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", "bob", None]),
-            patch("linkedin.pipeline.pools.search_one", return_value="kw1") as mock_search,
+            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", None]),
+            patch("linkedin.pipeline.pools.search_one", side_effect=["kw1", "kw2", None]) as mock_search,
         ):
             results = list(qualify_source("session", scorer))
 
-        assert results == ["alice", "bob"]
-        # Only one search — the upfront pool quality check
+        assert results == ["alice"]
+        assert mock_search.call_count == 3  # kw1, kw2, None (exhausted)
+
+    def test_search_stops_when_pool_fills(self):
+        """In exploit mode, searching stops when _positive_pool_empty flips to False."""
+        scorer = BayesianQualifier(seed=42)
+        candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
+
+        call_count = [0]
+
+        def pool_empty_side_effect(q, c):
+            call_count[0] += 1
+            # First call: empty. Second call (after one search): not empty.
+            return call_count[0] <= 1
+
+        with (
+            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools._positive_pool_empty", side_effect=pool_empty_side_effect),
+            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", None]),
+            patch("linkedin.pipeline.pools.search_one", return_value="kw") as mock_search,
+        ):
+            results = list(qualify_source("session", scorer))
+
+        assert results == ["alice"]
         assert mock_search.call_count == 1
 
     def test_searches_when_no_candidates(self):
@@ -133,12 +173,8 @@ class TestQualifySource:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            # First call: upfront pool check (empty → _positive_pool_empty=False).
-            # Second call: loop iteration (empty → triggers search).
-            # Third call: after search (has candidates now).
-            # Fourth call: next loop iteration (has candidates).
             patch("linkedin.pipeline.pools.get_unlabeled_candidates",
-                  side_effect=[[], [], candidates, candidates]),
+                  side_effect=[[], candidates, candidates]),
             patch("linkedin.pipeline.pools._positive_pool_empty", return_value=False),
             patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", None]),
             patch("linkedin.pipeline.pools.search_one", return_value="kw1") as mock_search,
@@ -161,23 +197,6 @@ class TestQualifySource:
 
         assert results == []
         mock_qualify.assert_not_called()
-
-    def test_search_does_not_loop_without_qualifying(self):
-        """Regression: pool quality search fires once upfront, not per qualify."""
-        scorer = BayesianQualifier(seed=42)
-        candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
-
-        with (
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
-            patch("linkedin.pipeline.pools._positive_pool_empty", return_value=True),
-            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", "bob", "carol", None]),
-            patch("linkedin.pipeline.pools.search_one", return_value="kw") as mock_search,
-        ):
-            results = list(qualify_source("session", scorer))
-
-        assert results == ["alice", "bob", "carol"]
-        # Only ONE search (the upfront pool quality check), not one per qualify
-        assert mock_search.call_count == 1
 
 
 @pytest.mark.django_db
@@ -229,8 +248,6 @@ class TestGetCandidate:
 
         with (
             patch("linkedin.pipeline.pools.get_ready_candidate", side_effect=[None, candidate]),
-            # First promote: 0 (triggers qualify). Second promote (after qualify): 1.
-            # Third would be from get_ready_candidate succeeding.
             patch("linkedin.pipeline.pools.promote_to_ready", side_effect=[0, 1]),
             patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
             patch("linkedin.pipeline.pools._positive_pool_empty", return_value=False),

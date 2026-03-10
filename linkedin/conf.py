@@ -52,7 +52,7 @@ CAMPAIGN_CONFIG = {
     "min_action_interval": 120,
     "qualification_n_mc_samples": 100,
     "min_ready_to_connect_prob": 0.9,
-    "min_positive_pool_prob": 0.5,
+    "min_positive_pool_prob": 0.25,
     "embedding_model": "BAAI/bge-small-en-v1.5",
 }
 
