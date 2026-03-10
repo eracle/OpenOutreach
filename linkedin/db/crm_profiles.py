@@ -49,7 +49,7 @@ def _get_lead_source(session):
     return LeadSource.objects.get(name="LinkedIn Scraper", department=dept)
 
 
-def _parse_next_step(deal) -> dict:
+def parse_next_step(deal) -> dict:
     """Parse deal.next_step as JSON, return empty dict on failure or empty string."""
     if not deal.next_step:
         return {}
@@ -244,7 +244,7 @@ def _deal_to_profile_dict(deal) -> dict:
         "public_identifier": public_id,
         "url": lead.website or "",
         "profile": profile,
-        "meta": _parse_next_step(deal),
+        "meta": parse_next_step(deal),
     }
 
 
@@ -390,7 +390,7 @@ def get_pending_profiles(session, recheck_after_hours: float) -> list:
     ready = []
     waiting = []
     for d in all_deals:
-        meta = _parse_next_step(d)
+        meta = parse_next_step(d)
         backoff = meta.get("backoff_hours", recheck_after_hours)
         cutoff = d.update_date + timedelta(hours=backoff)
         if now >= cutoff:
@@ -426,6 +426,21 @@ def get_pending_profiles(session, recheck_after_hours: float) -> list:
         )
 
     return [_deal_to_profile_dict(d) for d in ready]
+
+
+def get_profile_dict_for_public_id(session, public_id: str) -> dict | None:
+    """Load profile dict for a single public_id from Deal + Lead."""
+    from crm.models import Deal
+
+    clean_url = public_id_to_url(public_id)
+    deal = (
+        Deal.objects.filter(lead__website=clean_url, owner=session.django_user)
+        .select_related("lead")
+        .first()
+    )
+    if not deal:
+        return None
+    return _deal_to_profile_dict(deal)
 
 
 def get_connected_profiles(session) -> list:

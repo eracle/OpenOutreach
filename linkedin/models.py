@@ -201,3 +201,34 @@ class ProfileEmbedding(models.Model):
 
     def __str__(self):
         return f"Embedding for lead {self.lead_id} ({self.public_identifier})"
+
+
+class Task(models.Model):
+    class TaskType(models.TextChoices):
+        CONNECT = "connect"
+        CHECK_PENDING = "check_pending"
+        FOLLOW_UP = "follow_up"
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        RUNNING = "running"
+        COMPLETED = "completed"
+        FAILED = "failed"
+
+    task_type = models.CharField(max_length=20, choices=TaskType.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    scheduled_at = models.DateTimeField()
+    payload = models.JSONField(default=dict)
+    error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        app_label = "linkedin"
+        indexes = [
+            models.Index(fields=["status", "scheduled_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.task_type} [{self.status}] scheduled={self.scheduled_at}"

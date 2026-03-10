@@ -1,7 +1,7 @@
 # linkedin/admin.py
 from django.contrib import admin
 
-from linkedin.models import ActionLog, Campaign, LinkedInProfile, ProfileEmbedding, SearchKeyword
+from linkedin.models import ActionLog, Campaign, LinkedInProfile, ProfileEmbedding, SearchKeyword, Task
 
 
 @admin.register(Campaign)
@@ -38,3 +38,14 @@ class ActionLogAdmin(admin.ModelAdmin):
     raw_id_fields = ("linkedin_profile", "campaign")
     date_hierarchy = "created_at"
     readonly_fields = ("linkedin_profile", "campaign", "action_type", "created_at")
+
+
+@admin.register(Task)
+class TaskAdmin(admin.ModelAdmin):
+    list_display = ("task_type", "status", "scheduled_at", "payload", "created_at")
+    list_filter = ("task_type", "status")
+    readonly_fields = (
+        "task_type", "status", "scheduled_at", "payload", "error",
+        "created_at", "started_at", "completed_at",
+    )
+    date_hierarchy = "scheduled_at"

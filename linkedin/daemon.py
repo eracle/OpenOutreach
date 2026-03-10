@@ -4,20 +4,30 @@ from __future__ import annotations
 import logging
 import random
 import time
+import traceback
+
+from django.utils import timezone
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG, _LEGACY_MODEL_PATH, model_path_for_campaign
 from linkedin.diagnostics import failure_diagnostics
-from linkedin.db.crm_profiles import seed_partner_deals
-from linkedin.lanes.check_pending import CheckPendingLane
-from linkedin.lanes.connect import ConnectLane
-from linkedin.lanes.follow_up import FollowUpLane
 from linkedin.ml.qualifier import BayesianQualifier
+from linkedin.models import Task
+from linkedin.tasks.check_pending import handle_check_pending
+from linkedin.tasks.connect import enqueue_check_pending, enqueue_connect, enqueue_follow_up, handle_connect
+from linkedin.tasks.follow_up import handle_follow_up
 
 logger = logging.getLogger(__name__)
 
+_HANDLERS = {
+    Task.TaskType.CONNECT: handle_connect,
+    Task.TaskType.CHECK_PENDING: handle_check_pending,
+    Task.TaskType.FOLLOW_UP: handle_follow_up,
+}
+
+
 class _PromoRotator:
-    """Logs rotating promotional messages every *every* lane executions."""
+    """Logs rotating promotional messages every *every* task executions."""
 
     _MESSAGES = [
         colored("Join the community or give direct feedback on Telegram \u2192 https://t.me/+Y5bh9Vg8UVg5ODU0", "blue", attrs=["bold"]),
@@ -34,22 +44,6 @@ class _PromoRotator:
         if self._ticks % self._every == 0:
             logger.info(self._MESSAGES[self._next % len(self._MESSAGES)])
             self._next += 1
-
-
-
-class LaneSchedule:
-    """Tracks when a major lane should next fire."""
-
-    def __init__(self, name: str, lane, base_interval_seconds: float, campaign=None):
-        self.name = name
-        self.lane = lane
-        self.base_interval = base_interval_seconds
-        self.campaign = campaign
-        self.next_run = time.time()  # fire immediately on first pass
-
-    def reschedule(self):
-        jitter = random.uniform(0.8, 1.2)
-        self.next_run = time.time() + self.base_interval * jitter
 
 
 def _migrate_legacy_model(campaigns):
@@ -112,9 +106,99 @@ def _build_qualifiers(campaigns, cfg):
     return qualifiers, partner_qualifier
 
 
+# ------------------------------------------------------------------
+# Task queue worker
+# ------------------------------------------------------------------
+
+
+def _pop_next_task() -> Task | None:
+    """Claim the oldest due pending task. Returns None if queue is empty."""
+    now = timezone.now()
+    # Future PostgreSQL: add .select_for_update(skip_locked=True) before .first()
+    return (
+        Task.objects.filter(status=Task.Status.PENDING, scheduled_at__lte=now)
+        .order_by("scheduled_at")
+        .first()
+    )
+
+
+def heal_tasks(session):
+    """Reconcile task queue with CRM state on daemon startup.
+
+    1. Reset stale 'running' tasks to 'pending' (crashed worker recovery)
+    2. Seed one 'connect' task per campaign if none pending
+    3. Create 'check_pending' tasks for PENDING profiles without tasks
+    4. Create 'follow_up' tasks for CONNECTED profiles without tasks
+    """
+    from crm.models import Deal, Stage
+    from linkedin.db.crm_profiles import parse_next_step, url_to_public_id
+    from linkedin.navigation.enums import ProfileState
+
+    cfg = CAMPAIGN_CONFIG
+
+    # 1. Recover stale running tasks
+    stale_count = Task.objects.filter(status=Task.Status.RUNNING).update(
+        status=Task.Status.PENDING,
+    )
+    if stale_count:
+        logger.info("Recovered %d stale running tasks", stale_count)
+
+    # 2. Seed connect tasks per campaign
+    for campaign in session.campaigns:
+        enqueue_connect(campaign.pk, delay_seconds=0)
+
+    # 3. Check_pending tasks for PENDING profiles
+    for campaign in session.campaigns:
+        session.campaign = campaign
+        stage = Stage.objects.filter(
+            name=ProfileState.PENDING.value,
+            department=campaign.department,
+        ).first()
+        if not stage:
+            continue
+
+        pending_deals = Deal.objects.filter(
+            stage=stage,
+            owner=session.django_user,
+        ).select_related("lead")
+
+        for deal in pending_deals:
+            public_id = url_to_public_id(deal.lead.website) if deal.lead.website else None
+            if not public_id:
+                continue
+            meta = parse_next_step(deal)
+            backoff = meta.get("backoff_hours", cfg["check_pending_recheck_after_hours"])
+            enqueue_check_pending(campaign.pk, public_id, backoff_hours=backoff)
+
+    # 4. Follow_up tasks for CONNECTED profiles
+    for campaign in session.campaigns:
+        session.campaign = campaign
+        stage = Stage.objects.filter(
+            name=ProfileState.CONNECTED.value,
+            department=campaign.department,
+        ).first()
+        if not stage:
+            continue
+
+        connected_deals = Deal.objects.filter(
+            stage=stage,
+            owner=session.django_user,
+        ).select_related("lead")
+
+        for deal in connected_deals:
+            public_id = url_to_public_id(deal.lead.website) if deal.lead.website else None
+            if not public_id:
+                continue
+            enqueue_follow_up(campaign.pk, public_id, delay_seconds=random.uniform(5, 60))
+
+    pending_count = Task.objects.filter(status=Task.Status.PENDING).count()
+    logger.info("Task queue healed: %d pending tasks", pending_count)
+
+
 def run_daemon(session):
     from linkedin.management.setup_crm import ensure_campaign_pipeline
     from linkedin.ml.hub import get_kit, import_partner_campaign
+    from linkedin.models import Campaign
 
     cfg = CAMPAIGN_CONFIG
 
@@ -129,88 +213,64 @@ def run_daemon(session):
 
     qualifiers, partner_qualifier = _build_qualifiers(session.campaigns, cfg)
 
-    check_pending_interval = cfg["check_pending_recheck_after_hours"] * 3600
-    min_action_interval = cfg["min_action_interval"]
-
-    # Compute partner action_fraction (max across all partner campaigns)
-    partner_fraction = max(
-        (c.action_fraction for c in session.campaigns if c.is_partner),
-        default=0.0,
-    )
-
-    # Build schedules for ALL campaigns
-    all_schedules = []
-
+    # Ensure pipeline stages exist for all campaigns
     for campaign in session.campaigns:
         session.campaign = campaign
         ensure_campaign_pipeline(campaign.department)
 
-        if campaign.is_partner:
-            qualifier = partner_qualifier
-            pipeline = kit_model
-        else:
-            qualifier = qualifiers[campaign.pk]
-            pipeline = None
+    # Startup healing
+    heal_tasks(session)
 
-        connect_lane = ConnectLane(session, qualifier, pipeline=pipeline)
-        check_pending_lane = CheckPendingLane(session, cfg["check_pending_recheck_after_hours"])
-        follow_up_lane = FollowUpLane(session)
-
-        all_schedules.extend([
-            LaneSchedule("connect", connect_lane, min_action_interval, campaign=campaign),
-            LaneSchedule("check_pending", check_pending_lane, check_pending_interval, campaign=campaign),
-            LaneSchedule("follow_up", follow_up_lane, min_action_interval, campaign=campaign),
-        ])
-
-    if not all_schedules:
+    campaigns = list(session.campaigns)
+    if not campaigns:
         logger.error("No campaigns found — cannot start daemon")
         return
 
     logger.info(
         colored("Daemon started", "green", attrs=["bold"])
-        + " — %d campaigns, action interval %ds, check_pending every %.0fm",
-        len(list(session.campaigns)),
-        min_action_interval,
-        check_pending_interval / 60,
+        + " — %d campaigns, task queue worker",
+        len(campaigns),
     )
 
     promo = _PromoRotator(every=2)
 
     while True:
-        # ── Find soonest major action ──
-        now = time.time()
-        next_schedule = min(all_schedules, key=lambda s: s.next_run)
-        gap = max(next_schedule.next_run - now, 0)
+        task = _pop_next_task()
+        if task is None:
+            time.sleep(cfg["worker_poll_seconds"])
+            continue
 
-        # ── Wait for major action ──
-        if gap > 0:
-            logger.debug(
-                "next: %s in %.0fs",
-                next_schedule.name, gap,
-            )
-            time.sleep(gap)
+        campaign = Campaign.objects.filter(pk=task.payload.get("campaign_id")).first()
+        if not campaign:
+            task.status = Task.Status.FAILED
+            task.error = f"Campaign {task.payload.get('campaign_id')} not found"
+            task.save(update_fields=["status", "error"])
+            continue
 
-        # Set active campaign for this schedule
-        session.campaign = next_schedule.campaign
+        session.campaign = campaign
 
-        # Probabilistic gating for partner campaigns
-        if next_schedule.campaign.is_partner:
-            if random.random() >= next_schedule.campaign.action_fraction:
-                next_schedule.reschedule()
-                continue
-            seed_partner_deals(session)
+        task.status = Task.Status.RUNNING
+        task.started_at = timezone.now()
+        task.save(update_fields=["status", "started_at"])
 
-        # Inverse gating: skip regular campaigns proportionally to partner action_fraction
-        if not next_schedule.campaign.is_partner and partner_fraction > 0:
-            if random.random() < partner_fraction:
-                next_schedule.reschedule()
-                continue
+        handler = _HANDLERS.get(task.task_type)
+        if handler is None:
+            task.status = Task.Status.FAILED
+            task.error = f"Unknown task type: {task.task_type}"
+            task.save(update_fields=["status", "error"])
+            continue
 
-        if next_schedule.lane.can_execute():
+        try:
             with failure_diagnostics(session):
-                next_schedule.lane.execute()
-            next_schedule.reschedule()
-            promo.tick()
-        else:
-            # Nothing to do — retry soon instead of waiting the full interval
-            next_schedule.next_run = time.time() + 60
+                handler(task, session, qualifiers, partner_qualifier, kit_model)
+        except Exception:
+            task.status = Task.Status.FAILED
+            task.error = traceback.format_exc()
+            task.save(update_fields=["status", "error"])
+            logger.exception("Task %s failed", task)
+            continue
+
+        task.status = Task.Status.COMPLETED
+        task.completed_at = timezone.now()
+        task.save(update_fields=["status", "completed_at"])
+        promo.tick()

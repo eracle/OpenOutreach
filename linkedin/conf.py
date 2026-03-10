@@ -54,6 +54,10 @@ CAMPAIGN_CONFIG = {
     "min_ready_to_connect_prob": 0.9,
     "min_positive_pool_prob": 0.20,
     "embedding_model": "BAAI/bge-small-en-v1.5",
+    "connect_delay_seconds": 10,
+    "connect_no_candidate_delay_seconds": 300,
+    "check_pending_jitter_factor": 0.2,
+    "worker_poll_seconds": 5,
 }
 
 # ----------------------------------------------------------------------
