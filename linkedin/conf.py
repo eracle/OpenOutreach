@@ -52,7 +52,6 @@ CAMPAIGN_CONFIG = {
     "min_action_interval": 120,
     "qualification_n_mc_samples": 100,
     "min_ready_to_connect_prob": 0.99,
-    "calibration_strength": 1.0,
     "embedding_model": "BAAI/bge-small-en-v1.5",
     "min_qualifiable_leads": 50,
 }

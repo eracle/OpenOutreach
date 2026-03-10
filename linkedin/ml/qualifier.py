@@ -78,7 +78,7 @@ def _prob_above_half(mean, std):
 class BayesianQualifier:
     """Gaussian Process Regressor for active learning qualification.
 
-    Uses an sklearn Pipeline (PCA -> StandardScaler -> GPR) as a single
+    Uses an sklearn Pipeline (StandardScaler -> GPR) as a single
     serializable brick.  GPR provides an exact closed-form posterior
     (no Laplace approximation), avoiding the degenerate-0.5 problem
     that plagues GPC on weakly separable embedding data.  Probabilities
@@ -89,20 +89,16 @@ class BayesianQualifier:
     f ~ N(f_mean, f_std) for candidate selection; predictive entropy
     gates auto-decisions vs LLM queries.
 
-    PCA dimensionality is selected via leave-one-out cross-validation
-    (GPR provides analytical LOO log-likelihood) on each refit.
-
     Training data is accumulated incrementally; the GPR is lazily
     re-fitted on ALL accumulated data whenever predictions are needed.
     """
 
     def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100,
-                 save_path: Path | None = None, calibration_strength: float = 0.0):
+                 save_path: Path | None = None):
         self.embedding_dim = embedding_dim
         self._seed = seed
         self._n_mc_samples = n_mc_samples
-        self._calibration_strength = calibration_strength
-        self._pipeline = None  # Pipeline([('pca', PCA), ('scaler', StandardScaler), ('gpr', GPR)])
+        self._pipeline = None  # Pipeline([('scaler', StandardScaler), ('gpr', GPR)])
         self._save_path = save_path
         self._X: list[np.ndarray] = []
         self._y: list[int] = []
@@ -136,11 +132,11 @@ class BayesianQualifier:
         self._fitted = False
 
     # ------------------------------------------------------------------
-    # Lazy refit with PCA CV
+    # Lazy refit
     # ------------------------------------------------------------------
 
     def _fit_if_needed(self) -> bool:
-        """Fit PCA + StandardScaler + GPR pipeline if dirty and feasible.  Returns True when model is usable."""
+        """Fit StandardScaler + GPR pipeline if dirty and feasible.  Returns True when model is usable."""
         if self._fitted:
             return True
         if len(self._y) < 2:
@@ -149,7 +145,6 @@ class BayesianQualifier:
         if len(np.unique(y_arr)) < 2:
             return False  # need both classes
 
-        from sklearn.decomposition import PCA
         from sklearn.gaussian_process import GaussianProcessRegressor
         from sklearn.gaussian_process.kernels import ConstantKernel, RBF
         from sklearn.pipeline import Pipeline
@@ -158,39 +153,20 @@ class BayesianQualifier:
         X_arr = np.array(self._X, dtype=np.float64)
         n = X_arr.shape[0]
 
-        # Select PCA dims via GPR log-marginal-likelihood (analytical LOO proxy)
-        max_dims = min(n - 1, X_arr.shape[1])
-        candidates = sorted({d for d in [2, 4, 6, 10, 15, 20] if d <= max_dims})
-        if not candidates:
-            candidates = [max_dims]
+        self._pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('gpr', GaussianProcessRegressor(
+                kernel=ConstantKernel(1.0) * RBF(length_scale=np.sqrt(self.embedding_dim)),
+                n_restarts_optimizer=3,
+                random_state=self._seed,
+                alpha=0.1,
+            )),
+        ])
+        self._pipeline.fit(X_arr, y_arr)
+        lml = self._pipeline.named_steps['gpr'].log_marginal_likelihood_value_
 
-        best_lml = -np.inf
-        best_pipeline = None
-
-        for n_pca in candidates:
-            pipe = Pipeline([
-                ('pca', PCA(n_components=n_pca, random_state=self._seed)),
-                ('scaler', StandardScaler()),
-                ('gpr', GaussianProcessRegressor(
-                    kernel=ConstantKernel(1.0) * RBF(length_scale=np.sqrt(n_pca)),
-                    n_restarts_optimizer=3,
-                    random_state=self._seed,
-                    alpha=0.1,
-                )),
-            ])
-            pipe.fit(X_arr, y_arr)
-            lml = pipe.named_steps['gpr'].log_marginal_likelihood_value_
-            if lml > best_lml:
-                best_lml = lml
-                best_pipeline = pipe
-
-        self._pipeline = best_pipeline
         self._fitted = True
-        pca_step = self._pipeline.named_steps['pca']
-        logger.debug("GPR fitted on %d observations (%d PCA dims, %.1f%% variance, LML=%.2f)",
-                     n, pca_step.n_components_,
-                     100 * pca_step.explained_variance_ratio_.sum(),
-                     best_lml)
+        logger.debug("GPR fitted on %d observations (LML=%.2f)", n, lml)
         self._persist_pipeline()
         return True
 
@@ -204,26 +180,6 @@ class BayesianQualifier:
         joblib.dump(self._pipeline, tmp)
         tmp.rename(self._save_path)
         logger.debug("Pipeline saved to %s", self._save_path)
-
-    # ------------------------------------------------------------------
-    # Temperature-scaled calibration
-    # ------------------------------------------------------------------
-
-    def _calibrate_probs(self, probs: np.ndarray) -> np.ndarray:
-        """Temperature scaling: push probabilities toward 0.5 when data is sparse.
-
-        T = 1 + c / sqrt(n_obs).  With few labels T >> 1 compresses
-        probabilities toward 0.5; as labels grow T → 1 and raw GP
-        probabilities pass through unchanged.  This is Platt-style
-        post-hoc calibration applied to the GP's P(f > 0.5).
-        """
-        if self._calibration_strength <= 0:
-            return probs
-        from scipy.special import expit, logit as sp_logit
-
-        T = 1.0 + self._calibration_strength / max(self.n_obs, 1) ** 0.5
-        probs = np.clip(probs, 1e-12, 1.0 - 1e-12)
-        return expit(sp_logit(probs) / T)
 
     # ------------------------------------------------------------------
     # Prediction
@@ -240,8 +196,7 @@ class BayesianQualifier:
             return None
 
         mean, std = self._gpr_predict(self._pipeline, embedding)
-        raw_p = _prob_above_half(mean, std)
-        p = float(self._calibrate_probs(raw_p)[0])
+        p = float(_prob_above_half(mean, std)[0])
         entropy = float(_binary_entropy(p))
         return p, entropy, float(std[0])
 
@@ -289,7 +244,7 @@ class BayesianQualifier:
         if not self._fit_if_needed():
             return None
         mean, std = self._gpr_predict(self._pipeline, embeddings)
-        return self._calibrate_probs(_prob_above_half(mean, std))
+        return _prob_above_half(mean, std)
 
     # ------------------------------------------------------------------
     # Ranking for connect lane
@@ -325,7 +280,7 @@ class BayesianQualifier:
 
         X = np.array([emb for _, emb in scored], dtype=np.float64)
         mean, std = self._gpr_predict(pipe, X)
-        probs = self._calibrate_probs(_prob_above_half(mean, std))
+        probs = _prob_above_half(mean, std)
 
         ranked = sorted(zip(probs, [p for p, _ in scored]), key=lambda t: t[0], reverse=True)
         return [p for _, p in ranked]

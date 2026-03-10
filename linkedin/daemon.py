@@ -91,7 +91,6 @@ def _build_qualifiers(campaigns, cfg):
             seed=42,
             n_mc_samples=cfg["qualification_n_mc_samples"],
             save_path=model_path_for_campaign(campaign.pk),
-            calibration_strength=cfg.get("calibration_strength", 0.0),
         )
         if len(X) > 0:
             q.warm_start(X, y)
