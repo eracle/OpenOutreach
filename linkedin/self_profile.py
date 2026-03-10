@@ -42,8 +42,9 @@ def ensure_self_profile(session):
 
     dept = session.campaign.department
 
-    # Disqualified lead for the real profile URL (no embedding)
-    Lead.objects.get_or_create(
+    # Disqualified lead for the real profile URL (no embedding).
+    # Use update_or_create so auto-discovered leads are also marked disqualified.
+    Lead.objects.update_or_create(
         website=real_url,
         defaults={
             "owner": session.django_user,
