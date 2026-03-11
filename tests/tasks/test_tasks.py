@@ -83,12 +83,10 @@ def _make_task(task_type, payload, **kwargs):
 
 
 def _build_context(fake_session):
-    """Build (qualifiers, partner_qualifier, kit_model) for task handlers."""
+    """Build qualifiers dict for task handlers."""
     qualifier = BayesianQualifier(seed=42)
     qualifier.rank_profiles = lambda profiles, **kw: profiles
-    qualifiers = {fake_session.campaign.pk: qualifier}
-    partner_qualifier = BayesianQualifier(seed=42)
-    return qualifiers, partner_qualifier, None
+    return {fake_session.campaign.pk: qualifier}
 
 
 # ── handle_connect tests ────────────────────────────────────────
@@ -113,8 +111,8 @@ class TestHandleConnect:
         mock_send.return_value = ProfileState.PENDING
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_connect(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_connect(task, fake_session, qualifiers)
 
         _assert_deal_state(fake_session, "alice", ProfileState.PENDING)
         assert ActionLog.objects.filter(action_type=ActionLog.ActionType.CONNECT).count() == 1
@@ -129,8 +127,8 @@ class TestHandleConnect:
         mock_send.return_value = ProfileState.PENDING
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_connect(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_connect(task, fake_session, qualifiers)
 
         assert Task.objects.filter(
             task_type=Task.TaskType.CHECK_PENDING,
@@ -146,8 +144,8 @@ class TestHandleConnect:
         mock_status.return_value = ProfileState.CONNECTED
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_connect(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_connect(task, fake_session, qualifiers)
 
         _assert_deal_state(fake_session, "alice", ProfileState.CONNECTED)
         # Should enqueue follow_up for already-connected profile
@@ -165,8 +163,8 @@ class TestHandleConnect:
         mock_status.side_effect = ReachedConnectionLimit("weekly limit")
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_connect(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_connect(task, fake_session, qualifiers)
 
         assert ActionLog.ActionType.CONNECT in fake_session.linkedin_profile._exhausted
 
@@ -180,8 +178,8 @@ class TestHandleConnect:
         mock_send.side_effect = SkipProfile("bad profile")
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_connect(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_connect(task, fake_session, qualifiers)
 
         _assert_deal_state(fake_session, "alice", ProfileState.FAILED)
 
@@ -190,8 +188,8 @@ class TestHandleConnect:
         mock_strategy.return_value = _mock_strategy(None)
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_connect(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_connect(task, fake_session, qualifiers)
 
         # Should enqueue another connect with longer delay
         next_task = Task.objects.filter(
@@ -211,8 +209,8 @@ class TestHandleConnect:
         mock_send.return_value = ProfileState.PENDING
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_connect(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_connect(task, fake_session, qualifiers)
 
         # Should have enqueued next connect task
         next_connect = Task.objects.filter(
@@ -241,8 +239,8 @@ class TestHandleCheckPending:
             Task.TaskType.CHECK_PENDING,
             {"campaign_id": fake_session.campaign.pk, "public_id": "alice", "backoff_hours": 24},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_check_pending(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_check_pending(task, fake_session, qualifiers)
 
         _assert_deal_state(fake_session, "alice", ProfileState.CONNECTED)
         # Should enqueue follow_up
@@ -261,8 +259,8 @@ class TestHandleCheckPending:
             Task.TaskType.CHECK_PENDING,
             {"campaign_id": fake_session.campaign.pk, "public_id": "alice", "backoff_hours": 72},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_check_pending(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_check_pending(task, fake_session, qualifiers)
 
         _assert_deal_state(fake_session, "alice", ProfileState.PENDING)
 
@@ -287,8 +285,8 @@ class TestHandleCheckPending:
             Task.TaskType.CHECK_PENDING,
             {"campaign_id": fake_session.campaign.pk, "public_id": "nonexistent", "backoff_hours": 24},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_check_pending(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_check_pending(task, fake_session, qualifiers)
         mock_status.assert_not_called()
 
 
@@ -306,8 +304,8 @@ class TestHandleFollowUp:
             Task.TaskType.FOLLOW_UP,
             {"campaign_id": fake_session.campaign.pk, "public_id": "alice"},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_follow_up(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_follow_up(task, fake_session, qualifiers)
 
         _assert_deal_state(fake_session, "alice", ProfileState.COMPLETED)
         assert ActionLog.objects.filter(action_type=ActionLog.ActionType.FOLLOW_UP).count() == 1
@@ -325,8 +323,8 @@ class TestHandleFollowUp:
             Task.TaskType.FOLLOW_UP,
             {"campaign_id": fake_session.campaign.pk, "public_id": "alice"},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_follow_up(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_follow_up(task, fake_session, qualifiers)
 
         lead = Lead.objects.get(website="https://www.linkedin.com/in/alice/")
         ct = ContentType.objects.get_for_model(lead)
@@ -342,8 +340,8 @@ class TestHandleFollowUp:
             Task.TaskType.FOLLOW_UP,
             {"campaign_id": fake_session.campaign.pk, "public_id": "alice"},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_follow_up(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_follow_up(task, fake_session, qualifiers)
 
         _assert_deal_state(fake_session, "alice", ProfileState.CONNECTED)
 
@@ -353,8 +351,8 @@ class TestHandleFollowUp:
             Task.TaskType.FOLLOW_UP,
             {"campaign_id": fake_session.campaign.pk, "public_id": "nonexistent"},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_follow_up(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_follow_up(task, fake_session, qualifiers)
         mock_send.assert_not_called()
 
     def test_reschedules_on_rate_limit(self, fake_session):
@@ -366,8 +364,8 @@ class TestHandleFollowUp:
             Task.TaskType.FOLLOW_UP,
             {"campaign_id": fake_session.campaign.pk, "public_id": "alice"},
         )
-        qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
-        handle_follow_up(task, fake_session, qualifiers, partner_qualifier, kit_model)
+        qualifiers = _build_context(fake_session)
+        handle_follow_up(task, fake_session, qualifiers)
 
         # Should have re-enqueued with delay
         next_task = Task.objects.filter(

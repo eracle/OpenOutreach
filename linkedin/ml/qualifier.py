@@ -404,3 +404,22 @@ class BayesianQualifier:
         if len(self._X) >= 2:
             self._fit_if_needed()
 
+
+class KitQualifier:
+    """Qualifier adapter for partner campaigns backed by a pre-trained kit model.
+
+    Wraps a warm-started BayesianQualifier and always uses the kit's
+    sklearn pipeline for ranking, removing the need to thread a separate
+    ``kit_model`` argument through the handler chain.
+    """
+
+    def __init__(self, kit_model, inner: BayesianQualifier):
+        self._kit_model = kit_model
+        self._inner = inner
+
+    def rank_profiles(self, profiles: list, session, pipeline=None) -> list:
+        return self._inner.rank_profiles(profiles, session, pipeline=self._kit_model)
+
+    def explain(self, profile: dict, session) -> str:
+        return self._inner.explain(profile, session)
+

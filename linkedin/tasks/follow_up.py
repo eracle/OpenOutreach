@@ -17,7 +17,7 @@ from linkedin.navigation.enums import ProfileState
 logger = logging.getLogger(__name__)
 
 
-def handle_follow_up(task, session, qualifiers, partner_qualifier, kit_model):
+def handle_follow_up(task, session, qualifiers):
     from linkedin.actions.message import send_follow_up_message
     from linkedin.tasks.connect import enqueue_follow_up
 

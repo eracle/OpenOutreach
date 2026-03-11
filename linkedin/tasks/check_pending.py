@@ -18,7 +18,7 @@ from linkedin.navigation.exceptions import SkipProfile
 logger = logging.getLogger(__name__)
 
 
-def handle_check_pending(task, session, qualifiers, partner_qualifier, kit_model):
+def handle_check_pending(task, session, qualifiers):
     from crm.models import Deal
     from linkedin.actions.connection_status import get_connection_status
     from linkedin.tasks.connect import enqueue_check_pending, enqueue_follow_up

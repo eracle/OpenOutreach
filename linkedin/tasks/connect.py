@@ -35,22 +35,23 @@ def _partner_delay(campaign) -> float:
     return cfg["connect_delay_seconds"] / fraction
 
 
-def strategy_for(campaign, qualifiers, partner_qualifier, kit_model):
+def strategy_for(campaign, qualifiers):
     """Build the right ConnectStrategy based on campaign type."""
+    qualifier = qualifiers.get(campaign.pk)
+
     if campaign.is_partner:
         from linkedin.db.crm_profiles import create_partner_deal
         from linkedin.pipeline.partner_pool import get_partner_candidate
 
         return ConnectStrategy(
-            get_candidate=lambda s: get_partner_candidate(s, partner_qualifier, pipeline=kit_model),
+            get_candidate=lambda s: get_partner_candidate(s, qualifier),
             pre_connect=lambda s, pid: create_partner_deal(s, pid),
             delay=_partner_delay(campaign),
-            qualifier=partner_qualifier,
+            qualifier=qualifier,
         )
 
     from linkedin.pipeline.pools import get_candidate
 
-    qualifier = qualifiers.get(campaign.pk)
     return ConnectStrategy(
         get_candidate=lambda s: get_candidate(s, qualifier),
         pre_connect=None,
@@ -70,7 +71,7 @@ def _seconds_until_tomorrow() -> float:
     return (tomorrow - now).total_seconds()
 
 
-def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
+def handle_connect(task, session, qualifiers):
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.connection_status import get_connection_status
     from linkedin.models import ProfileEmbedding
@@ -78,7 +79,7 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
     cfg = CAMPAIGN_CONFIG
     campaign = session.campaign
     campaign_id = campaign.pk
-    strategy = strategy_for(campaign, qualifiers, partner_qualifier, kit_model)
+    strategy = strategy_for(campaign, qualifiers)
 
     # --- Rate limit check ---
     if not session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT):

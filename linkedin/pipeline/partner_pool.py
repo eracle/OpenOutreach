@@ -10,12 +10,12 @@ from linkedin.db.crm_profiles import url_to_public_id
 logger = logging.getLogger(__name__)
 
 
-def get_partner_candidate(session, qualifier, pipeline=None) -> dict | None:
+def get_partner_candidate(session, qualifier) -> dict | None:
     """Return the top-ranked disqualified+embedded lead not yet dealt in this campaign.
 
     Bypasses the Deal-based pool system entirely. Queries ProfileEmbedding
     directly, excludes leads that already have a Deal in the partner campaign's
-    department, ranks by qualifier/pipeline, and returns the best one.
+    department, ranks by qualifier, and returns the best one.
     """
     from crm.models import Deal, Lead
     from linkedin.models import ProfileEmbedding
@@ -62,5 +62,5 @@ def get_partner_candidate(session, qualifier, pipeline=None) -> dict | None:
     if not profiles:
         return None
 
-    ranked = qualifier.rank_profiles(profiles, session=session, pipeline=pipeline)
+    ranked = qualifier.rank_profiles(profiles, session=session)
     return ranked[0] if ranked else None

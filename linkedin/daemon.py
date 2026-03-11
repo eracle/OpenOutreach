@@ -11,7 +11,7 @@ from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG, _LEGACY_MODEL_PATH, model_path_for_campaign
 from linkedin.diagnostics import failure_diagnostics
-from linkedin.ml.qualifier import BayesianQualifier
+from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
 from linkedin.models import Task
 from linkedin.tasks.check_pending import handle_check_pending
 from linkedin.tasks.connect import enqueue_check_pending, enqueue_connect, enqueue_follow_up, handle_connect
@@ -67,43 +67,49 @@ def _migrate_legacy_model(campaigns):
         )
 
 
-def _build_qualifiers(campaigns, cfg):
-    """Create per-campaign BayesianQualifiers and a shared partner qualifier.
+def _build_qualifiers(campaigns, cfg, kit_model=None):
+    """Create a qualifier for every campaign, keyed by campaign PK.
 
-    Returns (qualifiers, partner_qualifier) where qualifiers is a
-    dict[int, BayesianQualifier] keyed by campaign PK (non-partner only).
+    Regular campaigns get a ``BayesianQualifier`` (persisted per-campaign).
+    Partner campaigns get a ``KitQualifier`` wrapping the pre-trained kit
+    model, so the caller never needs to know about the kit.
     """
     from linkedin.models import ProfileEmbedding
 
     X, y = ProfileEmbedding.get_labeled_arrays()
 
-    qualifiers: dict[int, BayesianQualifier] = {}
+    qualifiers: dict[int, BayesianQualifier | KitQualifier] = {}
+    n_regular = 0
     for campaign in campaigns:
         if campaign.is_partner:
-            continue
-        q = BayesianQualifier(
-            seed=42,
-            n_mc_samples=cfg["qualification_n_mc_samples"],
-            save_path=model_path_for_campaign(campaign.pk),
-        )
-        if len(X) > 0:
-            q.warm_start(X, y)
-        qualifiers[campaign.pk] = q
+            inner = BayesianQualifier(
+                seed=42,
+                n_mc_samples=cfg["qualification_n_mc_samples"],
+                save_path=None,
+            )
+            if len(X) > 0:
+                inner.warm_start(X, y)
+            qualifiers[campaign.pk] = KitQualifier(kit_model, inner)
+        else:
+            q = BayesianQualifier(
+                seed=42,
+                n_mc_samples=cfg["qualification_n_mc_samples"],
+                save_path=model_path_for_campaign(campaign.pk),
+            )
+            if len(X) > 0:
+                q.warm_start(X, y)
+            qualifiers[campaign.pk] = q
+            n_regular += 1
 
-    if qualifiers and len(X) > 0:
+    if n_regular and len(X) > 0:
         logger.info(
             colored("GP qualifiers warm-started", "cyan")
             + " on %d labelled samples (%d positive, %d negative)"
             + " for %d campaign(s)",
-            len(y), int((y == 1).sum()), int((y == 0).sum()), len(qualifiers),
+            len(y), int((y == 1).sum()), int((y == 0).sum()), n_regular,
         )
 
-    partner_qualifier = BayesianQualifier(
-        seed=42,
-        n_mc_samples=cfg["qualification_n_mc_samples"],
-        save_path=None,
-    )
-    return qualifiers, partner_qualifier
+    return qualifiers
 
 
 # ------------------------------------------------------------------
@@ -206,12 +212,13 @@ def run_daemon(session):
     kit = get_kit()
     if kit:
         import_partner_campaign(kit["config"])
-    kit_model = kit["model"] if kit else None
 
     # Migrate legacy single model file before creating per-campaign qualifiers
     _migrate_legacy_model(list(session.campaigns))
 
-    qualifiers, partner_qualifier = _build_qualifiers(session.campaigns, cfg)
+    qualifiers = _build_qualifiers(
+        session.campaigns, cfg, kit_model=kit["model"] if kit else None,
+    )
 
     # Ensure pipeline stages exist for all campaigns
     for campaign in session.campaigns:
@@ -262,7 +269,7 @@ def run_daemon(session):
 
         try:
             with failure_diagnostics(session):
-                handler(task, session, qualifiers, partner_qualifier, kit_model)
+                handler(task, session, qualifiers)
         except Exception:
             task.status = Task.Status.FAILED
             task.error = traceback.format_exc()
