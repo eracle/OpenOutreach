@@ -40,8 +40,6 @@ def render_template(session: "AccountSession", template_content: str, profile: d
     template = env.from_string(template_content)
 
     rendered = template.render(**context).strip()
-    logger.debug(f"Rendered template: {rendered}")
-
     rendered = invoke_llm(rendered)
 
     booking_link = session.campaign.booking_link or None

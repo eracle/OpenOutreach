@@ -47,7 +47,7 @@ def send_follow_up_message(
     if not _send_msg_pop_up(session, profile, message):
         _send_message(session, profile, message)
 
-    logger.debug("Message body: %s", message)
+    logger.info("Generated message for %s:\n%s", public_identifier, message)
     return message
 
 
