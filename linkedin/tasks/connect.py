@@ -10,6 +10,7 @@ import random
 from dataclasses import dataclass
 from typing import Callable
 
+from django.utils import timezone
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
@@ -26,13 +27,14 @@ class ConnectStrategy:
     find_candidate: Callable
     pre_connect: Callable | None
     delay: float
+    action_fraction: float  # 1.0 = always fire at base delay
     qualifier: object
 
-
-def _partner_delay(campaign) -> float:
-    cfg = CAMPAIGN_CONFIG
-    fraction = getattr(campaign, "action_fraction", 0.0) or 0.2
-    return cfg["connect_delay_seconds"] / fraction
+    def compute_delay(self, elapsed: float) -> float:
+        """Delay until next connect, scaled by elapsed execution time for partner campaigns."""
+        if self.action_fraction >= 1.0:
+            return self.delay
+        return max(self.delay, elapsed * (1 - self.action_fraction) / self.action_fraction)
 
 
 def strategy_for(campaign, qualifiers):
@@ -43,10 +45,12 @@ def strategy_for(campaign, qualifiers):
         from linkedin.db.deals import create_partner_deal
         from linkedin.pipeline.partner_pool import find_partner_candidate
 
+        fraction = campaign.action_fraction
         return ConnectStrategy(
             find_candidate=lambda s: find_partner_candidate(s, qualifier),
             pre_connect=lambda s, pid: create_partner_deal(s, pid),
-            delay=_partner_delay(campaign),
+            delay=CAMPAIGN_CONFIG["connect_delay_seconds"],
+            action_fraction=fraction,
             qualifier=qualifier,
         )
 
@@ -56,6 +60,7 @@ def strategy_for(campaign, qualifiers):
         find_candidate=lambda s: find_candidate(s, qualifier),
         pre_connect=None,
         delay=CAMPAIGN_CONFIG["connect_delay_seconds"],
+        action_fraction=1.0,
         qualifier=qualifier,
     )
 
@@ -80,6 +85,10 @@ def handle_connect(task, session, qualifiers):
     campaign = session.campaign
     campaign_id = campaign.pk
     strategy = strategy_for(campaign, qualifiers)
+
+    def _reschedule():
+        elapsed = (timezone.now() - task.started_at).total_seconds() if task.started_at else 0
+        enqueue_connect(campaign_id, delay_seconds=strategy.compute_delay(elapsed))
 
     # --- Rate limit check ---
     if not session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT):
@@ -116,7 +125,7 @@ def handle_connect(task, session, qualifiers):
         if status == ProfileState.CONNECTED:
             set_profile_state(session, public_id, status.value)
             enqueue_follow_up(campaign_id, public_id)
-            enqueue_connect(campaign_id, delay_seconds=strategy.delay)
+            _reschedule()
             return
 
         if status == ProfileState.PENDING:
@@ -125,7 +134,7 @@ def handle_connect(task, session, qualifiers):
                 campaign_id, public_id,
                 backoff_hours=cfg["check_pending_recheck_after_hours"],
             )
-            enqueue_connect(campaign_id, delay_seconds=strategy.delay)
+            _reschedule()
             return
 
         new_state = send_connection_request(session=session, profile=profile)
@@ -151,7 +160,7 @@ def handle_connect(task, session, qualifiers):
         logger.warning("Skipping %s: %s", public_id, e)
         set_profile_state(session, public_id, ProfileState.FAILED.value)
 
-    enqueue_connect(campaign_id, delay_seconds=strategy.delay)
+    _reschedule()
 
 
 # ------------------------------------------------------------------

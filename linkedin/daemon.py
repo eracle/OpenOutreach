@@ -150,9 +150,10 @@ def heal_tasks(session):
     if stale_count:
         logger.info("Recovered %d stale running tasks", stale_count)
 
-    # 2. Seed connect tasks per campaign
+    # 2. Seed connect tasks per campaign (regular first, partner deferred)
     for campaign in session.campaigns:
-        enqueue_connect(campaign.pk, delay_seconds=0)
+        delay = CAMPAIGN_CONFIG["connect_delay_seconds"] if campaign.is_partner else 0
+        enqueue_connect(campaign.pk, delay_seconds=delay)
 
     # 3. Check_pending tasks for PENDING profiles
     for campaign in session.campaigns:

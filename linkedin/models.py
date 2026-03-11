@@ -29,7 +29,7 @@ class Campaign(models.Model):
     followup_template = models.TextField(blank=True)
     booking_link = models.URLField(max_length=500, blank=True)
     is_partner = models.BooleanField(default=False)
-    action_fraction = models.FloatField(default=0.0)
+    action_fraction = models.FloatField(default=0.2)
 
     def __str__(self):
         return self.department.name

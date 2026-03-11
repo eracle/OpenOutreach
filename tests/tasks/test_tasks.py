@@ -30,6 +30,7 @@ def _mock_strategy(candidate, qualifier=None):
         find_candidate=lambda s: candidate,
         pre_connect=None,
         delay=10,
+        action_fraction=1.0,
         qualifier=qualifier or MagicMock(explain=lambda *a, **kw: ""),
     )
 
