@@ -14,7 +14,7 @@ from linkedin.models import ActionLog, Task
 from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import SkipProfile, ReachedConnectionLimit
-from linkedin.tasks.connect import handle_connect
+from linkedin.tasks.connect import ConnectStrategy, handle_connect
 from linkedin.tasks.check_pending import handle_check_pending
 from linkedin.tasks.follow_up import handle_follow_up
 
@@ -25,6 +25,16 @@ SAMPLE_PROFILE = {
     "headline": "Engineer",
     "positions": [{"company_name": "Acme"}],
 }
+
+
+def _mock_strategy(candidate, qualifier=None):
+    """Build a ConnectStrategy that returns a fixed candidate."""
+    return ConnectStrategy(
+        get_candidate=lambda s: candidate,
+        pre_connect=None,
+        delay=10,
+        qualifier=qualifier or MagicMock(explain=lambda *a, **kw: ""),
+    )
 
 
 def _assert_deal_state(session, public_id, expected_state: ProfileState):
@@ -93,12 +103,12 @@ class TestHandleConnect:
     def _candidate(self):
         return {"public_identifier": "alice", "url": "https://www.linkedin.com/in/alice/", "profile": SAMPLE_PROFILE}
 
-    @patch("linkedin.tasks.connect.get_candidate")
+    @patch("linkedin.tasks.connect.strategy_for")
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_sends_connection_and_records(self, mock_status, mock_send, mock_get, fake_session):
+    def test_sends_connection_and_records(self, mock_status, mock_send, mock_strategy, fake_session):
         _make_qualified(fake_session)
-        mock_get.return_value = self._candidate()
+        mock_strategy.return_value = _mock_strategy(self._candidate())
         mock_status.return_value = ProfileState.QUALIFIED
         mock_send.return_value = ProfileState.PENDING
 
@@ -109,12 +119,12 @@ class TestHandleConnect:
         _assert_deal_state(fake_session, "alice", ProfileState.PENDING)
         assert ActionLog.objects.filter(action_type=ActionLog.ActionType.CONNECT).count() == 1
 
-    @patch("linkedin.tasks.connect.get_candidate")
+    @patch("linkedin.tasks.connect.strategy_for")
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_enqueues_check_pending_after_connect(self, mock_status, mock_send, mock_get, fake_session):
+    def test_enqueues_check_pending_after_connect(self, mock_status, mock_send, mock_strategy, fake_session):
         _make_qualified(fake_session)
-        mock_get.return_value = self._candidate()
+        mock_strategy.return_value = _mock_strategy(self._candidate())
         mock_status.return_value = ProfileState.QUALIFIED
         mock_send.return_value = ProfileState.PENDING
 
@@ -128,11 +138,11 @@ class TestHandleConnect:
             payload__public_id="alice",
         ).exists()
 
-    @patch("linkedin.tasks.connect.get_candidate")
+    @patch("linkedin.tasks.connect.strategy_for")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_marks_preexisting_connected(self, mock_status, mock_get, fake_session):
+    def test_marks_preexisting_connected(self, mock_status, mock_strategy, fake_session):
         _make_qualified(fake_session)
-        mock_get.return_value = self._candidate()
+        mock_strategy.return_value = _mock_strategy(self._candidate())
         mock_status.return_value = ProfileState.CONNECTED
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
@@ -147,11 +157,11 @@ class TestHandleConnect:
             payload__public_id="alice",
         ).exists()
 
-    @patch("linkedin.tasks.connect.get_candidate")
+    @patch("linkedin.tasks.connect.strategy_for")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_handles_rate_limit(self, mock_status, mock_get, fake_session):
+    def test_handles_rate_limit(self, mock_status, mock_strategy, fake_session):
         _make_qualified(fake_session)
-        mock_get.return_value = self._candidate()
+        mock_strategy.return_value = _mock_strategy(self._candidate())
         mock_status.side_effect = ReachedConnectionLimit("weekly limit")
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
@@ -160,12 +170,12 @@ class TestHandleConnect:
 
         assert ActionLog.ActionType.CONNECT in fake_session.linkedin_profile._exhausted
 
-    @patch("linkedin.tasks.connect.get_candidate")
+    @patch("linkedin.tasks.connect.strategy_for")
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_handles_skip_profile(self, mock_status, mock_send, mock_get, fake_session):
+    def test_handles_skip_profile(self, mock_status, mock_send, mock_strategy, fake_session):
         _make_qualified(fake_session)
-        mock_get.return_value = self._candidate()
+        mock_strategy.return_value = _mock_strategy(self._candidate())
         mock_status.return_value = ProfileState.QUALIFIED
         mock_send.side_effect = SkipProfile("bad profile")
 
@@ -175,9 +185,9 @@ class TestHandleConnect:
 
         _assert_deal_state(fake_session, "alice", ProfileState.FAILED)
 
-    @patch("linkedin.tasks.connect.get_candidate")
-    def test_reschedules_when_no_candidate(self, mock_get, fake_session):
-        mock_get.return_value = None
+    @patch("linkedin.tasks.connect.strategy_for")
+    def test_reschedules_when_no_candidate(self, mock_strategy, fake_session):
+        mock_strategy.return_value = _mock_strategy(None)
 
         task = _make_task(Task.TaskType.CONNECT, {"campaign_id": fake_session.campaign.pk})
         qualifiers, partner_qualifier, kit_model = _build_context(fake_session)
@@ -191,12 +201,12 @@ class TestHandleConnect:
         ).exclude(pk=task.pk).first()
         assert next_task is not None
 
-    @patch("linkedin.tasks.connect.get_candidate")
+    @patch("linkedin.tasks.connect.strategy_for")
     @patch("linkedin.actions.connect.send_connection_request")
     @patch("linkedin.actions.connection_status.get_connection_status")
-    def test_self_reschedules_connect(self, mock_status, mock_send, mock_get, fake_session):
+    def test_self_reschedules_connect(self, mock_status, mock_send, mock_strategy, fake_session):
         _make_qualified(fake_session)
-        mock_get.return_value = self._candidate()
+        mock_strategy.return_value = _mock_strategy(self._candidate())
         mock_status.return_value = ProfileState.QUALIFIED
         mock_send.return_value = ProfileState.PENDING
 

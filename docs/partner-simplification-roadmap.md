@@ -19,17 +19,17 @@ Tracking remaining items to reduce partner-related cyclomatic complexity.
   `promote_to_ready`. Partner campaigns no longer flow through the Deal-based pool system (`pools.py` / `ready_pool.py`)
   at all.
 
+- [x] **Merge connect handlers + remove `connect_partner` task type** (items 1 + 2 combined) — Unified
+  `handle_connect` and `handle_connect_partner` into a single handler using a `ConnectStrategy` dataclass. The strategy
+  factory (`strategy_for()`) checks `campaign.is_partner` and returns the right candidate source, pre-connect hook,
+  delay, and qualifier. The handler itself has zero branches — all partner knowledge is in the factory. Removed
+  `CONNECT_PARTNER` from `Task.TaskType` (merged into migration `0010_task.py`). Deleted `tasks/connect_partner.py`.
+
 ## Next Steps
 
-### 1. Extract `_do_connect` shared logic
-
-Both `handle_connect` and `handle_connect_partner` share the same core flow (rate check, get candidate, connection
-status check, send request, enqueue follow-ons). Extract into a shared helper to eliminate duplication. The two handlers
-become thin wrappers that set qualifier/pipeline/delay/tag and delegate.
-
-### 2. Unify the qualifier/pipeline interface
+### 1. Unify the qualifier/pipeline interface
 
 The `partner_qualifier` + `kit_model` pair is threaded through the daemon and handler signatures:
-`run_daemon → handler → get_partner_candidate → rank_profiles`. Instead, each campaign could carry its own qualifier
-object (partner campaigns wrap `kit_model` in a qualifier-compatible adapter). This eliminates the separate
-`partner_qualifier` arg from all handler signatures.
+`run_daemon → handler → strategy_for → get_partner_candidate → rank_profiles`. Instead, each campaign could carry its
+own qualifier object (partner campaigns wrap `kit_model` in a qualifier-compatible adapter). This eliminates the separate
+`partner_qualifier` arg from all handler signatures and simplifies `strategy_for()`.

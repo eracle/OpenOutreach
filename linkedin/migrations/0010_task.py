@@ -27,7 +27,6 @@ class Migration(migrations.Migration):
                     models.CharField(
                         choices=[
                             ("connect", "Connect"),
-                            ("connect_partner", "Connect Partner"),
                             ("check_pending", "Check Pending"),
                             ("follow_up", "Follow Up"),
                         ],

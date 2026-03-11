@@ -15,14 +15,12 @@ from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.models import Task
 from linkedin.tasks.check_pending import handle_check_pending
 from linkedin.tasks.connect import enqueue_check_pending, enqueue_connect, enqueue_follow_up, handle_connect
-from linkedin.tasks.connect_partner import enqueue_connect_partner, handle_connect_partner
 from linkedin.tasks.follow_up import handle_follow_up
 
 logger = logging.getLogger(__name__)
 
 _HANDLERS = {
     Task.TaskType.CONNECT: handle_connect,
-    Task.TaskType.CONNECT_PARTNER: handle_connect_partner,
     Task.TaskType.CHECK_PENDING: handle_check_pending,
     Task.TaskType.FOLLOW_UP: handle_follow_up,
 }
@@ -145,12 +143,9 @@ def heal_tasks(session):
     if stale_count:
         logger.info("Recovered %d stale running tasks", stale_count)
 
-    # 2. Seed connect tasks per campaign (partner campaigns get their own task type)
+    # 2. Seed connect tasks per campaign
     for campaign in session.campaigns:
-        if getattr(campaign, "is_partner", False):
-            enqueue_connect_partner(campaign.pk, delay_seconds=0)
-        else:
-            enqueue_connect(campaign.pk, delay_seconds=0)
+        enqueue_connect(campaign.pk, delay_seconds=0)
 
     # 3. Check_pending tasks for PENDING profiles
     for campaign in session.campaigns:

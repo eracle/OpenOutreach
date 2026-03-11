@@ -1,9 +1,14 @@
 # linkedin/tasks/connect.py
-"""Connect task — pulls one candidate from pools, connects, self-reschedules."""
+"""Connect task — pulls one candidate, connects, self-reschedules.
+
+Works for both regular and partner campaigns via ConnectStrategy.
+"""
 from __future__ import annotations
 
 import logging
 import random
+from dataclasses import dataclass
+from typing import Callable
 
 from termcolor import colored
 
@@ -12,9 +17,46 @@ from linkedin.db.crm_profiles import set_profile_state
 from linkedin.models import ActionLog
 from linkedin.navigation.enums import ProfileState
 from linkedin.navigation.exceptions import ReachedConnectionLimit, SkipProfile
-from linkedin.pipeline.pools import get_candidate
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ConnectStrategy:
+    get_candidate: Callable
+    pre_connect: Callable | None
+    delay: float
+    qualifier: object
+
+
+def _partner_delay(campaign) -> float:
+    cfg = CAMPAIGN_CONFIG
+    fraction = getattr(campaign, "action_fraction", 0.0) or 0.2
+    return cfg["connect_delay_seconds"] / fraction
+
+
+def strategy_for(campaign, qualifiers, partner_qualifier, kit_model):
+    """Build the right ConnectStrategy based on campaign type."""
+    if campaign.is_partner:
+        from linkedin.db.crm_profiles import create_partner_deal
+        from linkedin.pipeline.partner_pool import get_partner_candidate
+
+        return ConnectStrategy(
+            get_candidate=lambda s: get_partner_candidate(s, partner_qualifier, pipeline=kit_model),
+            pre_connect=lambda s, pid: create_partner_deal(s, pid),
+            delay=_partner_delay(campaign),
+            qualifier=partner_qualifier,
+        )
+
+    from linkedin.pipeline.pools import get_candidate
+
+    qualifier = qualifiers.get(campaign.pk)
+    return ConnectStrategy(
+        get_candidate=lambda s: get_candidate(s, qualifier),
+        pre_connect=None,
+        delay=CAMPAIGN_CONFIG["connect_delay_seconds"],
+        qualifier=qualifier,
+    )
 
 
 def _seconds_until_tomorrow() -> float:
@@ -36,7 +78,7 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
     cfg = CAMPAIGN_CONFIG
     campaign = session.campaign
     campaign_id = campaign.pk
-    qualifier = qualifiers.get(campaign_id)
+    strategy = strategy_for(campaign, qualifiers, partner_qualifier, kit_model)
 
     # --- Rate limit check ---
     if not session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT):
@@ -44,13 +86,17 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
         return
 
     # --- Get candidate ---
-    candidate = get_candidate(session, qualifier)
+    candidate = strategy.get_candidate(session)
     if candidate is None:
         enqueue_connect(campaign_id, delay_seconds=cfg["connect_no_candidate_delay_seconds"])
         return
 
     public_id = candidate["public_identifier"]
     profile = candidate.get("profile") or candidate
+
+    # Partner campaigns need a Deal before set_profile_state
+    if strategy.pre_connect:
+        strategy.pre_connect(session, public_id)
 
     reason = (
         ProfileEmbedding.objects.filter(
@@ -59,7 +105,7 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
         .values_list("llm_reason", flat=True)
         .first()
     )
-    stats = qualifier.explain(candidate, session) if qualifier else ""
+    stats = strategy.qualifier.explain(candidate, session) if strategy.qualifier else ""
     logger.info("[%s] %s", campaign, colored("\u25b6 connect", "cyan", attrs=["bold"]))
     logger.info("[%s] %s (%s) — %s", campaign, public_id, stats, reason or "")
 
@@ -69,7 +115,7 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
         if status == ProfileState.CONNECTED:
             set_profile_state(session, public_id, status.value)
             enqueue_follow_up(campaign_id, public_id)
-            enqueue_connect(campaign_id, delay_seconds=cfg["connect_delay_seconds"])
+            enqueue_connect(campaign_id, delay_seconds=strategy.delay)
             return
 
         if status == ProfileState.PENDING:
@@ -78,7 +124,7 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
                 campaign_id, public_id,
                 backoff_hours=cfg["check_pending_recheck_after_hours"],
             )
-            enqueue_connect(campaign_id, delay_seconds=cfg["connect_delay_seconds"])
+            enqueue_connect(campaign_id, delay_seconds=strategy.delay)
             return
 
         new_state = send_connection_request(session=session, profile=profile)
@@ -104,7 +150,7 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
         logger.warning("Skipping %s: %s", public_id, e)
         set_profile_state(session, public_id, ProfileState.FAILED.value)
 
-    enqueue_connect(campaign_id, delay_seconds=cfg["connect_delay_seconds"])
+    enqueue_connect(campaign_id, delay_seconds=strategy.delay)
 
 
 # ------------------------------------------------------------------
