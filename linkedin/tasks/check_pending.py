@@ -7,7 +7,6 @@ import logging
 
 from termcolor import colored
 
-from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import (
     get_profile_dict_for_public_id,
     public_id_to_url,
@@ -29,12 +28,9 @@ def handle_check_pending(task, session, qualifiers, partner_qualifier, kit_model
     campaign_id = payload["campaign_id"]
     backoff_hours = payload.get("backoff_hours", 24)
 
-    is_partner = getattr(session.campaign, "is_partner", False)
-    log_level = PARTNER_LOG_LEVEL if is_partner else logging.INFO
-    tag = "[Partner] " if is_partner else ""
-    logger.log(
-        log_level, "%s%s %s",
-        tag, colored("\u25b6 check_pending", "magenta", attrs=["bold"]), public_id,
+    logger.info(
+        "[%s] %s %s",
+        session.campaign, colored("\u25b6 check_pending", "magenta", attrs=["bold"]), public_id,
     )
 
     profile_dict = get_profile_dict_for_public_id(session, public_id)

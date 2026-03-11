@@ -6,7 +6,6 @@ import logging
 
 from termcolor import colored
 
-from linkedin.conf import PARTNER_LOG_LEVEL
 from linkedin.db.crm_profiles import (
     get_profile_dict_for_public_id,
     save_chat_message,
@@ -26,12 +25,9 @@ def handle_follow_up(task, session, qualifiers, partner_qualifier, kit_model):
     public_id = payload["public_id"]
     campaign_id = payload["campaign_id"]
 
-    is_partner = getattr(session.campaign, "is_partner", False)
-    log_level = PARTNER_LOG_LEVEL if is_partner else logging.INFO
-    tag = "[Partner] " if is_partner else ""
-    logger.log(
-        log_level, "%s%s %s",
-        tag, colored("\u25b6 follow_up", "green", attrs=["bold"]), public_id,
+    logger.info(
+        "[%s] %s %s",
+        session.campaign, colored("\u25b6 follow_up", "green", attrs=["bold"]), public_id,
     )
 
     # Rate limit check

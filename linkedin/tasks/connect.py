@@ -60,8 +60,8 @@ def handle_connect(task, session, qualifiers, partner_qualifier, kit_model):
         .first()
     )
     stats = qualifier.explain(candidate, session) if qualifier else ""
-    logger.info("%s", colored("\u25b6 connect", "cyan", attrs=["bold"]))
-    logger.info("%s (%s) — %s", public_id, stats, reason or "")
+    logger.info("[%s] %s", campaign, colored("\u25b6 connect", "cyan", attrs=["bold"]))
+    logger.info("[%s] %s (%s) — %s", campaign, public_id, stats, reason or "")
 
     try:
         status = get_connection_status(session, profile)

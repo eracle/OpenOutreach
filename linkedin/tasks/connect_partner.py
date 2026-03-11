@@ -6,7 +6,7 @@ import logging
 
 from termcolor import colored
 
-from linkedin.conf import CAMPAIGN_CONFIG, PARTNER_LOG_LEVEL
+from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.crm_profiles import seed_partner_deals, set_profile_state
 from linkedin.models import ActionLog
 from linkedin.navigation.enums import ProfileState
@@ -90,8 +90,8 @@ def handle_connect_partner(task, session, qualifiers, partner_qualifier, kit_mod
         .first()
     )
     stats = partner_qualifier.explain(candidate, session) if partner_qualifier else ""
-    logger.log(PARTNER_LOG_LEVEL, "[Partner] %s", colored("\u25b6 connect", "cyan", attrs=["bold"]))
-    logger.log(PARTNER_LOG_LEVEL, "[Partner] %s (%s) — %s", public_id, stats, reason or "")
+    logger.info("[%s] %s", campaign, colored("\u25b6 connect", "cyan", attrs=["bold"]))
+    logger.info("[%s] %s (%s) — %s", campaign, public_id, stats, reason or "")
 
     try:
         status = get_connection_status(session, profile)
