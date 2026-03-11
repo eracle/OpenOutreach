@@ -2,7 +2,7 @@
 from unittest.mock import MagicMock, patch
 
 from linkedin.conf import DEFAULT_FOLLOWUP_TEMPLATE_PATH
-from linkedin.templates.renderer import render_template
+from linkedin.renderer import render_template
 
 
 class TestRenderTemplate:
@@ -12,7 +12,7 @@ class TestRenderTemplate:
         session.campaign.booking_link = booking_link
         return session
 
-    @patch("linkedin.templates.renderer.call_llm", return_value="LLM response")
+    @patch("linkedin.renderer.invoke_llm", return_value="LLM response")
     def test_renders_through_llm(self, mock_llm):
         template_content = "Hi {{ first_name }}, I saw you work at {{ company }}."
 
@@ -27,7 +27,7 @@ class TestRenderTemplate:
         assert "Hi Alice, I saw you work at Acme." in prompt
         assert result == "LLM response"
 
-    @patch("linkedin.templates.renderer.call_llm", return_value="LLM response")
+    @patch("linkedin.renderer.invoke_llm", return_value="LLM response")
     def test_with_booking_link(self, mock_llm):
         template_content = "Hello {{ first_name }}!"
 
@@ -36,7 +36,7 @@ class TestRenderTemplate:
         assert "LLM response" in result
         assert "https://cal.com/me" in result
 
-    @patch("linkedin.templates.renderer.call_llm", return_value="LLM response")
+    @patch("linkedin.renderer.invoke_llm", return_value="LLM response")
     def test_without_booking_link(self, mock_llm):
         template_content = "Hello {{ first_name }}!"
 
@@ -44,7 +44,7 @@ class TestRenderTemplate:
         result = render_template(session, template_content, {"first_name": "Bob"})
         assert result == "LLM response"
 
-    @patch("linkedin.templates.renderer.call_llm", return_value="LLM response")
+    @patch("linkedin.renderer.invoke_llm", return_value="LLM response")
     def test_missing_variable_renders_empty(self, mock_llm):
         template_content = "Hi {{ first_name }}, your title is {{ headline }}."
 
@@ -53,7 +53,7 @@ class TestRenderTemplate:
         prompt = mock_llm.call_args[0][0]
         assert "Hi Alice" in prompt
 
-    @patch("linkedin.templates.renderer.call_llm", return_value="LLM response")
+    @patch("linkedin.renderer.invoke_llm", return_value="LLM response")
     def test_product_description_injected(self, mock_llm):
         template_content = "Product: {{ product_description }}"
 
@@ -63,7 +63,7 @@ class TestRenderTemplate:
         prompt = mock_llm.call_args[0][0]
         assert "We sell widgets" in prompt
 
-    @patch("linkedin.templates.renderer.call_llm", return_value="LLM response")
+    @patch("linkedin.renderer.invoke_llm", return_value="LLM response")
     def test_product_description_empty_when_not_set(self, mock_llm):
         template_content = "Product: '{{ product_description }}'"
 
@@ -73,7 +73,7 @@ class TestRenderTemplate:
         prompt = mock_llm.call_args[0][0]
         assert "Product: ''" in prompt
 
-    @patch("linkedin.templates.renderer.call_llm", return_value="Hi Alice, great to connect!")
+    @patch("linkedin.renderer.invoke_llm", return_value="Hi Alice, great to connect!")
     def test_default_followup_template_forbids_signature(self, mock_llm):
         template_content = DEFAULT_FOLLOWUP_TEMPLATE_PATH.read_text()
 

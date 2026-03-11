@@ -22,7 +22,7 @@ class TestEnsureLeadEnriched:
     def test_already_enriched(self, fake_session):
         """Returns True immediately when lead already has a description."""
         from crm.models import Lead
-        from linkedin.db.crm_profiles import ensure_lead_enriched
+        from linkedin.db.enrichment import ensure_lead_enriched
 
         lead = Lead.objects.create(
             website="https://www.linkedin.com/in/alice/",
@@ -30,14 +30,14 @@ class TestEnsureLeadEnriched:
             description=json.dumps(FAKE_PROFILE),
         )
 
-        with patch("linkedin.db.crm_profiles._fetch_profile") as mock_fetch:
+        with patch("linkedin.db.enrichment._fetch_profile") as mock_fetch:
             assert ensure_lead_enriched(fake_session, lead.pk, "alice") is True
             mock_fetch.assert_not_called()
 
     def test_enriches_url_only_lead(self, fake_session):
         """Fetches profile via Voyager API and populates the lead."""
         from crm.models import Lead
-        from linkedin.db.crm_profiles import ensure_lead_enriched
+        from linkedin.db.enrichment import ensure_lead_enriched
 
         lead = Lead.objects.create(
             website="https://www.linkedin.com/in/alice/",
@@ -46,7 +46,7 @@ class TestEnsureLeadEnriched:
         assert not lead.description
 
         with patch(
-            "linkedin.db.crm_profiles._fetch_profile",
+            "linkedin.db.enrichment._fetch_profile",
             return_value=(FAKE_PROFILE, FAKE_RAW_DATA),
         ):
             assert ensure_lead_enriched(fake_session, lead.pk, "alice") is True
@@ -58,7 +58,7 @@ class TestEnsureLeadEnriched:
     def test_returns_false_on_api_failure(self, fake_session):
         """Returns False when Voyager API returns (None, None)."""
         from crm.models import Lead
-        from linkedin.db.crm_profiles import ensure_lead_enriched
+        from linkedin.db.enrichment import ensure_lead_enriched
 
         lead = Lead.objects.create(
             website="https://www.linkedin.com/in/alice/",
@@ -66,7 +66,7 @@ class TestEnsureLeadEnriched:
         )
 
         with patch(
-            "linkedin.db.crm_profiles._fetch_profile",
+            "linkedin.db.enrichment._fetch_profile",
             return_value=(None, None),
         ):
             assert ensure_lead_enriched(fake_session, lead.pk, "alice") is False
@@ -76,7 +76,7 @@ class TestEnsureLeadEnriched:
 
     def test_returns_false_for_missing_lead(self, fake_session):
         """Returns False when lead PK doesn't exist."""
-        from linkedin.db.crm_profiles import ensure_lead_enriched
+        from linkedin.db.enrichment import ensure_lead_enriched
 
         assert ensure_lead_enriched(fake_session, 99999, "nobody") is False
 
@@ -85,7 +85,7 @@ class TestEnsureProfileEmbedded:
     def test_already_embedded(self, fake_session, embeddings_db):
         """Returns True immediately when embedding exists."""
         from linkedin.models import ProfileEmbedding
-        from linkedin.db.crm_profiles import ensure_profile_embedded
+        from linkedin.db.enrichment import ensure_profile_embedded
 
         emb = np.ones(384, dtype=np.float32)
         ProfileEmbedding.objects.create(
@@ -99,7 +99,7 @@ class TestEnsureProfileEmbedded:
     def test_embeds_enriched_lead(self, fake_session, embeddings_db):
         """Creates embedding from lead description."""
         from crm.models import Lead
-        from linkedin.db.crm_profiles import ensure_profile_embedded
+        from linkedin.db.enrichment import ensure_profile_embedded
 
         Lead.objects.create(
             website="https://www.linkedin.com/in/alice/",
@@ -115,7 +115,7 @@ class TestEnsureProfileEmbedded:
     def test_enriches_then_embeds_with_session(self, fake_session, embeddings_db):
         """When session is provided, enriches url-only lead then embeds."""
         from crm.models import Lead
-        from linkedin.db.crm_profiles import ensure_profile_embedded
+        from linkedin.db.enrichment import ensure_profile_embedded
 
         Lead.objects.create(
             website="https://www.linkedin.com/in/bob/",
@@ -125,7 +125,7 @@ class TestEnsureProfileEmbedded:
 
         with (
             patch(
-                "linkedin.db.crm_profiles._fetch_profile",
+                "linkedin.db.enrichment._fetch_profile",
                 return_value=(FAKE_PROFILE, FAKE_RAW_DATA),
             ),
             patch(
@@ -139,7 +139,7 @@ class TestEnsureProfileEmbedded:
     def test_returns_false_with_session_on_api_failure(self, fake_session, embeddings_db):
         """Returns False when session provided but enrichment fails."""
         from crm.models import Lead
-        from linkedin.db.crm_profiles import ensure_profile_embedded
+        from linkedin.db.enrichment import ensure_profile_embedded
 
         Lead.objects.create(
             website="https://www.linkedin.com/in/bob/",
@@ -148,7 +148,7 @@ class TestEnsureProfileEmbedded:
         )
 
         with patch(
-            "linkedin.db.crm_profiles._fetch_profile",
+            "linkedin.db.enrichment._fetch_profile",
             return_value=(None, None),
         ):
             assert ensure_profile_embedded(45, "bob", session=fake_session) is False

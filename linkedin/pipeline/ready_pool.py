@@ -6,14 +6,14 @@ import logging
 
 import numpy as np
 
-from linkedin.db.crm_profiles import (
+from linkedin.db.deals import (
     get_qualified_profiles,
     get_ready_to_connect_profiles,
-    load_embedding,
     set_profile_state,
 )
+from linkedin.db.enrichment import load_embedding
 from linkedin.ml.qualifier import BayesianQualifier
-from linkedin.navigation.enums import ProfileState
+from linkedin.enums import ProfileState
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) ->
     return promoted
 
 
-def get_ready_candidate(session, qualifier: BayesianQualifier, pipeline=None) -> dict | None:
+def find_ready_candidate(session, qualifier: BayesianQualifier, pipeline=None) -> dict | None:
     """Return the top-ranked READY_TO_CONNECT profile, or None."""
     profiles = get_ready_to_connect_profiles(session)
     if not profiles:

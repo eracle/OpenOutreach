@@ -12,7 +12,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 # action_type → (daily_limit_field, weekly_limit_field)
-_LIMIT_FIELDS = {
+_RATE_LIMIT_FIELDS = {
     "connect": ("connect_daily_limit", "connect_weekly_limit"),
     "follow_up": ("follow_up_daily_limit", None),
 }
@@ -65,7 +65,7 @@ class LinkedInProfile(models.Model):
         if action_type in self._exhausted:
             return False
 
-        daily_field, weekly_field = _LIMIT_FIELDS[action_type]
+        daily_field, weekly_field = _RATE_LIMIT_FIELDS[action_type]
 
         self.refresh_from_db(fields=[daily_field] + ([weekly_field] if weekly_field else []))
 

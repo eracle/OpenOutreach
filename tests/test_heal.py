@@ -4,13 +4,10 @@ import pytest
 from django.utils import timezone
 
 from linkedin.daemon import heal_tasks
-from linkedin.db.crm_profiles import (
-    create_enriched_lead,
-    promote_lead_to_contact,
-    set_profile_state,
-)
+from linkedin.db.deals import set_profile_state
+from linkedin.db.leads import create_enriched_lead, promote_lead_to_contact
 from linkedin.models import Task
-from linkedin.navigation.enums import ProfileState
+from linkedin.enums import ProfileState
 
 
 SAMPLE_PROFILE = {
@@ -75,7 +72,7 @@ class TestHealTasks:
     def test_uses_deal_backoff_for_check_pending(self, fake_session):
         _make_pending(fake_session, "alice")
         from crm.models import Deal
-        from linkedin.db.crm_profiles import public_id_to_url
+        from linkedin.db.urls import public_id_to_url
         Deal.objects.filter(
             lead__website=public_id_to_url("alice"),
         ).update(next_step=json.dumps({"backoff_hours": 96}))

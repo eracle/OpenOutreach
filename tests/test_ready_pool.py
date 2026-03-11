@@ -4,14 +4,11 @@ from unittest.mock import patch
 
 import numpy as np
 
-from linkedin.db.crm_profiles import (
-    create_enriched_lead,
-    promote_lead_to_contact,
-    set_profile_state,
-)
+from linkedin.db.deals import set_profile_state
+from linkedin.db.leads import create_enriched_lead, promote_lead_to_contact
 from linkedin.ml.qualifier import BayesianQualifier
-from linkedin.navigation.enums import ProfileState
-from linkedin.pipeline.ready_pool import promote_to_ready, get_ready_candidate
+from linkedin.enums import ProfileState
+from linkedin.pipeline.ready_pool import promote_to_ready, find_ready_candidate
 
 
 SAMPLE_PROFILE = {
@@ -82,7 +79,7 @@ class TestGetReadyCandidate:
 
     def test_returns_none_when_empty(self, fake_session):
         scorer = BayesianQualifier(seed=42)
-        assert get_ready_candidate(fake_session, scorer) is None
+        assert find_ready_candidate(fake_session, scorer) is None
 
     def test_returns_top_ranked(self, fake_session):
         _make_qualified(fake_session, "alice")
@@ -91,6 +88,6 @@ class TestGetReadyCandidate:
         scorer = BayesianQualifier(seed=42)
         scorer.rank_profiles = lambda profiles, **kw: profiles
 
-        result = get_ready_candidate(fake_session, scorer)
+        result = find_ready_candidate(fake_session, scorer)
         assert result is not None
         assert result["public_identifier"] == "alice"

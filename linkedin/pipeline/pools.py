@@ -3,7 +3,7 @@
 
 Three generators chain via next(upstream, None):
 
-    get_candidate() = next(ready_source, None)
+    find_candidate() = next(ready_source, None)
                             |
                   ready_source  <- pulls from qualify_source
                             |
@@ -24,14 +24,14 @@ import numpy as np
 
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.ml.qualifier import BayesianQualifier
-from linkedin.pipeline.qualify import get_unlabeled_candidates, qualify_one
-from linkedin.pipeline.ready_pool import get_ready_candidate, promote_to_ready
-from linkedin.pipeline.search import search_one
+from linkedin.pipeline.qualify import fetch_unlabeled_candidates, run_qualification
+from linkedin.pipeline.ready_pool import find_ready_candidate, promote_to_ready
+from linkedin.pipeline.search import run_search
 
 logger = logging.getLogger(__name__)
 
 
-def _positive_pool_empty(qualifier: BayesianQualifier, candidates) -> bool:
+def _needs_search(qualifier: BayesianQualifier, candidates) -> bool:
     """True only in exploit mode when no candidate meets the adaptive threshold.
 
     Effective threshold = max(0, base - 1/sqrt(n_obs)).
@@ -83,16 +83,16 @@ def _positive_pool_empty(qualifier: BayesianQualifier, candidates) -> bool:
 
 
 def search_source(session) -> Generator[str, None, None]:
-    """Yield keywords from search_one(). Stops when search_one returns None."""
+    """Yield keywords from run_search(). Stops when run_search returns None."""
     while True:
-        keyword = search_one(session)
+        keyword = run_search(session)
         if keyword is None:
             return
         yield keyword
 
 
 def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None, None]:
-    """Yield public_ids from qualify_one(), pulling from search when needed.
+    """Yield public_ids from run_qualification(), pulling from search when needed.
 
     In exploit mode, the effective pool is candidates with P > 0.5. When
     this pool is empty, keeps searching until high-P candidates appear or
@@ -103,24 +103,24 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
     search = search_source(session)
 
     while True:
-        candidates = get_unlabeled_candidates(session)
+        candidates = fetch_unlabeled_candidates(session)
 
         # If no candidates at all, search to bring some in
         if not candidates:
             if next(search, None) is None:
                 return
-            candidates = get_unlabeled_candidates(session)
+            candidates = fetch_unlabeled_candidates(session)
             if not candidates:
                 return
 
         # In exploit mode with no P > 0.5 candidates, keep searching
         # until the positive pool is non-empty or search is exhausted.
-        while _positive_pool_empty(qualifier, candidates):
+        while _needs_search(qualifier, candidates):
             if next(search, None) is None:
                 break
-            candidates = get_unlabeled_candidates(session)
+            candidates = fetch_unlabeled_candidates(session)
 
-        result = qualify_one(session, qualifier)
+        result = run_qualification(session, qualifier)
         if result is None:
             return
         yield result
@@ -133,7 +133,7 @@ def ready_source(session, qualifier: BayesianQualifier, pipeline=None, threshold
     qualify = qualify_source(session, qualifier)
 
     while True:
-        candidate = get_ready_candidate(session, qualifier, pipeline=pipeline)
+        candidate = find_ready_candidate(session, qualifier, pipeline=pipeline)
         if candidate is not None:
             yield candidate
             continue
@@ -152,7 +152,7 @@ def ready_source(session, qualifier: BayesianQualifier, pipeline=None, threshold
         return
 
 
-def get_candidate(session, qualifier: BayesianQualifier, pipeline=None) -> dict | None:
+def find_candidate(session, qualifier: BayesianQualifier, pipeline=None) -> dict | None:
     """Top profile ready for connection, backfilling if needed.
 
     Only used by regular campaigns. Partner campaigns use

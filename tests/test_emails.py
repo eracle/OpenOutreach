@@ -1,5 +1,5 @@
 # tests/test_emails.py
-from linkedin.api.emails import normalize_boolean
+from linkedin.api.newsletter import normalize_boolean
 
 
 class TestNormalizeBoolean:

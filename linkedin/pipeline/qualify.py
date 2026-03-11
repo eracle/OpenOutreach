@@ -13,9 +13,10 @@ from linkedin.ml.qualifier import BayesianQualifier
 logger = logging.getLogger(__name__)
 
 
-def get_unlabeled_candidates(session):
+def fetch_unlabeled_candidates(session):
     """Return unlabeled ProfileEmbedding rows, embedding one new lead if the list is empty."""
-    from linkedin.db.crm_profiles import get_leads_for_qualification, ensure_profile_embedded
+    from linkedin.db.leads import get_leads_for_qualification
+    from linkedin.db.enrichment import ensure_profile_embedded
     from linkedin.models import ProfileEmbedding
 
     leads = get_leads_for_qualification(session)
@@ -48,11 +49,11 @@ def get_unlabeled_candidates(session):
     return []
 
 
-def qualify_one(session, qualifier: BayesianQualifier) -> str | None:
+def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
     """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns public_id or None."""
     from linkedin.ml.qualifier import qualify_with_llm, format_prediction
 
-    candidates = get_unlabeled_candidates(session)
+    candidates = fetch_unlabeled_candidates(session)
     if not candidates:
         return None
 
@@ -91,10 +92,10 @@ def qualify_one(session, qualifier: BayesianQualifier) -> str | None:
     else:
         logger.debug("%s GP not fitted (%d obs) — querying LLM", public_id, qualifier.n_obs)
 
-    profile_text = _get_profile_text(session, lead_id, public_id)
+    profile_text = _fetch_profile_text(session, lead_id, public_id)
     if not profile_text:
         logger.warning("No profile text for lead %d \u2014 disqualifying", lead_id)
-        _record_decision(session, qualifier, lead_id, public_id, embedding, 0, "no profile text available")
+        _save_qualification_result(session, qualifier, lead_id, public_id, embedding, 0, "no profile text available")
         return public_id
 
     campaign = session.campaign
@@ -103,12 +104,12 @@ def qualify_one(session, qualifier: BayesianQualifier) -> str | None:
         product_docs=campaign.product_docs,
         campaign_objective=campaign.campaign_objective,
     )
-    _record_decision(session, qualifier, lead_id, public_id, embedding, label, reason)
+    _save_qualification_result(session, qualifier, lead_id, public_id, embedding, label, reason)
     return public_id
 
 
-def _record_decision(session, qualifier: BayesianQualifier, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
-    from linkedin.db.crm_profiles import disqualify_lead, promote_lead_to_contact
+def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
+    from linkedin.db.leads import disqualify_lead, promote_lead_to_contact
     from linkedin.models import ProfileEmbedding
 
     ProfileEmbedding.objects.filter(lead_id=lead_id).update(
@@ -128,8 +129,9 @@ def _record_decision(session, qualifier: BayesianQualifier, lead_id: int, public
         disqualify_lead(session, public_id, reason=reason)
 
 
-def _get_profile_text(session, lead_id: int, public_id: str) -> str | None:
-    from linkedin.db.crm_profiles import ensure_lead_enriched, lead_profile_by_id
+def _fetch_profile_text(session, lead_id: int, public_id: str) -> str | None:
+    from linkedin.db.enrichment import ensure_lead_enriched
+    from linkedin.db.leads import lead_profile_by_id
     from linkedin.ml.profile_text import build_profile_text
 
     ensure_lead_enriched(session, lead_id, public_id)

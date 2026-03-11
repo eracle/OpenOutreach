@@ -6,13 +6,10 @@ import logging
 
 from termcolor import colored
 
-from linkedin.db.crm_profiles import (
-    get_profile_dict_for_public_id,
-    save_chat_message,
-    set_profile_state,
-)
+from linkedin.db.chat import save_chat_message
+from linkedin.db.deals import get_profile_dict_for_public_id, set_profile_state
 from linkedin.models import ActionLog
-from linkedin.navigation.enums import ProfileState
+from linkedin.enums import ProfileState
 
 logger = logging.getLogger(__name__)
 

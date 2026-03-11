@@ -39,7 +39,7 @@ class _PromoRotator:
         self._ticks = 0
         self._next = 0
 
-    def tick(self):
+    def maybe_log(self):
         self._ticks += 1
         if self._ticks % self._every == 0:
             logger.info(self._MESSAGES[self._next % len(self._MESSAGES)])
@@ -137,8 +137,9 @@ def heal_tasks(session):
     4. Create 'follow_up' tasks for CONNECTED profiles without tasks
     """
     from crm.models import Deal, Stage
-    from linkedin.db.crm_profiles import parse_next_step, url_to_public_id
-    from linkedin.navigation.enums import ProfileState
+    from linkedin.db.deals import parse_next_step
+    from linkedin.db.urls import url_to_public_id
+    from linkedin.enums import ProfileState
 
     cfg = CAMPAIGN_CONFIG
 
@@ -203,13 +204,14 @@ def heal_tasks(session):
 
 def run_daemon(session):
     from linkedin.management.setup_crm import ensure_campaign_pipeline
-    from linkedin.ml.hub import get_kit, import_partner_campaign
+    from linkedin.ml.hub import fetch_kit
+    from linkedin.setup.partner import import_partner_campaign
     from linkedin.models import Campaign
 
     cfg = CAMPAIGN_CONFIG
 
     # Load kit model for partner campaigns
-    kit = get_kit()
+    kit = fetch_kit()
     if kit:
         import_partner_campaign(kit["config"])
 
@@ -280,4 +282,4 @@ def run_daemon(session):
         task.status = Task.Status.COMPLETED
         task.completed_at = timezone.now()
         task.save(update_fields=["status", "completed_at"])
-        promo.tick()
+        promo.maybe_log()

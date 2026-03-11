@@ -38,13 +38,13 @@ logger = logging.getLogger(__name__)
 
 
 def _run_daemon():
-    from linkedin.api.emails import ensure_newsletter_subscription
+    from linkedin.api.newsletter import ensure_newsletter_subscription
     from linkedin.daemon import run_daemon
-    from linkedin.db.crm_profiles import public_id_to_url
-    from linkedin.self_profile import ensure_self_profile
-    from linkedin.gdpr import apply_gdpr_newsletter_override
+    from linkedin.db.urls import public_id_to_url
+    from linkedin.setup.self_profile import ensure_self_profile
+    from linkedin.setup.gdpr import apply_gdpr_newsletter_override
     from linkedin.onboarding import ensure_onboarding
-    from linkedin.sessions.registry import get_session
+    from linkedin.browser.registry import get_or_create_session
 
     ensure_onboarding()
 
@@ -59,7 +59,7 @@ def _run_daemon():
         logger.error("No active LinkedIn profiles found.")
         sys.exit(1)
 
-    session = get_session(handle=handle)
+    session = get_or_create_session(handle=handle)
 
     # Set default campaign (first non-partner, or first available) for startup tasks
     first_campaign = session.campaigns.filter(is_partner=False).first() or session.campaigns.first()

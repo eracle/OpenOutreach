@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 import logging
 
-from linkedin.db.crm_profiles import url_to_public_id
+from linkedin.db.urls import url_to_public_id
 
 logger = logging.getLogger(__name__)
 
 
-def get_partner_candidate(session, qualifier) -> dict | None:
+def find_partner_candidate(session, qualifier) -> dict | None:
     """Return the top-ranked disqualified+embedded lead not yet dealt in this campaign.
 
     Bypasses the Deal-based pool system entirely. Queries ProfileEmbedding

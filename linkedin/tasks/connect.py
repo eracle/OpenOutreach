@@ -13,17 +13,17 @@ from typing import Callable
 from termcolor import colored
 
 from linkedin.conf import CAMPAIGN_CONFIG
-from linkedin.db.crm_profiles import set_profile_state
+from linkedin.db.deals import set_profile_state
 from linkedin.models import ActionLog
-from linkedin.navigation.enums import ProfileState
-from linkedin.navigation.exceptions import ReachedConnectionLimit, SkipProfile
+from linkedin.enums import ProfileState
+from linkedin.exceptions import ReachedConnectionLimit, SkipProfile
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ConnectStrategy:
-    get_candidate: Callable
+    find_candidate: Callable
     pre_connect: Callable | None
     delay: float
     qualifier: object
@@ -40,20 +40,20 @@ def strategy_for(campaign, qualifiers):
     qualifier = qualifiers.get(campaign.pk)
 
     if campaign.is_partner:
-        from linkedin.db.crm_profiles import create_partner_deal
-        from linkedin.pipeline.partner_pool import get_partner_candidate
+        from linkedin.db.deals import create_partner_deal
+        from linkedin.pipeline.partner_pool import find_partner_candidate
 
         return ConnectStrategy(
-            get_candidate=lambda s: get_partner_candidate(s, qualifier),
+            find_candidate=lambda s: find_partner_candidate(s, qualifier),
             pre_connect=lambda s, pid: create_partner_deal(s, pid),
             delay=_partner_delay(campaign),
             qualifier=qualifier,
         )
 
-    from linkedin.pipeline.pools import get_candidate
+    from linkedin.pipeline.pools import find_candidate
 
     return ConnectStrategy(
-        get_candidate=lambda s: get_candidate(s, qualifier),
+        find_candidate=lambda s: find_candidate(s, qualifier),
         pre_connect=None,
         delay=CAMPAIGN_CONFIG["connect_delay_seconds"],
         qualifier=qualifier,
@@ -73,7 +73,7 @@ def _seconds_until_tomorrow() -> float:
 
 def handle_connect(task, session, qualifiers):
     from linkedin.actions.connect import send_connection_request
-    from linkedin.actions.connection_status import get_connection_status
+    from linkedin.actions.status import get_connection_status
     from linkedin.models import ProfileEmbedding
 
     cfg = CAMPAIGN_CONFIG
@@ -87,7 +87,7 @@ def handle_connect(task, session, qualifiers):
         return
 
     # --- Get candidate ---
-    candidate = strategy.get_candidate(session)
+    candidate = strategy.find_candidate(session)
     if candidate is None:
         enqueue_connect(campaign_id, delay_seconds=cfg["connect_no_candidate_delay_seconds"])
         return

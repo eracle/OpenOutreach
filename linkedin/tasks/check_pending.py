@@ -7,20 +7,17 @@ import logging
 
 from termcolor import colored
 
-from linkedin.db.crm_profiles import (
-    get_profile_dict_for_public_id,
-    public_id_to_url,
-    set_profile_state,
-)
-from linkedin.navigation.enums import ProfileState
-from linkedin.navigation.exceptions import SkipProfile
+from linkedin.db.deals import get_profile_dict_for_public_id, set_profile_state
+from linkedin.db.urls import public_id_to_url
+from linkedin.enums import ProfileState
+from linkedin.exceptions import SkipProfile
 
 logger = logging.getLogger(__name__)
 
 
 def handle_check_pending(task, session, qualifiers):
     from crm.models import Deal
-    from linkedin.actions.connection_status import get_connection_status
+    from linkedin.actions.status import get_connection_status
     from linkedin.tasks.connect import enqueue_check_pending, enqueue_follow_up
 
     payload = task.payload

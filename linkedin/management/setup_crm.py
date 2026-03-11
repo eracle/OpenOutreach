@@ -10,7 +10,7 @@ Idempotent — safe to run multiple times.
 import logging
 import sys
 
-from linkedin.navigation.enums import ProfileState
+from linkedin.enums import ProfileState
 
 logger = logging.getLogger(__name__)
 

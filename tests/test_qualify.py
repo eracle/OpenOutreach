@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import pytest
 
-from linkedin.pipeline.qualify import qualify_one
+from linkedin.pipeline.qualify import run_qualification
 from linkedin.ml.qualifier import BayesianQualifier
 
 
@@ -46,12 +46,12 @@ class TestQualifyAutoDecisions:
 
         with (
             patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
-            patch("linkedin.pipeline.qualify._get_profile_text", return_value="engineer at acme"),
+            patch("linkedin.pipeline.qualify._fetch_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_with_llm", return_value=(1, "Good fit")) as mock_llm,
             patch.object(qualifier, "update"),
             patch("linkedin.db.crm_profiles.promote_lead_to_contact"),
         ):
-            qualify_one(session, qualifier)
+            run_qualification(session, qualifier)
             mock_llm.assert_called_once()
             assert ProfileEmbedding.objects.get(lead_id=1).label == 1
 
@@ -62,12 +62,12 @@ class TestQualifyAutoDecisions:
 
         with (
             patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
-            patch("linkedin.pipeline.qualify._get_profile_text", return_value="engineer at acme"),
+            patch("linkedin.pipeline.qualify._fetch_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_with_llm", return_value=(0, "Bad fit")) as mock_llm,
             patch.object(qualifier, "update"),
             patch("linkedin.db.crm_profiles.disqualify_lead"),
         ):
-            qualify_one(session, qualifier)
+            run_qualification(session, qualifier)
             mock_llm.assert_called_once()
 
     def test_disqualify_on_promote_failure(self, embeddings_db):
@@ -77,12 +77,12 @@ class TestQualifyAutoDecisions:
 
         with (
             patch("linkedin.db.crm_profiles.get_leads_for_qualification", return_value=_fake_leads()),
-            patch("linkedin.pipeline.qualify._get_profile_text", return_value="engineer at acme"),
+            patch("linkedin.pipeline.qualify._fetch_profile_text", return_value="engineer at acme"),
             patch("linkedin.ml.qualifier.qualify_with_llm", return_value=(1, "Good fit")),
             patch.object(qualifier, "update"),
             patch("linkedin.db.crm_profiles.promote_lead_to_contact",
                   side_effect=ValueError("no Company")),
             patch("linkedin.db.crm_profiles.disqualify_lead") as mock_disqualify,
         ):
-            qualify_one(session, qualifier)
+            run_qualification(session, qualifier)
             mock_disqualify.assert_called_once()

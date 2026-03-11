@@ -6,8 +6,8 @@ from typing import Optional, Any
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from linkedin.api.voyager import parse_linkedin_voyager_response
-from linkedin.db.crm_profiles import url_to_public_id
-from linkedin.navigation.exceptions import AuthenticationError
+from linkedin.db.urls import url_to_public_id
+from linkedin.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 

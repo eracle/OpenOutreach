@@ -3,10 +3,10 @@ import json
 import logging
 from typing import Dict, Any
 
-from linkedin.actions.connection_status import get_connection_status
-from linkedin.navigation.enums import ProfileState
-from linkedin.navigation.utils import goto_page, human_type
-from linkedin.templates.renderer import render_template
+from linkedin.actions.status import get_connection_status
+from linkedin.enums import ProfileState
+from linkedin.browser.nav import goto_page, human_type
+from linkedin.renderer import render_template
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     django.setup()
 
     from linkedin.conf import get_first_active_profile_handle
-    from linkedin.sessions.registry import get_session
+    from linkedin.browser.registry import get_or_create_session
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -157,7 +157,7 @@ if __name__ == "__main__":
         "public_identifier": args.profile,
     }
 
-    session = get_session(handle=handle)
+    session = get_or_create_session(handle=handle)
     session.campaign = session.campaigns.first()
     session.ensure_browser()
     print(f"Sending follow-up message as @{handle} → {args.profile}")

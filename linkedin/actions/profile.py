@@ -48,7 +48,7 @@ if __name__ == "__main__":
     django.setup()
 
     from linkedin.conf import get_first_active_profile_handle
-    from linkedin.sessions.registry import get_session
+    from linkedin.browser.registry import get_or_create_session
 
     logging.basicConfig(
         level=logging.DEBUG,
@@ -70,7 +70,7 @@ if __name__ == "__main__":
         "url": f"https://www.linkedin.com/in/{args.profile}/",
     }
 
-    session = get_session(handle=handle)
+    session = get_or_create_session(handle=handle)
     session.campaign = session.campaigns.first()
     print(f"Scraping profile as @{handle} → {args.profile}")
 

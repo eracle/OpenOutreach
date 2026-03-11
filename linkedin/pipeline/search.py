@@ -10,10 +10,10 @@ from termcolor import colored
 logger = logging.getLogger(__name__)
 
 
-def search_one(session) -> str | None:
+def run_search(session) -> str | None:
     """Use the next search keyword to discover new profiles. Returns keyword or None."""
     from linkedin.actions.search import search_people
-    from linkedin.ml.search_keywords import generate_search_keywords
+    from linkedin.pipeline.search_keywords import generate_search_keywords
     from linkedin.models import SearchKeyword
 
     campaign = session.campaign

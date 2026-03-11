@@ -10,7 +10,7 @@ from typing import Optional
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from linkedin.api.client import PlaywrightLinkedinAPI, REQUEST_TIMEOUT_MS
-from linkedin.navigation.exceptions import AuthenticationError
+from linkedin.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 

@@ -6,8 +6,8 @@ import numpy as np
 
 from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.pipeline.pools import (
-    get_candidate,
-    _positive_pool_empty,
+    find_candidate,
+    _needs_search,
     search_source,
     qualify_source,
     ready_source,
@@ -34,7 +34,7 @@ def _make_candidate(lead_id, embedding_array, label=None):
 class TestPositivePoolEmpty:
     def test_empty_candidates(self):
         scorer = BayesianQualifier(seed=42)
-        assert _positive_pool_empty(scorer, []) is False
+        assert _needs_search(scorer, []) is False
 
     def test_explore_mode(self):
         """n_neg <= n_pos → explore mode → always False."""
@@ -42,7 +42,7 @@ class TestPositivePoolEmpty:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(2, 3)):
-            assert _positive_pool_empty(scorer, candidates) is False
+            assert _needs_search(scorer, candidates) is False
 
     def test_cold_start(self):
         """Unfitted qualifier (predict_probs=None) → False."""
@@ -53,7 +53,7 @@ class TestPositivePoolEmpty:
             patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(3, 2)),
             patch.object(scorer, "predict_probs", return_value=None),
         ):
-            assert _positive_pool_empty(scorer, candidates) is False
+            assert _needs_search(scorer, candidates) is False
 
     def test_exploit_low_n_obs_adaptive_threshold(self):
         """Exploit mode with few obs → threshold=0 (adaptive) → False (qualify first)."""
@@ -69,7 +69,7 @@ class TestPositivePoolEmpty:
             patch.object(scorer, "predict_probs", return_value=np.array([0.1, 0.2])),
         ):
             # n_obs=7, 1/√7≈0.378 > base=0.25, threshold=0 → any P≥0 → not empty
-            assert _positive_pool_empty(scorer, candidates) is False
+            assert _needs_search(scorer, candidates) is False
 
     def test_exploit_high_n_obs_triggers_search(self):
         """Exploit mode with many obs → threshold rises → True (search)."""
@@ -86,7 +86,7 @@ class TestPositivePoolEmpty:
         ):
             # n_obs=100, 1/√100=0.1, threshold=max(0, 0.25-0.1)=0.15
             # max_p=0.08 < 0.15 → pool empty → True
-            assert _positive_pool_empty(scorer, candidates) is True
+            assert _needs_search(scorer, candidates) is True
 
     def test_exploit_degenerate_predictions(self):
         """Exploit mode with degenerate GP (all identical P) → False (skip search)."""
@@ -100,7 +100,7 @@ class TestPositivePoolEmpty:
             patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(5, 2)),
             patch.object(scorer, "predict_probs", return_value=np.array([0.15, 0.15])),
         ):
-            assert _positive_pool_empty(scorer, candidates) is False
+            assert _needs_search(scorer, candidates) is False
 
     def test_exploit_has_high_prob(self):
         """Exploit mode with some P above threshold → False."""
@@ -114,32 +114,32 @@ class TestPositivePoolEmpty:
             patch.object(type(scorer), "class_counts", new_callable=PropertyMock, return_value=(5, 2)),
             patch.object(scorer, "predict_probs", return_value=np.array([0.1, 0.7])),
         ):
-            assert _positive_pool_empty(scorer, candidates) is False
+            assert _needs_search(scorer, candidates) is False
 
 
 class TestSearchSource:
     def test_yields_keywords(self):
-        with patch("linkedin.pipeline.pools.search_one", side_effect=["kw1", "kw2", None]):
+        with patch("linkedin.pipeline.pools.run_search", side_effect=["kw1", "kw2", None]):
             results = list(search_source("session"))
         assert results == ["kw1", "kw2"]
 
     def test_stops_on_none(self):
-        with patch("linkedin.pipeline.pools.search_one", return_value=None):
+        with patch("linkedin.pipeline.pools.run_search", return_value=None):
             results = list(search_source("session"))
         assert results == []
 
 
 class TestQualifySource:
     def test_qualifies_without_search_when_pool_ok(self):
-        """When pool has candidates and _positive_pool_empty=False, qualifies directly."""
+        """When pool has candidates and _needs_search=False, qualifies directly."""
         scorer = BayesianQualifier(seed=42)
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
-            patch("linkedin.pipeline.pools._positive_pool_empty", return_value=False),
-            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", None]),
-            patch("linkedin.pipeline.pools.search_one") as mock_search,
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools._needs_search", return_value=False),
+            patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
+            patch("linkedin.pipeline.pools.run_search") as mock_search,
         ):
             results = list(qualify_source("session", scorer))
 
@@ -152,11 +152,11 @@ class TestQualifySource:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
             # Always empty — search exhausts (returns None) and loop breaks
-            patch("linkedin.pipeline.pools._positive_pool_empty", return_value=True),
-            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", None]),
-            patch("linkedin.pipeline.pools.search_one", side_effect=["kw1", "kw2", None]) as mock_search,
+            patch("linkedin.pipeline.pools._needs_search", return_value=True),
+            patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
+            patch("linkedin.pipeline.pools.run_search", side_effect=["kw1", "kw2", None]) as mock_search,
         ):
             results = list(qualify_source("session", scorer))
 
@@ -164,7 +164,7 @@ class TestQualifySource:
         assert mock_search.call_count == 3  # kw1, kw2, None (exhausted)
 
     def test_search_stops_when_pool_fills(self):
-        """In exploit mode, searching stops when _positive_pool_empty flips to False."""
+        """In exploit mode, searching stops when _needs_search flips to False."""
         scorer = BayesianQualifier(seed=42)
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
@@ -176,10 +176,10 @@ class TestQualifySource:
             return call_count[0] <= 1
 
         with (
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
-            patch("linkedin.pipeline.pools._positive_pool_empty", side_effect=pool_empty_side_effect),
-            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", None]),
-            patch("linkedin.pipeline.pools.search_one", return_value="kw") as mock_search,
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools._needs_search", side_effect=pool_empty_side_effect),
+            patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
+            patch("linkedin.pipeline.pools.run_search", return_value="kw") as mock_search,
         ):
             results = list(qualify_source("session", scorer))
 
@@ -192,11 +192,11 @@ class TestQualifySource:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates",
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates",
                   side_effect=[[], candidates, candidates]),
-            patch("linkedin.pipeline.pools._positive_pool_empty", return_value=False),
-            patch("linkedin.pipeline.pools.qualify_one", side_effect=["alice", None]),
-            patch("linkedin.pipeline.pools.search_one", return_value="kw1") as mock_search,
+            patch("linkedin.pipeline.pools._needs_search", return_value=False),
+            patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
+            patch("linkedin.pipeline.pools.run_search", return_value="kw1") as mock_search,
         ):
             results = list(qualify_source("session", scorer))
 
@@ -208,9 +208,9 @@ class TestQualifySource:
         scorer = BayesianQualifier(seed=42)
 
         with (
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=[]),
-            patch("linkedin.pipeline.pools.search_one", return_value=None),
-            patch("linkedin.pipeline.pools.qualify_one") as mock_qualify,
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=[]),
+            patch("linkedin.pipeline.pools.run_search", return_value=None),
+            patch("linkedin.pipeline.pools.run_qualification") as mock_qualify,
         ):
             results = list(qualify_source("session", scorer))
 
@@ -230,36 +230,36 @@ class TestGetCandidate:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.get_ready_candidate", side_effect=[None, candidate]),
+            patch("linkedin.pipeline.pools.find_ready_candidate", side_effect=[None, candidate]),
             patch("linkedin.pipeline.pools.promote_to_ready", side_effect=[0, 1]),
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
-            patch("linkedin.pipeline.pools._positive_pool_empty", return_value=False),
-            patch("linkedin.pipeline.pools.qualify_one", return_value="alice"),
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools._needs_search", return_value=False),
+            patch("linkedin.pipeline.pools.run_qualification", return_value="alice"),
         ):
-            assert get_candidate(fake_session, scorer) == candidate
+            assert find_candidate(fake_session, scorer) == candidate
 
     def test_exhausted_returns_none(self, fake_session):
         scorer = BayesianQualifier(seed=42)
 
         with (
-            patch("linkedin.pipeline.pools.get_ready_candidate", return_value=None),
+            patch("linkedin.pipeline.pools.find_ready_candidate", return_value=None),
             patch("linkedin.pipeline.pools.promote_to_ready", return_value=0),
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=[]),
-            patch("linkedin.pipeline.pools.search_one", return_value=None),
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=[]),
+            patch("linkedin.pipeline.pools.run_search", return_value=None),
         ):
-            assert get_candidate(fake_session, scorer) is None
+            assert find_candidate(fake_session, scorer) is None
 
     def test_promote_after_qualify(self, fake_session):
-        """After qualify_one produces a label, promote_to_ready is retried."""
+        """After run_qualification produces a label, promote_to_ready is retried."""
         scorer = BayesianQualifier(seed=42)
         candidate = {"public_identifier": "alice"}
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.get_ready_candidate", side_effect=[None, candidate]),
+            patch("linkedin.pipeline.pools.find_ready_candidate", side_effect=[None, candidate]),
             patch("linkedin.pipeline.pools.promote_to_ready", side_effect=[0, 1]),
-            patch("linkedin.pipeline.pools.get_unlabeled_candidates", return_value=candidates),
-            patch("linkedin.pipeline.pools._positive_pool_empty", return_value=False),
-            patch("linkedin.pipeline.pools.qualify_one", return_value="alice"),
+            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools._needs_search", return_value=False),
+            patch("linkedin.pipeline.pools.run_qualification", return_value="alice"),
         ):
-            assert get_candidate(fake_session, scorer) == candidate
+            assert find_candidate(fake_session, scorer) == candidate

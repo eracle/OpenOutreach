@@ -327,7 +327,7 @@ class BayesianQualifier:
         step to compute proper posterior probabilities.
         Raises if a non-partner profile lacks an embedding after lazy loading.
         """
-        from linkedin.db.crm_profiles import load_embedding
+        from linkedin.db.enrichment import load_embedding
 
         if not profiles:
             return []
@@ -381,7 +381,7 @@ class BayesianQualifier:
 
     def explain(self, profile: dict, session) -> str:
         """Human-readable compact scoring explanation."""
-        from linkedin.db.crm_profiles import load_embedding
+        from linkedin.db.enrichment import load_embedding
 
         emb = load_embedding(profile.get("lead_id"), profile.get("public_identifier"), session)
         if emb is None:

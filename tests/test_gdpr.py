@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from linkedin.gdpr import (
+from linkedin.setup.gdpr import (
     GDPR_COUNTRY_CODES,
     apply_gdpr_newsletter_override,
     is_gdpr_protected,
