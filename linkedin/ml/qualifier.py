@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def format_prediction(prob: float, entropy: float, std: float, n_obs: int) -> str:
     """Compact one-liner stats string for qualification logging."""
-    return f"prob={prob:.3f}, entropy={entropy:.4f}, std={std:.4f}, obs={n_obs}"
+    return f"P(f>0.5)={prob:.3f}, entropy={entropy:.4f}, std={std:.4f}, obs={n_obs}"
 
 
 class QualificationDecision(BaseModel):
@@ -403,8 +403,10 @@ class BayesianQualifier:
             return "No embedding found for profile"
         if not self._fit_if_needed():
             return f"Model not fitted yet ({self.n_obs} observations, need both classes)"
-        score = _explain_score(self._pipeline, emb)
-        return f"score={score:.3f}, obs={self.n_obs}"
+        mean, std = _gpr_predict(self._pipeline, emb)
+        gp_mean = float(mean[0])
+        p_above = float(_prob_above_half(mean, std)[0])
+        return f"mean={gp_mean:.3f}, P(f>0.5)={p_above:.3f}, obs={self.n_obs}"
 
     # ------------------------------------------------------------------
     # Warm start
@@ -424,10 +426,10 @@ class BayesianQualifier:
 # ---------------------------------------------------------------------------
 
 class KitQualifier:
-    """Qualifier for partner campaigns backed by a pre-trained kit model.
+    """Qualifier for partner campaigns backed by a pre-trained GPR kit model.
 
-    Treats the kit model as a black-box scorer — calls pipeline.predict()
-    and ranks by raw score.  No GPR-specific assumptions.
+    Wraps a Pipeline(StandardScaler, GPR) loaded from a campaign kit.
+    Ranks by raw GP mean and exposes posterior stats for explanation.
     """
 
     def __init__(self, kit_model):
@@ -446,5 +448,7 @@ class KitQualifier:
         emb = load_embedding(profile.get("lead_id"), profile.get("public_identifier"), session)
         if emb is None:
             return "No embedding found for profile"
-        score = _explain_score(self._model, emb)
-        return f"score={score:.3f}"
+        mean, std = _gpr_predict(self._model, emb)
+        gp_mean = float(mean[0])
+        p_above = float(_prob_above_half(mean, std)[0])
+        return f"mean={gp_mean:.3f}, P(f>0.5)={p_above:.3f}"
