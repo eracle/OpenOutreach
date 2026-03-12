@@ -1,12 +1,14 @@
 # linkedin/admin.py
 from django.contrib import admin
 
+from chat.models import ChatMessage
+
 from linkedin.models import ActionLog, Campaign, LinkedInProfile, ProfileEmbedding, SearchKeyword, Task
 
 
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
-    list_display = ("department", "booking_link", "is_partner", "action_fraction")
+    list_display = ("department", "booking_link", "is_freemium", "action_fraction")
     raw_id_fields = ("department",)
 
 
@@ -49,3 +51,15 @@ class TaskAdmin(admin.ModelAdmin):
         "created_at", "started_at", "completed_at",
     )
     date_hierarchy = "scheduled_at"
+
+
+admin.site.unregister(ChatMessage)
+
+
+@admin.register(ChatMessage)
+class ChatMessageAdmin(admin.ModelAdmin):
+    list_display = ("content_type", "object_id", "owner", "creation_date")
+    list_filter = ("content_type", "owner")
+    raw_id_fields = ("owner", "answer_to", "topic")
+    date_hierarchy = "creation_date"
+    readonly_fields = ("content_type", "object_id", "content", "owner", "creation_date")
