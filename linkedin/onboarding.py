@@ -216,24 +216,26 @@ def _onboard_account(campaign):
     return profile
 
 
-def _require_legal_acceptance(campaign) -> None:
-    """Require the user to accept the legal notice for a campaign."""
-    if campaign.legal_accepted:
+def _require_legal_acceptance(profile) -> None:
+    """Require the user to accept the legal notice for a LinkedIn profile."""
+    if profile.legal_accepted:
         return
 
     url = "https://github.com/eracle/linkedin/blob/master/LEGAL_NOTICE.md"
     print()
     print("=" * 60)
-    print(f"  LEGAL NOTICE — Campaign: {campaign}")
+    print(f"  LEGAL NOTICE — Account: {profile.linkedin_username}")
     print("=" * 60)
     print()
     print(f"Please read the Legal Notice before continuing:\n  {url}")
     print()
     while True:
-        answer = input("Do you accept the Legal Notice? (y/n): ").strip().lower()
+        answer = input(
+            f"Do you accept the Legal Notice for '{profile.linkedin_username}'? (y/n): "
+        ).strip().lower()
         if answer == "y":
-            campaign.legal_accepted = True
-            campaign.save(update_fields=["legal_accepted"])
+            profile.legal_accepted = True
+            profile.save(update_fields=["legal_accepted"])
             return
         if answer == "n":
             print()
@@ -262,5 +264,5 @@ def ensure_onboarding() -> None:
 
     _ensure_llm_config()
 
-    for c in Campaign.objects.filter(legal_accepted=False):
-        _require_legal_acceptance(c)
+    for p in LinkedInProfile.objects.filter(legal_accepted=False, active=True):
+        _require_legal_acceptance(p)

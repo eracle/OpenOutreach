@@ -6,13 +6,13 @@ from linkedin.models import ActionLog, Campaign, LinkedInProfile, ProfileEmbeddi
 
 @admin.register(Campaign)
 class CampaignAdmin(admin.ModelAdmin):
-    list_display = ("department", "booking_link", "is_partner", "action_fraction", "legal_accepted")
+    list_display = ("department", "booking_link", "is_partner", "action_fraction")
     raw_id_fields = ("department",)
 
 
 @admin.register(LinkedInProfile)
 class LinkedInProfileAdmin(admin.ModelAdmin):
-    list_display = ("user", "linkedin_username", "active")
+    list_display = ("user", "linkedin_username", "active", "legal_accepted")
     list_filter = ("active",)
     raw_id_fields = ("user",)
 
