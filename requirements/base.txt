@@ -1,4 +1,4 @@
-playwright
+playwright==1.57.0
 playwright-stealth
 pydantic
 python-dotenv
