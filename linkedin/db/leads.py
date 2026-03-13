@@ -73,23 +73,6 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optio
     return lead.pk
 
 
-def disqualify_lead(session, public_id: str, reason: str = ""):
-    """Set Lead.disqualified = True."""
-    from crm.models import Lead
-
-    clean_url = public_id_to_url(public_id)
-    lead = Lead.objects.filter(website=clean_url).first()
-    if not lead:
-        logger.warning("disqualify_lead: no Lead for %s", public_id)
-        return
-
-    lead.disqualified = True
-    lead.save()
-
-    color_label = colored("DISQUALIFIED", "red", attrs=["bold"])
-    suffix = f" ({reason})" if reason else ""
-    logger.info("%s %s%s", public_id, color_label, suffix)
-
 
 @transaction.atomic
 def promote_lead_to_contact(session, public_id: str):
@@ -150,13 +133,20 @@ def promote_lead_to_contact(session, public_id: str):
 
 
 def get_leads_for_qualification(session) -> list:
-    """Leads not disqualified and without a contact (includes url-only leads)."""
+    """Leads eligible for qualification in the current campaign.
+
+    Returns leads that are not self-profile (disqualified=False) and have no
+    Deal in this campaign's department. A lead rejected by another campaign
+    (FAILED Deal in a different department) is still eligible here.
+    """
     from crm.models import Lead
 
+    dept = session.campaign.department
     leads = Lead.objects.filter(
         owner=session.django_user,
-        disqualified=False,
-        contact__isnull=True,
+        disqualified=False,  # excludes self-profile only (account-level)
+    ).exclude(
+        deal__department=dept,  # excludes leads already evaluated in this campaign
     )
 
     result = []
@@ -171,16 +161,6 @@ def get_leads_for_qualification(session) -> list:
         })
     return result
 
-
-def count_leads_for_qualification(session) -> int:
-    """Count of leads eligible for qualification (includes url-only leads)."""
-    from crm.models import Lead
-
-    return Lead.objects.filter(
-        owner=session.django_user,
-        disqualified=False,
-        contact__isnull=True,
-    ).count()
 
 
 def lead_profile_by_id(lead_id: int) -> Optional[dict]:

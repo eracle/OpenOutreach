@@ -1,23 +1,15 @@
 # tests/db/test_profiles.py
 import pytest
 
-from datetime import date, timedelta
-
-from django.utils import timezone
-
 from linkedin.db.deals import (
     set_profile_state,
     get_qualified_profiles,
-    count_qualified_profiles,
-    get_pending_profiles,
-    get_connected_profiles,
+    create_disqualified_deal,
 )
 from linkedin.db.leads import (
     create_enriched_lead,
-    disqualify_lead,
     promote_lead_to_contact,
     get_leads_for_qualification,
-    count_leads_for_qualification,
     lead_exists,
 )
 from linkedin.db.urls import url_to_public_id, public_id_to_url
@@ -161,31 +153,6 @@ class TestCreateEnrichedLead:
 
 
 @pytest.mark.django_db
-class TestDisqualifyLead:
-    def test_sets_disqualified(self, fake_session):
-        from crm.models import Lead
-        create_enriched_lead(
-            fake_session,
-            "https://www.linkedin.com/in/alice/",
-            SAMPLE_PROFILE,
-        )
-        disqualify_lead(fake_session, "alice", reason="Bad fit")
-        lead = Lead.objects.get(website="https://www.linkedin.com/in/alice/")
-        assert lead.disqualified is True
-
-    def test_disqualified_flag_set(self, fake_session):
-        from crm.models import Lead
-        create_enriched_lead(
-            fake_session,
-            "https://www.linkedin.com/in/alice/",
-            SAMPLE_PROFILE,
-        )
-        disqualify_lead(fake_session, "alice")
-        lead = Lead.objects.get(website="https://www.linkedin.com/in/alice/")
-        assert lead.disqualified is True
-
-
-@pytest.mark.django_db
 class TestPromoteLeadToContact:
     def test_creates_contact_and_deal(self, fake_session):
         from crm.models import Contact, Deal
@@ -237,12 +204,14 @@ class TestGetLeadsForQualification:
         assert leads[0]["lead_id"] is not None
 
     def test_excludes_disqualified(self, fake_session):
+        """disqualified=True (self-profile) leads are excluded."""
+        from crm.models import Lead
         create_enriched_lead(
             fake_session,
             "https://www.linkedin.com/in/alice/",
             SAMPLE_PROFILE,
         )
-        disqualify_lead(fake_session, "alice")
+        Lead.objects.filter(website="https://www.linkedin.com/in/alice/").update(disqualified=True)
         leads = get_leads_for_qualification(fake_session)
         assert len(leads) == 0
 
@@ -256,7 +225,7 @@ class TestGetLeadsForQualification:
         leads = get_leads_for_qualification(fake_session)
         assert len(leads) == 0
 
-    def test_count_matches_list(self, fake_session):
+    def test_multiple_leads(self, fake_session):
         create_enriched_lead(
             fake_session,
             "https://www.linkedin.com/in/alice/",
@@ -267,7 +236,6 @@ class TestGetLeadsForQualification:
             "https://www.linkedin.com/in/bob/",
             {**SAMPLE_PROFILE, "first_name": "Bob"},
         )
-        assert count_leads_for_qualification(fake_session) == 2
         assert len(get_leads_for_qualification(fake_session)) == 2
 
 
@@ -316,72 +284,91 @@ class TestGetQualifiedProfiles:
         profiles = get_qualified_profiles(fake_session)
         assert len(profiles) == 0
 
-    def test_count_qualified(self, fake_session):
-        self._promote(fake_session, "alice")
+
+# ── create_disqualified_deal ──
+
+@pytest.mark.django_db
+class TestCreateDisqualifiedDeal:
+    def test_creates_failed_deal(self, fake_session):
+        from crm.models import Deal
         create_enriched_lead(
             fake_session,
-            "https://www.linkedin.com/in/bob/",
-            {**SAMPLE_PROFILE, "first_name": "Bob"},
+            "https://www.linkedin.com/in/alice/",
+            SAMPLE_PROFILE,
         )
-        promote_lead_to_contact(fake_session, "bob")
-        assert count_qualified_profiles(fake_session) == 2
+        deal = create_disqualified_deal(fake_session, "alice", reason="Bad fit")
+        assert deal is not None
+        assert deal.stage.name == "Failed"
+        assert deal.closing_reason.name == "Disqualified"
+        assert deal.active is False
+        assert deal.description == "Bad fit"
+
+    def test_excludes_from_qualification(self, fake_session):
+        """A lead with a disqualified Deal in this department is excluded."""
+        create_enriched_lead(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            SAMPLE_PROFILE,
+        )
+        create_disqualified_deal(fake_session, "alice", reason="Bad fit")
+        leads = get_leads_for_qualification(fake_session)
+        assert len(leads) == 0
+
+    def test_returns_existing_deal(self, fake_session):
+        create_enriched_lead(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            SAMPLE_PROFILE,
+        )
+        deal1 = create_disqualified_deal(fake_session, "alice", reason="Bad fit")
+        deal2 = create_disqualified_deal(fake_session, "alice", reason="Other")
+        assert deal1.pk == deal2.pk
 
 
-# ── get_pending_profiles ──
+# ── Multi-campaign qualification scoping ──
 
 @pytest.mark.django_db
-class TestGetPendingProfiles:
-    def _make_pending(self, session, public_id="alice"):
-        url = f"https://www.linkedin.com/in/{public_id}/"
-        create_enriched_lead(session, url, SAMPLE_PROFILE)
-        promote_lead_to_contact(session, public_id)
-        set_profile_state(session, public_id, ProfileState.PENDING.value)
+class TestMultiCampaignQualification:
+    def _make_other_session(self, fake_session):
+        """Create a second campaign/session in a different department."""
+        from common.models import Department
+        from linkedin.models import Campaign
+        from linkedin.management.setup_crm import ensure_campaign_pipeline
+        from tests.conftest import FakeAccountSession
 
-    def test_returns_old_pending_default_backoff(self, fake_session):
-        self._make_pending(fake_session)
-        from crm.models import Deal
-        deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        Deal.objects.filter(pk=deal.pk).update(
-            update_date=timezone.now() - timedelta(hours=120)
+        dept2 = Department.objects.create(name="Other Campaign")
+        ensure_campaign_pipeline(dept2)
+        fake_session.django_user.groups.add(dept2)
+        campaign2 = Campaign.objects.create(department=dept2)
+        return FakeAccountSession(
+            django_user=fake_session.django_user,
+            linkedin_profile=fake_session.linkedin_profile,
+            campaign=campaign2,
         )
 
-        profiles = get_pending_profiles(fake_session, recheck_after_hours=72)
-        assert len(profiles) == 1
-        assert profiles[0]["public_identifier"] == "alice"
-        assert profiles[0]["meta"] == {}
-
-    def test_excludes_recent_pending(self, fake_session):
-        self._make_pending(fake_session)
-        profiles = get_pending_profiles(fake_session, recheck_after_hours=72)
-        assert len(profiles) == 0
-
-    def test_uses_per_profile_backoff(self, fake_session):
-        import json
-        self._make_pending(fake_session)
-        from crm.models import Deal
-        deal = Deal.objects.filter(owner=fake_session.django_user).first()
-        Deal.objects.filter(pk=deal.pk).update(
-            update_date=timezone.now() - timedelta(hours=150),
-            next_step=json.dumps({"backoff_hours": 200}),
+    def test_disqualified_in_other_campaign_still_eligible(self, fake_session):
+        """A lead rejected by campaign A is still eligible for campaign B."""
+        create_enriched_lead(
+            fake_session,
+            "https://www.linkedin.com/in/alice/",
+            SAMPLE_PROFILE,
         )
-        profiles = get_pending_profiles(fake_session, recheck_after_hours=1)
-        assert len(profiles) == 0
+        create_disqualified_deal(fake_session, "alice", reason="Bad fit")
 
+        other_session = self._make_other_session(fake_session)
+        leads = get_leads_for_qualification(other_session)
+        assert len(leads) == 1
+        assert leads[0]["public_identifier"] == "alice"
 
-# ── get_connected_profiles ──
-
-@pytest.mark.django_db
-class TestGetConnectedProfiles:
-    def test_returns_connected(self, fake_session):
+    def test_promoted_in_other_campaign_still_eligible(self, fake_session):
+        """A lead promoted in campaign A is still eligible for campaign B."""
         create_enriched_lead(
             fake_session,
             "https://www.linkedin.com/in/alice/",
             SAMPLE_PROFILE,
         )
         promote_lead_to_contact(fake_session, "alice")
-        set_profile_state(fake_session, "alice", ProfileState.CONNECTED.value)
 
-        profiles = get_connected_profiles(fake_session)
-        assert len(profiles) == 1
-
-
+        other_session = self._make_other_session(fake_session)
+        leads = get_leads_for_qualification(other_session)
+        assert len(leads) == 1

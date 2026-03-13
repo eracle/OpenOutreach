@@ -109,7 +109,10 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
 
 
 def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
-    from linkedin.db.leads import disqualify_lead, promote_lead_to_contact
+    # LLM rejections are tracked as FAILED Deals with "Disqualified" closing reason
+    # (campaign-scoped), not as Lead.disqualified (reserved for self-profile exclusion).
+    from linkedin.db.deals import create_disqualified_deal
+    from linkedin.db.leads import promote_lead_to_contact
     from linkedin.models import ProfileEmbedding
 
     ProfileEmbedding.objects.filter(lead_id=lead_id).update(
@@ -122,11 +125,11 @@ def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: i
             promote_lead_to_contact(session, public_id)
         except ValueError as e:
             logger.warning("Cannot promote %s: %s \u2014 disqualifying", public_id, e)
-            disqualify_lead(session, public_id, reason=str(e))
+            create_disqualified_deal(session, public_id, reason=str(e))
             return
         logger.info("%s %s: %s", public_id, colored("QUALIFIED", "green", attrs=["bold"]), reason)
     else:
-        disqualify_lead(session, public_id, reason=reason)
+        create_disqualified_deal(session, public_id, reason=reason)
 
 
 def _fetch_profile_text(session, lead_id: int, public_id: str) -> str | None:

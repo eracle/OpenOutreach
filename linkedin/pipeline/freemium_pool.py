@@ -11,11 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 def find_freemium_candidate(session, qualifier) -> dict | None:
-    """Return the top-ranked disqualified+embedded lead not yet dealt in this campaign.
+    """Return the top-ranked embedded lead not yet dealt in this campaign.
 
-    Bypasses the Deal-based pool system entirely. Queries ProfileEmbedding
-    directly, excludes leads that already have a Deal in the freemium campaign's
-    department, ranks by qualifier, and returns the best one.
+    Candidate pool: any embedded lead without a Deal in this department,
+    excluding self-profile (disqualified=True). LLM rejections in other
+    campaigns don't exclude leads from this campaign — each campaign
+    (department) maintains independent Deal state.
     """
     from crm.models import Deal, Lead
     from linkedin.models import ProfileEmbedding
@@ -34,8 +35,9 @@ def find_freemium_candidate(session, qualifier) -> dict | None:
     if not eligible_pks:
         return None
 
-    # Only disqualified leads
-    leads = Lead.objects.filter(pk__in=eligible_pks, disqualified=True)
+    # disqualified=False excludes self-profile only (account-level exclusion);
+    # campaign-scoped rejections are tracked as FAILED Deals, not lead flags.
+    leads = Lead.objects.filter(pk__in=eligible_pks, disqualified=False)
     if not leads.exists():
         return None
 

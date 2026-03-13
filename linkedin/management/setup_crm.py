@@ -28,8 +28,9 @@ STAGES = [
 ]
 
 CLOSING_REASONS = [
-    (1, "Completed", True),   # success
-    (2, "Failed", False),     # failure
+    (1, "Completed", True),    # success
+    (2, "Failed", False),      # failure
+    (3, "Disqualified", False), # LLM rejection (campaign-scoped)
 ]
 
 LEAD_SOURCE_NAME = "LinkedIn Scraper"
