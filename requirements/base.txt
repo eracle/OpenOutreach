@@ -5,7 +5,7 @@ python-dotenv
 jsonpath-ng
 pandas
 langchain
-langchain-openai
+langchain-openai==1.1.9
 jinja2
 termcolor
 Django>=5.2,<7.0
