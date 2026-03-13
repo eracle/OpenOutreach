@@ -93,7 +93,6 @@ def _ensure_llm_config() -> None:
 def _onboard_campaign():
     """Create a Campaign via interactive prompts. Returns the Campaign instance."""
     from common.models import Department
-    from linkedin.conf import DEFAULT_FOLLOWUP_TEMPLATE_PATH
     from linkedin.management.setup_crm import DEPARTMENT_NAME
     from linkedin.models import Campaign
 
@@ -143,7 +142,6 @@ def _onboard_campaign():
         department=dept,
         product_docs=product_docs,
         campaign_objective=objective,
-        followup_template=DEFAULT_FOLLOWUP_TEMPLATE_PATH.read_text(),
         booking_link=booking_link,
     )
 

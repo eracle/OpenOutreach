@@ -56,13 +56,16 @@ def ensure_self_profile(session):
     )
     logger.info("Self-profile discovered: %s", real_url)
 
-    # /in/me/ sentinel — disqualified, used for subsequent-run detection
-    Lead.objects.get_or_create(
+    # /in/me/ sentinel — disqualified, used for subsequent-run detection.
+    # description stores the real public_identifier as JSON for reverse lookup.
+    import json
+    Lead.objects.update_or_create(
         website=ME_URL,
         defaults={
             "owner": session.django_user,
             "department": dept,
             "disqualified": True,
+            "description": json.dumps({"public_identifier": real_id}),
         },
     )
 

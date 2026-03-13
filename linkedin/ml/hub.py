@@ -56,7 +56,7 @@ def load_kit_config(kit_dir: Path) -> Optional[dict]:
         data = json.loads(config_path.read_text())
 
         required = ("action_fraction", "product_docs", "campaign_objective",
-                     "booking_link", "followup_template")
+                     "booking_link")
         for key in required:
             if key not in data:
                 logger.info("[Freemium] Kit config missing key: %s", key)

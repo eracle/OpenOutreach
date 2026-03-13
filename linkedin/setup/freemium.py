@@ -27,7 +27,6 @@ def import_freemium_campaign(kit_config: dict):
         defaults={
             "product_docs": kit_config["product_docs"],
             "campaign_objective": kit_config["campaign_objective"],
-            "followup_template": kit_config["followup_template"],
             "booking_link": kit_config["booking_link"],
             "is_freemium": True,
             "action_fraction": kit_config["action_fraction"],

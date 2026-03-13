@@ -1,21 +1,19 @@
 # linkedin/tasks/follow_up.py
-"""Follow-up task — sends a message to one CONNECTED profile."""
+"""Follow-up task — runs the agentic follow-up for one CONNECTED profile."""
 from __future__ import annotations
 
 import logging
 
 from termcolor import colored
 
-from linkedin.db.chat import save_chat_message
-from linkedin.db.deals import get_profile_dict_for_public_id, set_profile_state
+from linkedin.db.deals import get_profile_dict_for_public_id
 from linkedin.models import ActionLog
-from linkedin.enums import ProfileState
 
 logger = logging.getLogger(__name__)
 
 
 def handle_follow_up(task, session, qualifiers):
-    from linkedin.actions.message import send_follow_up_message
+    from linkedin.agents.follow_up import run_follow_up_agent
     from linkedin.tasks.connect import enqueue_follow_up
 
     payload = task.payload
@@ -39,16 +37,21 @@ def handle_follow_up(task, session, qualifiers):
 
     profile = profile_dict.get("profile") or profile_dict
 
-    message_text = send_follow_up_message(
-        session=session,
-        profile=profile,
-    )
+    result = run_follow_up_agent(session, public_id, profile, campaign_id)
 
-    if message_text is not None:
-        try:
-            save_chat_message(session, public_id, message_text)
-        finally:
-            session.linkedin_profile.record_action(
-                ActionLog.ActionType.FOLLOW_UP, session.campaign,
-            )
-            set_profile_state(session, public_id, ProfileState.COMPLETED.value)
+    # Record action if any message was sent
+    sent_messages = [a for a in result["actions"] if a["tool"] == "send_message"]
+    if sent_messages:
+        session.linkedin_profile.record_action(
+            ActionLog.ActionType.FOLLOW_UP, session.campaign,
+        )
+
+    # Safety net: if agent didn't schedule or complete, re-enqueue
+    terminal_tools = {"mark_completed", "schedule_follow_up"}
+    if not any(a["tool"] in terminal_tools for a in result["actions"]):
+        logger.warning("follow_up agent for %s did not schedule or complete — re-enqueuing in 72h", public_id)
+        enqueue_follow_up(campaign_id, public_id, delay_seconds=72 * 3600)
+
+    # Log summary
+    action_names = [a["tool"] for a in result["actions"]]
+    logger.info("follow_up agent for %s: %s", public_id, ", ".join(action_names) or "no actions")

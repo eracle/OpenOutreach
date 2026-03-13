@@ -3,11 +3,8 @@ import json
 import logging
 from typing import Dict, Any
 
-from linkedin.actions.status import get_connection_status
-from linkedin.enums import ProfileState
 from playwright.sync_api import Error as PlaywrightError
 from linkedin.browser.nav import goto_page, human_type
-from linkedin.renderer import render_template
 
 logger = logging.getLogger(__name__)
 
@@ -26,26 +23,11 @@ SELECTORS = {
 }
 
 
-def send_follow_up_message(
-        session,
-        profile: Dict[str, Any],
-) -> str | None:
-    """Send a follow-up message. Returns the message text if sent, None if skipped."""
-
-    status = get_connection_status(session, profile)
+def send_raw_message(session, profile: Dict[str, Any], message: str) -> bool:
+    """Send an arbitrary message to a profile and persist it. Returns True if sent."""
+    from linkedin.db.chat import save_chat_message
 
     public_identifier = profile.get("public_identifier")
-    logger.debug(f"Messaging check → {public_identifier} → {status.value}")
-
-    if status != ProfileState.CONNECTED:
-        logger.info(f"Message skipped → not connected with {public_identifier}")
-        return None
-
-    template_content = session.campaign.followup_template
-    if not template_content:
-        logger.error("No followup template for campaign %s", session.campaign)
-        return None
-    message = render_template(session, template_content, profile)
 
     sent = (
         _send_msg_pop_up(session, profile, message)
@@ -54,10 +36,12 @@ def send_follow_up_message(
     )
     if not sent:
         logger.error("All send methods failed for %s", public_identifier)
-        return None
+        return False
 
-    logger.info("Generated message for %s:\n%s", public_identifier, message)
-    return message
+    save_chat_message(session, public_identifier, message)
+    logger.info("Message sent to %s: %s", public_identifier, message)
+    return True
+
 
 
 def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:
@@ -185,14 +169,12 @@ if __name__ == "__main__":
     from linkedin.conf import get_first_active_profile_handle
     from linkedin.browser.registry import get_or_create_session
 
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="[%(levelname)s] %(message)s",
-    )
+    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
 
-    parser = argparse.ArgumentParser(description="Send a LinkedIn follow-up message")
+    parser = argparse.ArgumentParser(description="Send a LinkedIn message")
     parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active profile)")
     parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
+    parser.add_argument("--message", required=True, help="Message text to send")
     args = parser.parse_args()
 
     handle = args.handle or get_first_active_profile_handle()
@@ -208,9 +190,7 @@ if __name__ == "__main__":
     session = get_or_create_session(handle=handle)
     session.campaign = session.campaigns.first()
     session.ensure_browser()
-    print(f"Sending follow-up message as @{handle} → {args.profile}")
+    print(f"Sending message as @{handle} → {args.profile}")
 
-    send_follow_up_message(
-        session=session,
-        profile=test_profile,
-    )
+    send_raw_message(session=session, profile=test_profile, message=args.message)
+

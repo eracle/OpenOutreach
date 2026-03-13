@@ -293,9 +293,15 @@ class TestHandleCheckPending:
 
 @pytest.mark.django_db
 class TestHandleFollowUp:
-    @patch("linkedin.actions.message.send_follow_up_message")
-    def test_sends_message_and_completes(self, mock_send, fake_session):
-        mock_send.return_value = "Hello Alice!"
+    @patch("linkedin.agents.follow_up.run_follow_up_agent")
+    def test_agent_sends_message_and_records_action(self, mock_agent, fake_session):
+        mock_agent.return_value = {
+            "messages": [],
+            "actions": [
+                {"tool": "send_message", "args": {"message": "Hello Alice!"}},
+                {"tool": "schedule_follow_up", "args": {"hours": 72}},
+            ],
+        }
         _make_connected(fake_session)
 
         task = _make_task(
@@ -305,16 +311,17 @@ class TestHandleFollowUp:
         qualifiers = _build_context(fake_session)
         handle_follow_up(task, fake_session, qualifiers)
 
-        _assert_deal_state(fake_session, "alice", ProfileState.COMPLETED)
+        mock_agent.assert_called_once()
         assert ActionLog.objects.filter(action_type=ActionLog.ActionType.FOLLOW_UP).count() == 1
 
-    @patch("linkedin.actions.message.send_follow_up_message")
-    def test_saves_chat_message(self, mock_send, fake_session):
-        from chat.models import ChatMessage
-        from django.contrib.contenttypes.models import ContentType
-        from crm.models import Lead
-
-        mock_send.return_value = "Hello Alice!"
+    @patch("linkedin.agents.follow_up.run_follow_up_agent")
+    def test_agent_no_message_no_action_recorded(self, mock_agent, fake_session):
+        mock_agent.return_value = {
+            "messages": [],
+            "actions": [
+                {"tool": "mark_completed", "args": {"reason": "Lead went cold"}},
+            ],
+        }
         _make_connected(fake_session)
 
         task = _make_task(
@@ -324,34 +331,17 @@ class TestHandleFollowUp:
         qualifiers = _build_context(fake_session)
         handle_follow_up(task, fake_session, qualifiers)
 
-        lead = Lead.objects.get(website="https://www.linkedin.com/in/alice/")
-        ct = ContentType.objects.get_for_model(lead)
-        msg = ChatMessage.objects.get(content_type=ct, object_id=lead.pk)
-        assert msg.content == "Hello Alice!"
+        assert ActionLog.objects.filter(action_type=ActionLog.ActionType.FOLLOW_UP).count() == 0
 
-    @patch("linkedin.actions.message.send_follow_up_message")
-    def test_skipped_message_stays_connected(self, mock_send, fake_session):
-        mock_send.return_value = None
-        _make_connected(fake_session)
-
-        task = _make_task(
-            Task.TaskType.FOLLOW_UP,
-            {"campaign_id": fake_session.campaign.pk, "public_id": "alice"},
-        )
-        qualifiers = _build_context(fake_session)
-        handle_follow_up(task, fake_session, qualifiers)
-
-        _assert_deal_state(fake_session, "alice", ProfileState.CONNECTED)
-
-    @patch("linkedin.actions.message.send_follow_up_message")
-    def test_noop_when_deal_missing(self, mock_send, fake_session):
+    @patch("linkedin.agents.follow_up.run_follow_up_agent")
+    def test_noop_when_deal_missing(self, mock_agent, fake_session):
         task = _make_task(
             Task.TaskType.FOLLOW_UP,
             {"campaign_id": fake_session.campaign.pk, "public_id": "nonexistent"},
         )
         qualifiers = _build_context(fake_session)
         handle_follow_up(task, fake_session, qualifiers)
-        mock_send.assert_not_called()
+        mock_agent.assert_not_called()
 
     def test_reschedules_on_rate_limit(self, fake_session):
         _make_connected(fake_session)

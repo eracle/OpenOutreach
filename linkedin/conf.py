@@ -22,7 +22,6 @@ MODELS_DIR = ASSETS_DIR / "models"
 DIAGNOSTICS_DIR = ASSETS_DIR / "diagnostics"
 
 PROMPTS_DIR = ASSETS_DIR / "templates" / "prompts"
-DEFAULT_FOLLOWUP_TEMPLATE_PATH = PROMPTS_DIR / "followup2.j2"
 
 _LEGACY_MODEL_PATH = MODELS_DIR / "model.joblib"
 

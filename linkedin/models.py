@@ -26,7 +26,6 @@ class Campaign(models.Model):
     )
     product_docs = models.TextField(blank=True)
     campaign_objective = models.TextField(blank=True)
-    followup_template = models.TextField(blank=True)
     booking_link = models.URLField(max_length=500, blank=True)
     is_freemium = models.BooleanField(default=False)
     action_fraction = models.FloatField(default=0.2)
