@@ -4,7 +4,7 @@ import logging
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from linkedin.api.client import PlaywrightLinkedinAPI, REQUEST_TIMEOUT_MS
+from linkedin.api.client import PlaywrightLinkedinAPI
 from linkedin.api.messaging.utils import get_self_urn, encode_urn, check_response
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ def fetch_conversations(api: PlaywrightLinkedinAPI) -> dict:
         f"?queryId={_CONVERSATIONS_QUERY_ID}"
         f"&variables=(mailboxUrn:{encode_urn(mailbox_urn)})"
     )
-    res = api.context.request.get(url, headers=_graphql_headers(api), timeout=REQUEST_TIMEOUT_MS)
+    res = api.get(url, headers=_graphql_headers(api))
     check_response(res, "fetch_conversations")
     return res.json()
 
@@ -52,7 +52,7 @@ def fetch_messages(api: PlaywrightLinkedinAPI, conversation_urn: str) -> dict:
         f"?queryId={_MESSAGES_QUERY_ID}"
         f"&variables=(conversationUrn:{encode_urn(conversation_urn)})"
     )
-    res = api.context.request.get(url, headers=_graphql_headers(api), timeout=REQUEST_TIMEOUT_MS)
+    res = api.get(url, headers=_graphql_headers(api))
     check_response(res, "fetch_messages")
     return res.json()
 

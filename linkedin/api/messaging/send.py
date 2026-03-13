@@ -1,6 +1,5 @@
 # linkedin/api/messaging/send.py
 """Send messages via Voyager Messaging API."""
-import base64
 import json
 import logging
 import os
@@ -9,7 +8,7 @@ from typing import Optional
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from linkedin.api.client import PlaywrightLinkedinAPI, REQUEST_TIMEOUT_MS
+from linkedin.api.client import PlaywrightLinkedinAPI
 from linkedin.api.messaging.utils import get_self_urn, check_response
 
 logger = logging.getLogger(__name__)
@@ -42,7 +41,7 @@ def send_message(
         mailbox_urn = get_self_urn(api)
 
     origin_token = str(uuid.uuid4())
-    tracking_id = base64.b64encode(os.urandom(16)).decode("ascii")
+    tracking_id = os.urandom(16).hex()
 
     payload = {
         "message": {
@@ -70,13 +69,69 @@ def send_message(
 
     logger.debug("Voyager send_message → %s", conversation_urn)
 
-    res = api.context.request.post(
-        url, data=json.dumps(payload), headers=headers,
-        timeout=REQUEST_TIMEOUT_MS,
-    )
+    res = api.post(url, headers=headers, data=json.dumps(payload))
     check_response(res, "send_message")
 
     data = res.json()
     delivered_at = data.get("value", {}).get("deliveredAt")
     logger.info("Message delivered → %s (at %s)", conversation_urn, delivered_at)
     return data
+
+
+if __name__ == "__main__":
+    import os
+    import argparse
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
+
+    import django
+    django.setup()
+
+    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.browser.registry import get_or_create_session
+    from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation, _resolve_urn
+
+    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
+
+    parser = argparse.ArgumentParser(description="Send a message via Voyager Messaging API")
+    parser.add_argument("--handle", default=None)
+    parser.add_argument("--profile", required=True, help="Public identifier of target profile")
+    parser.add_argument("--text", required=True, help="Message text to send")
+    args = parser.parse_args()
+
+    handle = args.handle or get_first_active_profile_handle()
+    if not handle:
+        print("No active LinkedInProfile found.")
+        raise SystemExit(1)
+
+    session = get_or_create_session(handle=handle)
+    session.campaign = session.campaigns.first()
+    session.ensure_browser()
+
+    api = PlaywrightLinkedinAPI(session=session)
+
+    # Resolve target profile URN
+    target_urn = _resolve_urn(args.profile)
+    if not target_urn:
+        profile_data, _ = api.get_profile(public_identifier=args.profile)
+        target_urn = profile_data.get("urn") if profile_data else None
+    if not target_urn:
+        print(f"Could not resolve URN for {args.profile}")
+        raise SystemExit(1)
+    print(f"Resolved URN: {target_urn}")
+
+    # Find conversation URN
+    conversation_urn = find_conversation_urn(api, target_urn)
+    if not conversation_urn:
+        print("Not in recent conversations, trying navigation fallback...")
+        conversation_urn = find_conversation_urn_via_navigation(session, target_urn)
+    if not conversation_urn:
+        print(f"No existing conversation found with {args.profile}")
+        raise SystemExit(1)
+    print(f"Conversation URN: {conversation_urn}")
+
+    # Send message via API
+    print(f"Sending message to {args.profile}: {args.text}")
+    result = send_message(api, conversation_urn, args.text)
+    delivered_at = result.get("value", {}).get("deliveredAt")
+    print(f"Message sent successfully! (deliveredAt: {delivered_at})")

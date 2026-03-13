@@ -2,6 +2,7 @@
 import json
 import logging
 from typing import Optional, Any
+from urllib.parse import urlencode
 
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -12,6 +13,23 @@ from linkedin.exceptions import AuthenticationError
 logger = logging.getLogger(__name__)
 
 REQUEST_TIMEOUT_MS = 30_000
+
+
+class _FetchResponse:
+    """Thin wrapper around the dict returned by page.evaluate(fetch(...))."""
+
+    __slots__ = ("status", "ok", "_text")
+
+    def __init__(self, raw: dict):
+        self.status: int = raw["status"]
+        self.ok: bool = raw["ok"]
+        self._text: str = raw["body"]
+
+    def json(self) -> Any:
+        return json.loads(self._text)
+
+    def text(self) -> str:
+        return self._text
 
 
 class PlaywrightLinkedinAPI:
@@ -29,38 +47,51 @@ class PlaywrightLinkedinAPI:
         cookies_dict = {c['name']: c['value'] for c in cookies}
         jsessionid = cookies_dict.get('JSESSIONID', '').strip('"')
 
-        # Dynamically fetch browser-specific details using page.evaluate
-        user_agent = self.page.evaluate("navigator.userAgent")
-        accept_language = self.page.evaluate("navigator.languages ? navigator.languages.join(',') : navigator.language")
-        sec_ch_ua = self.page.evaluate("""() => {
-            if (navigator.userAgentData) {
-                return navigator.userAgentData.brands.map(brand => `"${brand.brand}";v="${brand.version}"`).join(', ');
-            }
-            return '';
-        }""")
-        sec_ch_ua_mobile = self.page.evaluate(
-            """() => navigator.userAgentData ? (navigator.userAgentData.mobile ? '?1' : '?0') : '?0' """)
-        sec_ch_ua_platform = self.page.evaluate(
-            """() => navigator.userAgentData ? `"${navigator.userAgentData.platform}"` : '' """)
-
-        # Set up headers with dynamic values
+        # Only API-level headers; fetch() inside the page inherits
+        # browser-injected headers (x-li-track, sec-ch-*, user-agent, …).
         self.headers = {
             'accept': 'application/vnd.linkedin.normalized+json+2.1',
-            'accept-language': accept_language,
             'csrf-token': jsessionid,
-            'priority': 'u=1, i',
-            'referer': self.page.url,
-            'sec-ch-prefers-color-scheme': 'light',
-            'sec-ch-ua': sec_ch_ua,
-            'sec-ch-ua-mobile': sec_ch_ua_mobile,
-            'sec-ch-ua-platform': sec_ch_ua_platform,
-            'sec-fetch-dest': 'empty',
-            'sec-fetch-mode': 'cors',
-            'sec-fetch-site': 'same-origin',
-            'user-agent': user_agent,
             'x-li-lang': 'en_US',
             'x-restli-protocol-version': '2.0.0',
         }
+
+    # -- transport --------------------------------------------------------
+
+    def _fetch(self, method: str, url: str, headers: dict,
+               body: str | None = None) -> _FetchResponse:
+        """Run fetch() inside the browser page context.
+
+        This ensures the request carries all browser-injected headers
+        (x-li-track, cookies, sec-ch-*, …) exactly like a real XHR.
+        """
+        raw = self.page.evaluate(
+            """([method, url, headers, body, timeoutMs]) => {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), timeoutMs);
+                const init = {method, headers, credentials: "include",
+                              signal: controller.signal};
+                if (body !== null) init.body = body;
+                return fetch(url, init).then(async r => {
+                    clearTimeout(timer);
+                    return {status: r.status, ok: r.ok, body: await r.text()};
+                });
+            }""",
+            [method, url, headers, body, REQUEST_TIMEOUT_MS],
+        )
+        return _FetchResponse(raw)
+
+    def get(self, url: str, *, headers: dict | None = None,
+            params: dict | None = None) -> _FetchResponse:
+        h = {**self.headers, **(headers or {})}
+        if params:
+            url = f"{url}?{urlencode(params)}"
+        return self._fetch("GET", url, h)
+
+    def post(self, url: str, *, headers: dict | None = None,
+             data: str | None = None) -> _FetchResponse:
+        h = {**self.headers, **(headers or {})}
+        return self._fetch("POST", url, h, body=data)
 
     @retry(
         stop=stop_after_attempt(3),
@@ -87,10 +118,7 @@ class PlaywrightLinkedinAPI:
         uri = "/identity/dash/profiles"
         full_url = base_url + uri
 
-        res = self.context.request.get(
-            full_url, params=params, headers=self.headers,
-            timeout=REQUEST_TIMEOUT_MS,
-        )
+        res = self.get(full_url, params=params)
 
         match res.status:
             case 401:
@@ -104,7 +132,7 @@ class PlaywrightLinkedinAPI:
                 return None, None
 
         if not res.ok:
-            body_str = res.body().decode("utf-8", errors="ignore") if isinstance(res.body(), bytes) else str(res.body())
+            body_str = res.text()
             logger.error("API request failed → %s | Status: %s", public_identifier, res.status)
             # IOError so tenacity retries on transient server errors
             raise IOError(f"LinkedIn API error {res.status}: {body_str[:500]}")

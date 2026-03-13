@@ -30,6 +30,4 @@ def check_response(res, context: str) -> None:
         case 403 | 404:
             raise IOError(f"Messaging API {res.status} ({context})")
     if not res.ok:
-        body = res.body()
-        body_str = body.decode("utf-8", errors="ignore") if isinstance(body, bytes) else str(body)
-        raise IOError(f"Messaging API {res.status} ({context}): {body_str[:500]}")
+        raise IOError(f"Messaging API {res.status} ({context}): {res.text()[:500]}")
