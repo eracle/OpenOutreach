@@ -5,6 +5,7 @@ from typing import Dict, Any
 
 from linkedin.actions.status import get_connection_status
 from linkedin.enums import ProfileState
+from playwright.sync_api import Error as PlaywrightError
 from linkedin.browser.nav import goto_page, human_type
 from linkedin.renderer import render_template
 
@@ -44,8 +45,14 @@ def send_follow_up_message(
     if template_content:
         message = render_template(session, template_content, profile)
 
-    if not _send_msg_pop_up(session, profile, message):
-        _send_message(session, profile, message)
+    sent = (
+        _send_msg_pop_up(session, profile, message)
+        or _send_message(session, profile, message)
+        or _send_message_via_api(session, profile, message)
+    )
+    if not sent:
+        logger.error("All send methods failed for %s", public_identifier)
+        return None
 
     logger.info("Generated message for %s:\n%s", public_identifier, message)
     return message
@@ -94,35 +101,74 @@ def _send_msg_pop_up(session: "AccountSession", profile: Dict[str, Any], message
         logger.info("Message sent to %s", public_identifier)
         return True
 
-    except Exception as e:
+    except (PlaywrightError, TimeoutError) as e:
         logger.error("Failed to send message to %s → %s", public_identifier, e)
         return False
 
 
-def _send_message(session: "AccountSession", profile: Dict[str, Any], message: str):
+def _send_message(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:
+    public_identifier = profile.get("public_identifier")
     full_name = profile.get("full_name")
-    goto_page(
-        session,
-        action=lambda: session.page.goto(LINKEDIN_MESSAGING_URL),
-        expected_url_pattern="/messaging",
-        timeout=30_000,
-        error_message="Error opening messaging",
-    )
-    # Search person
-    human_type(session.page.locator(SELECTORS["connections_input"]), full_name, min_delay=10, max_delay=50)
-    session.wait(0.5, 1)
+    try:
+        goto_page(
+            session,
+            action=lambda: session.page.goto(LINKEDIN_MESSAGING_URL),
+            expected_url_pattern="/messaging",
+            timeout=30_000,
+            error_message="Error opening messaging",
+        )
+        # Search person
+        human_type(session.page.locator(SELECTORS["connections_input"]), full_name, min_delay=10, max_delay=50)
+        session.wait(0.5, 1)
 
-    item = session.page.locator(SELECTORS["search_result_row"]).first
-    session.wait(0.5, 1)
+        item = session.page.locator(SELECTORS["search_result_row"]).first
+        session.wait(0.5, 1)
 
-    # Scroll into view + click (very reliable on LinkedIn)
-    item.scroll_into_view_if_needed()
-    item.click(delay=200)  # small delay between mousedown/mouseup = very human
+        # Scroll into view + click (very reliable on LinkedIn)
+        item.scroll_into_view_if_needed()
+        item.click(delay=200)  # small delay between mousedown/mouseup = very human
 
-    human_type(session.page.locator(SELECTORS["compose_input"]), message, min_delay=10, max_delay=50)
+        human_type(session.page.locator(SELECTORS["compose_input"]), message, min_delay=10, max_delay=50)
 
-    session.page.locator(SELECTORS["compose_send"]).click(delay=200)
-    session.wait(0.5, 1)
+        session.page.locator(SELECTORS["compose_send"]).click(delay=200)
+        session.wait(0.5, 1)
+        logger.info("Message sent to %s (direct thread)", public_identifier)
+        return True
+    except (PlaywrightError, TimeoutError) as e:
+        logger.error("Failed to send message to %s (direct thread) → %s", public_identifier, e)
+        return False
+
+
+def _send_message_via_api(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:
+    """Last-resort fallback: send via Voyager Messaging API."""
+    from linkedin.api.client import PlaywrightLinkedinAPI
+    from linkedin.api.messaging import send_message
+    from linkedin.db.leads import resolve_urn
+    from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
+
+    public_identifier = profile.get("public_identifier")
+
+    target_urn = resolve_urn(public_identifier, session=session)
+    if not target_urn:
+        logger.error("API send failed for %s → could not resolve URN", public_identifier)
+        return False
+
+    api = PlaywrightLinkedinAPI(session=session)
+
+    conversation_urn = find_conversation_urn(api, target_urn)
+    if not conversation_urn:
+        conversation_urn = find_conversation_urn_via_navigation(session, target_urn)
+    if not conversation_urn:
+        logger.error("API send failed for %s → no conversation found", public_identifier)
+        return False
+
+    try:
+        send_message(api, conversation_urn, message)
+        logger.info("Message sent to %s (API fallback)", public_identifier)
+        return True
+    except Exception as e:
+        logger.error("API send failed for %s → %s", public_identifier, e)
+        return False
 
 
 if __name__ == "__main__":

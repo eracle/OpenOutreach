@@ -89,7 +89,8 @@ if __name__ == "__main__":
 
     from linkedin.conf import get_first_active_profile_handle
     from linkedin.browser.registry import get_or_create_session
-    from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation, _resolve_urn
+    from linkedin.db.leads import resolve_urn
+    from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
 
     logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
 
@@ -111,10 +112,7 @@ if __name__ == "__main__":
     api = PlaywrightLinkedinAPI(session=session)
 
     # Resolve target profile URN
-    target_urn = _resolve_urn(args.profile)
-    if not target_urn:
-        profile_data, _ = api.get_profile(public_identifier=args.profile)
-        target_urn = profile_data.get("urn") if profile_data else None
+    target_urn = resolve_urn(args.profile, session=session)
     if not target_urn:
         print(f"Could not resolve URN for {args.profile}")
         raise SystemExit(1)

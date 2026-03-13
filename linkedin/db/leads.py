@@ -23,6 +23,28 @@ def _lead_profile(lead) -> Optional[dict]:
         return None
 
 
+def resolve_urn(public_id: str, session=None) -> Optional[str]:
+    """Return the LinkedIn URN for a public identifier.
+
+    Reads from the stored profile JSON. If the lead isn't enriched yet and a
+    session is provided, calls ensure_lead_enriched first (lazy Voyager fetch).
+    """
+    from crm.models import Lead
+
+    clean_url = public_id_to_url(public_id)
+    lead = Lead.objects.filter(website=clean_url).first()
+    if not lead:
+        return None
+
+    if not lead.description and session:
+        from linkedin.db.enrichment import ensure_lead_enriched
+        ensure_lead_enriched(session, lead.pk, public_id)
+        lead.refresh_from_db(fields=["description"])
+
+    profile = _lead_profile(lead)
+    return profile.get("urn") if profile else None
+
+
 def lead_exists(url: str) -> bool:
     """Check if Lead already exists for this LinkedIn URL."""
     from crm.models import Lead

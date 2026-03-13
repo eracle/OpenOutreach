@@ -1,6 +1,5 @@
 # linkedin/actions/conversations.py
 """Retrieve past LinkedIn conversations for a given profile."""
-import json
 import logging
 from datetime import datetime
 
@@ -80,30 +79,17 @@ def parse_messages(raw: dict) -> list[dict]:
     return messages
 
 
-def _resolve_urn(public_identifier: str) -> str | None:
-    """Resolve profile URN from lead's stored description."""
-    from crm.models import Lead
-    lead = Lead.objects.filter(website__contains=f"/in/{public_identifier}").first()
-    if not lead or not lead.description:
-        return None
-    try:
-        return json.loads(lead.description).get("urn")
-    except (ValueError, TypeError):
-        return None
-
-
 def get_conversation(session, public_identifier: str) -> list[dict] | None:
     """Retrieve past messages with a profile.
 
     Returns a list of {sender, text, timestamp} dicts, or None if no conversation exists.
     """
+    from linkedin.db.leads import resolve_urn
+
     session.ensure_browser()
     api = PlaywrightLinkedinAPI(session=session)
 
-    target_urn = _resolve_urn(public_identifier)
-    if not target_urn:
-        profile, _ = api.get_profile(public_identifier=public_identifier)
-        target_urn = profile.get("urn") if profile else None
+    target_urn = resolve_urn(public_identifier, session=session)
     if not target_urn:
         logger.warning("Could not resolve URN for %s", public_identifier)
         return None
