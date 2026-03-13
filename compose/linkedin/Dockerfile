@@ -20,7 +20,7 @@ COPY ./requirements /requirements
 RUN uv pip install --system --no-deps -r /requirements/crm.txt \
     && uv pip install --system -r /requirements/${BUILD_ENV}.txt
 
-RUN playwright install --with-deps chromium
+RUN apt-get update && playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*
 
 # Copy necessary startup scripts
 COPY ./compose/linkedin/start /start
