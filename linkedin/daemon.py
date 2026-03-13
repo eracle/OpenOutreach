@@ -210,6 +210,8 @@ def run_daemon(session):
     kit = fetch_kit()
     if kit:
         import_freemium_campaign(kit["config"])
+        from linkedin.setup.freemium import seed_profiles
+        seed_profiles(session, kit["config"])
 
     # Migrate legacy single model file before creating per-campaign qualifiers
     _migrate_legacy_model(list(session.campaigns))

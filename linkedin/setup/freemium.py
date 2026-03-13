@@ -42,3 +42,34 @@ def import_freemium_campaign(kit_config: dict):
     logger.info("[Freemium] Campaign imported: %s (action_fraction=%.2f)",
                dept_name, kit_config["action_fraction"])
     return campaign
+
+
+def seed_profiles(session, kit_config: dict):
+    """Seed Lead + ProfileEmbedding for profiles listed in kit config.
+
+    Reads ``seed_profiles`` (list of public IDs) from the kit config.
+    Leads are get-or-created; embeddings are lazily computed via Voyager API.
+    """
+    from crm.models import Lead
+
+    from linkedin.db._helpers import _get_lead_source
+    from linkedin.db.enrichment import ensure_profile_embedded
+    from linkedin.db.urls import public_id_to_url
+
+    public_ids = kit_config.get("seed_profiles", [])
+    if not public_ids:
+        return
+
+    for public_id in public_ids:
+        url = public_id_to_url(public_id)
+
+        lead, _ = Lead.objects.get_or_create(
+            website=url,
+            defaults={
+                "owner": session.django_user,
+                "department": session.campaign.department,
+                "lead_source": _get_lead_source(session),
+            },
+        )
+
+        ensure_profile_embedded(lead.pk, public_id, session)
