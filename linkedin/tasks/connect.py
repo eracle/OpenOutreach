@@ -219,6 +219,7 @@ def enqueue_check_pending(
         task_type=Task.TaskType.CHECK_PENDING,
         status=Task.Status.PENDING,
         payload__public_id=public_id,
+        payload__campaign_id=campaign_id,
     ).exists():
         Task.objects.create(
             task_type=Task.TaskType.CHECK_PENDING,
@@ -240,6 +241,7 @@ def enqueue_follow_up(campaign_id: int, public_id: str, delay_seconds: float = 1
         task_type=Task.TaskType.FOLLOW_UP,
         status=Task.Status.PENDING,
         payload__public_id=public_id,
+        payload__campaign_id=campaign_id,
     ).exists():
         Task.objects.create(
             task_type=Task.TaskType.FOLLOW_UP,

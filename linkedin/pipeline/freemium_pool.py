@@ -2,10 +2,8 @@
 """Freemium candidate selection — seed profiles (QUALIFIED Deals) first, then undiscovered."""
 from __future__ import annotations
 
-import json
 import logging
 
-from linkedin.db.urls import url_to_public_id
 from linkedin.enums import ProfileState
 
 logger = logging.getLogger(__name__)
@@ -61,29 +59,10 @@ def find_freemium_candidate(session, qualifier) -> dict | None:
 def _pick_best(lead_pks: list[int], qualifier, session) -> dict | None:
     """Rank leads by qualifier and return the top-1 profile dict."""
     from crm.models import Lead
+    from linkedin.db.leads import lead_to_profile_dict
 
     leads = Lead.objects.filter(pk__in=lead_pks, disqualified=False)
-    if not leads.exists():
-        return None
-
-    profiles = []
-    for lead in leads:
-        profile = {}
-        if lead.description:
-            try:
-                profile = json.loads(lead.description)
-            except (json.JSONDecodeError, TypeError):
-                pass
-        public_id = url_to_public_id(lead.website) if lead.website else ""
-        if not public_id:
-            continue
-        profiles.append({
-            "lead_id": lead.pk,
-            "public_identifier": public_id,
-            "url": lead.website or "",
-            "profile": profile,
-            "meta": {},
-        })
+    profiles = [d for lead in leads if (d := lead_to_profile_dict(lead))]
 
     if not profiles:
         return None

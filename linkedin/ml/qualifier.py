@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import jinja2
 import numpy as np
@@ -13,6 +14,24 @@ from scipy.stats import norm
 from linkedin.conf import CAMPAIGN_CONFIG, PROMPTS_DIR
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Qualifier protocol — shared interface for BayesianQualifier & KitQualifier
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class Qualifier(Protocol):
+    """Common interface for all qualifier implementations.
+
+    ``rank_profiles`` returns profiles sorted by score (descending).
+    Returns ``[]`` on cold start or when ranking is impossible.
+
+    ``explain`` returns a human-readable scoring summary for a single profile.
+    """
+
+    def rank_profiles(self, profiles: list, session) -> list: ...
+    def explain(self, profile: dict, session) -> str: ...
 
 
 def format_prediction(prob: float, entropy: float, std: float, n_obs: int) -> str:
@@ -384,14 +403,13 @@ class BayesianQualifier:
     def rank_profiles(self, profiles: list, session) -> list:
         """Rank QUALIFIED profiles by raw GP mean (descending).
 
-        Raises if a profile lacks an embedding after lazy loading.
+        Returns ``[]`` on cold start (model not fitted yet).
         """
         if not profiles:
             return []
         if not self._fit_if_needed():
-            raise RuntimeError(
-                f"GPR not fitted ({self.n_obs} observations) — cannot rank profiles"
-            )
+            logger.debug("rank_profiles: GPR not fitted (%d obs) — returning empty", self.n_obs)
+            return []
         return _rank_by_score(profiles, self._pipeline, session)
 
     def explain(self, profile: dict, session) -> str:

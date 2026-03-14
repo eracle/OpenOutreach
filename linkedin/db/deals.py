@@ -7,7 +7,6 @@ from django.utils import timezone
 from termcolor import colored
 
 from linkedin.db._helpers import _make_ticket, _get_stage
-from linkedin.db.leads import _lead_profile
 from linkedin.db.urls import url_to_public_id, public_id_to_url
 from linkedin.enums import ProfileState
 
@@ -55,16 +54,19 @@ def increment_connect_attempts(session, public_id: str) -> int:
 
 def _deal_to_profile_dict(deal) -> dict:
     """Convert a Deal (with select_related lead) to a profile dict for lanes."""
-    lead = deal.lead
-    profile = _lead_profile(lead) or {}
-    public_id = url_to_public_id(lead.website) if lead.website else ""
-    return {
-        "lead_id": lead.pk,
-        "public_identifier": public_id,
-        "url": lead.website or "",
-        "profile": profile,
-        "meta": parse_next_step(deal),
-    }
+    from linkedin.db.leads import lead_to_profile_dict
+
+    base = lead_to_profile_dict(deal.lead)
+    if base is None:
+        return {
+            "lead_id": deal.lead.pk,
+            "public_identifier": "",
+            "url": deal.lead.website or "",
+            "profile": {},
+            "meta": parse_next_step(deal),
+        }
+    base["meta"] = parse_next_step(deal)
+    return base
 
 
 def _deals_at_stage(session, state: ProfileState) -> list:

@@ -45,6 +45,24 @@ def resolve_urn(public_id: str, session=None) -> Optional[str]:
     return profile.get("urn") if profile else None
 
 
+def lead_to_profile_dict(lead) -> dict | None:
+    """Convert a Lead to the standard profile dict shape used by qualifiers and pools.
+
+    Returns None if the lead has no public_identifier derivable from its website.
+    """
+    profile = _lead_profile(lead) or {}
+    public_id = url_to_public_id(lead.website) if lead.website else ""
+    if not public_id:
+        return None
+    return {
+        "lead_id": lead.pk,
+        "public_identifier": public_id,
+        "url": lead.website or "",
+        "profile": profile,
+        "meta": {},
+    }
+
+
 def lead_exists(url: str) -> bool:
     """Check if Lead already exists for this LinkedIn URL."""
     from crm.models import Lead
@@ -173,14 +191,9 @@ def get_leads_for_qualification(session) -> list:
 
     result = []
     for lead in leads:
-        profile = _lead_profile(lead) or {}
-        public_id = url_to_public_id(lead.website) if lead.website else ""
-        result.append({
-            "public_identifier": public_id,
-            "url": lead.website or "",
-            "profile": profile,
-            "lead_id": lead.pk,
-        })
+        d = lead_to_profile_dict(lead)
+        if d:
+            result.append(d)
     return result
 
 
