@@ -6,7 +6,7 @@ from linkedin.db.leads import lead_profile_by_id
 logger = logging.getLogger(__name__)
 
 
-def ensure_lead_enriched(session, lead_id: int, public_id: str) -> bool:
+def ensure_lead_enriched(session, lead_id: int, public_id: str, *, quiet: bool = False) -> bool:
     """Lazily enrich a url-only Lead via Voyager API (robustness fallback).
 
     Kept for robustness — normal flow enriches eagerly at discovery time
@@ -34,11 +34,12 @@ def ensure_lead_enriched(session, lead_id: int, public_id: str) -> bool:
     if data:
         _attach_raw_data(lead, public_id, data)
 
-    logger.warning("Lazy-enriched %s (lead_id=%d) — should already have been enriched at discovery", public_id, lead_id)
+    if not quiet:
+        logger.warning("Lazy-enriched %s (lead_id=%d) — should already have been enriched at discovery", public_id, lead_id)
     return True
 
 
-def ensure_profile_embedded(lead_id: int, public_id: str, session) -> bool:
+def ensure_profile_embedded(lead_id: int, public_id: str, session, *, quiet: bool = False) -> bool:
     """Lazily enrich + embed a Lead as a single operation (robustness fallback).
 
     Kept for robustness — normal flow embeds eagerly at discovery time
@@ -55,7 +56,7 @@ def ensure_profile_embedded(lead_id: int, public_id: str, session) -> bool:
 
     profile_data = lead_profile_by_id(lead_id)
     if not profile_data:
-        if not ensure_lead_enriched(session, lead_id, public_id):
+        if not ensure_lead_enriched(session, lead_id, public_id, quiet=quiet):
             return False
         profile_data = lead_profile_by_id(lead_id)
         if not profile_data:
@@ -63,7 +64,8 @@ def ensure_profile_embedded(lead_id: int, public_id: str, session) -> bool:
 
     from linkedin.ml.embeddings import embed_profile
 
-    logger.warning("Lazy-embedded %s (lead_id=%d) — should already have been embedded at discovery", public_id, lead_id)
+    if not quiet:
+        logger.warning("Lazy-embedded %s (lead_id=%d) — should already have been embedded at discovery", public_id, lead_id)
     return embed_profile(lead_id, public_id, profile_data)
 
 

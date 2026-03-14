@@ -73,5 +73,5 @@ def seed_profiles(session, kit_config: dict):
             },
         )
 
-        ensure_profile_embedded(lead.pk, public_id, session)
+        ensure_profile_embedded(lead.pk, public_id, session, quiet=True)
         create_freemium_deal(session, public_id)
