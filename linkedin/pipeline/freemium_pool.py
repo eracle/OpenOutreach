@@ -1,47 +1,71 @@
 # linkedin/pipeline/freemium_pool.py
-"""Freemium candidate selection — queries ProfileEmbedding directly, no Deal pre-creation."""
+"""Freemium candidate selection — seed profiles (QUALIFIED Deals) first, then undiscovered."""
 from __future__ import annotations
 
 import json
 import logging
 
 from linkedin.db.urls import url_to_public_id
+from linkedin.enums import ProfileState
 
 logger = logging.getLogger(__name__)
 
 
 def find_freemium_candidate(session, qualifier) -> dict | None:
-    """Return the top-ranked embedded lead not yet dealt in this campaign.
+    """Return the top-ranked embedded lead eligible for connection.
 
-    Candidate pool: any embedded lead without a Deal in this department,
-    excluding self-profile (disqualified=True). LLM rejections in other
-    campaigns don't exclude leads from this campaign — each campaign
-    (department) maintains independent Deal state.
+    Priority: seed profiles with QUALIFIED Deals are returned first (ranked by
+    the kit model).  Once all seeds are exhausted (connected / failed), falls
+    back to embedded leads without any Deal in this department.
+
+    Exclusions:
+    - ``disqualified=True`` leads (self-profile, unreachable)
+    - Leads with non-QUALIFIED Deals (already in-progress or terminal)
     """
     from crm.models import Deal, Lead
+    from linkedin.db._helpers import _get_stage
     from linkedin.models import ProfileEmbedding
 
     dept = session.campaign.department
+    qualified_stage = _get_stage(ProfileState.QUALIFIED, session)
 
     # All embedded lead IDs
     embedded_pks = set(ProfileEmbedding.objects.values_list("lead_id", flat=True))
 
-    # Exclude leads that already have a Deal in this freemium department
-    already_dealt = set(
+    # Seed profiles: QUALIFIED Deals in this department (ready to connect)
+    seed_pks = set(
+        Deal.objects.filter(department=dept, stage=qualified_stage)
+        .values_list("lead_id", flat=True)
+    )
+    seed_pks &= embedded_pks  # must have embeddings
+
+    # Leads with any Deal in this department (all stages)
+    all_dealt_pks = set(
         Deal.objects.filter(department=dept).values_list("lead_id", flat=True)
     )
-    eligible_pks = sorted(embedded_pks - already_dealt)
 
-    if not eligible_pks:
-        return None
+    # Undiscovered: embedded leads with no Deal at all in this department
+    undiscovered_pks = embedded_pks - all_dealt_pks
 
-    # disqualified=False excludes permanently disqualified leads (account-level);
-    # campaign-scoped rejections are tracked as FAILED Deals, not lead flags.
-    leads = Lead.objects.filter(pk__in=eligible_pks, disqualified=False)
+    # Try seeds first, then undiscovered
+    for candidate_pks in (seed_pks, undiscovered_pks):
+        if not candidate_pks:
+            continue
+        result = _pick_best(sorted(candidate_pks), qualifier, session)
+        if result:
+            return result
+
+    return None
+
+
+def _pick_best(lead_pks: list[int], qualifier, session) -> dict | None:
+    """Rank leads by qualifier and return the top-1 profile dict."""
+    from crm.models import Lead
+
+    leads = Lead.objects.filter(pk__in=lead_pks, disqualified=False)
     if not leads.exists():
         return None
 
-    # Build profile dicts matching the shape expected by rank_profiles
     profiles = []
     for lead in leads:
         profile = {}

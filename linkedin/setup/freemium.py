@@ -44,14 +44,16 @@ def import_freemium_campaign(kit_config: dict):
 
 
 def seed_profiles(session, kit_config: dict):
-    """Seed Lead + ProfileEmbedding for profiles listed in kit config.
+    """Seed Lead + ProfileEmbedding + QUALIFIED Deal for profiles listed in kit config.
 
     Reads ``seed_profiles`` (list of public IDs) from the kit config.
     Leads are get-or-created; embeddings are lazily computed via Voyager API.
+    A QUALIFIED Deal is created so seeds are prioritised in the candidate pool.
     """
     from crm.models import Lead
 
     from linkedin.db._helpers import _get_lead_source
+    from linkedin.db.deals import create_freemium_deal
     from linkedin.db.enrichment import ensure_profile_embedded
     from linkedin.db.urls import public_id_to_url
 
@@ -72,3 +74,4 @@ def seed_profiles(session, kit_config: dict):
         )
 
         ensure_profile_embedded(lead.pk, public_id, session)
+        create_freemium_deal(session, public_id)
