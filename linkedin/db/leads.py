@@ -115,7 +115,7 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optio
 
 
 @transaction.atomic
-def promote_lead_to_contact(session, public_id: str):
+def promote_lead_to_contact(session, public_id: str, reason: str = ""):
     """Create Contact from Lead + Deal at 'Qualified' stage.
 
     Returns (contact, deal). Raises ValueError if Lead has no Company.
@@ -155,6 +155,7 @@ def promote_lead_to_contact(session, public_id: str):
     dept = session.campaign.department
 
     # Create Deal at "Qualified" stage
+    ns = {"reason": reason} if reason else {}
     deal = Deal.objects.create(
         name=f"LinkedIn: {public_id}",
         lead=lead,
@@ -163,7 +164,7 @@ def promote_lead_to_contact(session, public_id: str):
         stage=_get_stage(ProfileState.QUALIFIED, session.campaign),
         owner=session.django_user,
         department=dept,
-        next_step="",
+        next_step=json.dumps(ns) if ns else "",
         next_step_date=date.today(),
         ticket=_make_ticket(),
     )

@@ -24,7 +24,7 @@ import numpy as np
 
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.ml.qualifier import BayesianQualifier
-from linkedin.pipeline.qualify import fetch_unlabeled_candidates, run_qualification
+from linkedin.pipeline.qualify import fetch_qualification_candidates, run_qualification
 from linkedin.pipeline.ready_pool import find_ready_candidate, promote_to_ready
 from linkedin.pipeline.search import run_search
 
@@ -103,13 +103,13 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
     search = search_source(session)
 
     while True:
-        candidates = fetch_unlabeled_candidates(session)
+        candidates = fetch_qualification_candidates(session)
 
         # If no candidates at all, search to bring some in
         if not candidates:
             if next(search, None) is None:
                 return
-            candidates = fetch_unlabeled_candidates(session)
+            candidates = fetch_qualification_candidates(session)
             if not candidates:
                 return
 
@@ -118,7 +118,7 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
         while _needs_search(qualifier, candidates):
             if next(search, None) is None:
                 break
-            candidates = fetch_unlabeled_candidates(session)
+            candidates = fetch_qualification_candidates(session)
 
         result = run_qualification(session, qualifier)
         if result is None:

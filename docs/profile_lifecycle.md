@@ -64,9 +64,8 @@ The first candidate is selected in order and qualified via LLM.
 
 ### Result
 
-- `ProfileEmbedding.label` set to 0 or 1, with `llm_reason` and `labeled_at`
-- Accepted: Lead promoted → Contact + Company + Deal (stage=QUALIFIED)
-- Rejected: FAILED Deal with "Disqualified" closing reason (campaign-scoped, not `Lead.disqualified`)
+- Accepted: Lead promoted → Contact + Company + Deal (stage=QUALIFIED). LLM reason stored in Deal.next_step JSON.
+- Rejected: FAILED Deal with "Disqualified" closing reason (campaign-scoped, not `Lead.disqualified`). Reason in Deal.next_step JSON.
 
 ## 4. Ready to Connect (QUALIFIED → READY_TO_CONNECT)
 

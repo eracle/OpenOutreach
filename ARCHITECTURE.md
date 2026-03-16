@@ -52,7 +52,7 @@ GPR (sklearn, ConstantKernel * RBF) inside Pipeline(StandardScaler, GPR) with BA
 - **Contact** — Created after qualification (promotion from Lead).
 - **Company** — From first position's company name.
 - **Deal** — Per campaign (department-scoped). Stage maps to ProfileState. `next_step` = JSON metadata.
-- **ProfileEmbedding** — 384-dim vectors as BinaryField. `lead_id` PK, `label` (0/1/null), `llm_reason`.
+- **ProfileEmbedding** — 384-dim vectors as BinaryField. `lead_id` PK. Labels derived from Deal stage/closing_reason.
 - **Task** — `task_type`, `status`, `scheduled_at`, `payload` (JSONField). Composite index on `(status, scheduled_at)`.
 - **TheFile** — Raw Voyager JSON via GenericForeignKey.
 
@@ -62,7 +62,7 @@ GPR (sklearn, ConstantKernel * RBF) inside Pipeline(StandardScaler, GPR) with BA
 - **`tasks/connect.py`** — `handle_connect`, `ConnectStrategy`, enqueue helpers.
 - **`tasks/check_pending.py`** — `handle_check_pending`, exponential backoff.
 - **`tasks/follow_up.py`** — `handle_follow_up`, rate limiting.
-- **`pipeline/qualify.py`** — `run_qualification()`, `fetch_unlabeled_candidates()`.
+- **`pipeline/qualify.py`** — `run_qualification()`, `fetch_qualification_candidates()`.
 - **`pipeline/search.py`** — `run_search()`, keyword management.
 - **`pipeline/search_keywords.py`** — `generate_search_keywords()` via LLM.
 - **`pipeline/ready_pool.py`** — GP confidence gate, `promote_to_ready()`.

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-from django.utils import timezone
 from termcolor import colored
 
 from linkedin.ml.qualifier import BayesianQualifier
@@ -13,8 +12,8 @@ from linkedin.ml.qualifier import BayesianQualifier
 logger = logging.getLogger(__name__)
 
 
-def fetch_unlabeled_candidates(session):
-    """Return unlabeled ProfileEmbedding rows, embedding one new lead if the list is empty."""
+def fetch_qualification_candidates(session):
+    """Return ProfileEmbedding rows for leads awaiting qualification."""
     from linkedin.db.leads import get_leads_for_qualification
     from linkedin.db.enrichment import ensure_profile_embedded
     from linkedin.models import ProfileEmbedding
@@ -26,7 +25,7 @@ def fetch_unlabeled_candidates(session):
     lead_ids = {ld["lead_id"] for ld in leads}
 
     candidates = list(
-        ProfileEmbedding.objects.filter(lead_id__in=lead_ids, label__isnull=True)
+        ProfileEmbedding.objects.filter(lead_id__in=lead_ids)
         .order_by("created_at")
     )
     if candidates:
@@ -42,7 +41,7 @@ def fetch_unlabeled_candidates(session):
         if lid in embedded_ids:
             continue
         if ensure_profile_embedded(lid, ld["public_identifier"], session):
-            row = ProfileEmbedding.objects.filter(lead_id=lid, label__isnull=True).first()
+            row = ProfileEmbedding.objects.filter(lead_id=lid).first()
             if row:
                 return [row]
 
@@ -53,7 +52,7 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
     """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns public_id or None."""
     from linkedin.ml.qualifier import qualify_with_llm, format_prediction
 
-    candidates = fetch_unlabeled_candidates(session)
+    candidates = fetch_qualification_candidates(session)
     if not candidates:
         return None
 
@@ -113,16 +112,12 @@ def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: i
     # (campaign-scoped), not as Lead.disqualified (permanent account-level exclusion).
     from linkedin.db.deals import create_disqualified_deal
     from linkedin.db.leads import promote_lead_to_contact
-    from linkedin.models import ProfileEmbedding
 
-    ProfileEmbedding.objects.filter(lead_id=lead_id).update(
-        label=label, llm_reason=reason, labeled_at=timezone.now(),
-    )
     qualifier.update(embedding, label)
 
     if label == 1:
         try:
-            promote_lead_to_contact(session, public_id)
+            promote_lead_to_contact(session, public_id, reason=reason)
         except ValueError as e:
             logger.warning("Cannot promote %s: %s \u2014 disqualifying", public_id, e)
             create_disqualified_deal(session, public_id, reason=str(e))
