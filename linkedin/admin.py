@@ -28,9 +28,8 @@ class SearchKeywordAdmin(admin.ModelAdmin):
 
 @admin.register(ProfileEmbedding)
 class ProfileEmbeddingAdmin(admin.ModelAdmin):
-    list_display = ("lead_id", "public_identifier", "label", "created_at", "labeled_at")
-    list_filter = ("label",)
-    readonly_fields = ("lead_id", "public_identifier", "embedding", "label", "llm_reason", "created_at", "labeled_at")
+    list_display = ("lead_id", "public_identifier", "created_at")
+    readonly_fields = ("lead_id", "public_identifier", "embedding", "created_at")
 
 
 @admin.register(ActionLog)

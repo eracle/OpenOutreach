@@ -166,10 +166,7 @@ class ProfileEmbedding(models.Model):
     lead_id = models.IntegerField(primary_key=True)
     public_identifier = models.CharField(max_length=200)
     embedding = models.BinaryField()
-    label = models.IntegerField(null=True, blank=True)
-    llm_reason = models.CharField(max_length=500, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
-    labeled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         app_label = "linkedin"
@@ -184,21 +181,54 @@ class ProfileEmbedding(models.Model):
         self.embedding = np.asarray(arr, dtype=np.float32).tobytes()
 
     @classmethod
-    def get_labeled_arrays(cls) -> tuple[np.ndarray, np.ndarray]:
-        """All labeled embeddings as (X, y) numpy arrays for warm start."""
-        rows = list(
-            cls.objects.filter(label__isnull=False)
-            .order_by("labeled_at")
-            .values_list("embedding", "label")
-        )
-        if not rows:
+    def get_labeled_arrays(cls, department) -> tuple[np.ndarray, np.ndarray]:
+        """Labeled embeddings for a department as (X, y) numpy arrays for warm start.
+
+        Labels are derived from Deal stage and closing_reason:
+        - label=1: Deals at any non-FAILED stage (QUALIFIED and beyond)
+        - label=0: FAILED Deals with closing_reason "Disqualified" (LLM rejection)
+        - Skipped: FAILED Deals with other closing reasons (operational failures)
+        """
+        from crm.models import Deal, Stage
+
+        # Single query: each lead_id → label (1=qualified+, 0=disqualified)
+        failed_stage = Stage.objects.filter(
+            name="Failed", department=department,
+        ).first()
+
+        deals = Deal.objects.filter(
+            department=department, lead_id__isnull=False,
+        ).values_list("lead_id", "stage_id", "closing_reason__name")
+
+        label_by_lead: dict[int, int] = {}
+        for lid, stage_id, cr_name in deals:
+            if failed_stage and stage_id == failed_stage.pk:
+                if cr_name == "Disqualified":
+                    label_by_lead[lid] = 0
+                # other closing reasons → skip (operational failure)
+            else:
+                label_by_lead[lid] = 1
+
+        if not label_by_lead:
             return np.empty((0, 384), dtype=np.float32), np.empty(0, dtype=np.int32)
-        X = np.array(
-            [np.frombuffer(bytes(emb), dtype=np.float32) for emb, _ in rows],
-            dtype=np.float32,
+
+        embeddings = dict(
+            cls.objects.filter(lead_id__in=label_by_lead)
+            .values_list("lead_id", "embedding")
         )
-        y = np.array([label for _, label in rows], dtype=np.int32)
-        return X, y
+
+        X_list, y_list = [], []
+        for lid, label in label_by_lead.items():
+            emb = embeddings.get(lid)
+            if emb is None:
+                continue
+            X_list.append(np.frombuffer(bytes(emb), dtype=np.float32))
+            y_list.append(label)
+
+        if not X_list:
+            return np.empty((0, 384), dtype=np.float32), np.empty(0, dtype=np.int32)
+
+        return np.array(X_list, dtype=np.float32), np.array(y_list, dtype=np.int32)
 
     def __str__(self):
         return f"Embedding for lead {self.lead_id} ({self.public_identifier})"

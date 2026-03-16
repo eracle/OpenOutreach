@@ -20,14 +20,13 @@ def _make_trained_qualifier(seed=42):
     return qualifier
 
 
-def _create_embedding(lead_id, public_id, label=None):
+def _create_embedding(lead_id, public_id):
     from linkedin.models import ProfileEmbedding
     emb = np.ones(384, dtype=np.float32)
     return ProfileEmbedding.objects.create(
         lead_id=lead_id,
         public_identifier=public_id,
         embedding=emb.tobytes(),
-        label=label,
     )
 
 
@@ -38,8 +37,6 @@ def _fake_leads(lead_id=1, public_id="alice"):
 
 class TestQualifyAutoDecisions:
     def test_always_calls_llm(self, embeddings_db):
-        from linkedin.models import ProfileEmbedding
-
         qualifier = _make_trained_qualifier()
         session = MagicMock()
         _create_embedding(1, "alice")
@@ -53,7 +50,6 @@ class TestQualifyAutoDecisions:
         ):
             run_qualification(session, qualifier)
             mock_llm.assert_called_once()
-            assert ProfileEmbedding.objects.get(lead_id=1).label == 1
 
     def test_llm_on_cold_start(self, embeddings_db):
         qualifier = BayesianQualifier(seed=42)

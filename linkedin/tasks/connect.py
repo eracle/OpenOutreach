@@ -82,7 +82,6 @@ def _seconds_until_tomorrow() -> float:
 def handle_connect(task, session, qualifiers):
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.status import get_connection_status
-    from linkedin.models import ProfileEmbedding
 
     cfg = CAMPAIGN_CONFIG
     campaign = session.campaign
@@ -111,13 +110,15 @@ def handle_connect(task, session, qualifiers):
     if strategy.pre_connect:
         strategy.pre_connect(session, public_id)
 
-    reason = (
-        ProfileEmbedding.objects.filter(
-            public_identifier=public_id, label__isnull=False,
-        )
-        .values_list("llm_reason", flat=True)
-        .first()
-    )
+    from linkedin.db.deals import parse_next_step
+    from linkedin.db.urls import public_id_to_url
+    from crm.models import Deal
+
+    deal = Deal.objects.filter(
+        lead__website=public_id_to_url(public_id),
+        department=session.campaign.department,
+    ).first()
+    reason = parse_next_step(deal).get("reason", "") if deal else ""
     stats = strategy.qualifier.explain(candidate, session) if strategy.qualifier else ""
     logger.info("[%s] %s", campaign, colored("\u25b6 connect", "cyan", attrs=["bold"]))
     logger.info("[%s] %s (%s) — %s", campaign, public_id, stats, reason or "")

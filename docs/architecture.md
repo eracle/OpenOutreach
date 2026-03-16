@@ -25,7 +25,7 @@ The system uses DjangoCRM with a single SQLite database at `assets/data/crm.db`.
 - **LinkedInProfile** (`linkedin.models.LinkedInProfile`) — 1:1 with `auth.User`. Stores credentials, rate limits, newsletter preference. Rate-limiting methods: `can_execute()`, `record_action()`, `mark_exhausted()`.
 - **SearchKeyword** (`linkedin.models.SearchKeyword`) — FK to Campaign. Stores `keyword`, `used` (bool), `used_at`.
 - **ActionLog** (`linkedin.models.ActionLog`) — FK to LinkedInProfile + Campaign. Tracks `connect` and `follow_up` actions for rate limiting.
-- **ProfileEmbedding** (`linkedin.models.ProfileEmbedding`) — Stores 384-dim fastembed vectors as `BinaryField` blobs in SQLite. `label` (0/1 or null), `llm_reason`. Property `embedding_array` converts between bytes and numpy.
+- **ProfileEmbedding** (`linkedin.models.ProfileEmbedding`) — Stores 384-dim fastembed vectors as `BinaryField` blobs in SQLite. Labels derived from Deal stage/closing_reason via `get_labeled_arrays(department)`. Property `embedding_array` converts between bytes and numpy.
 - **Task** (`linkedin.models.Task`) — Persistent priority queue for daemon actions. `task_type`, `status`, `scheduled_at`, `payload` (JSONField).
 - **TheFile** — Raw Voyager API JSON attached to a Lead via `GenericForeignKey`.
 
@@ -86,7 +86,7 @@ Freemium campaigns use the same `connect` task type; the `ConnectStrategy` datac
 
 Candidate sourcing, qualification, and pool management:
 
-- **`qualify.py`** — `run_qualification()`: selects candidates via `qualifier.acquisition_scores()`, always queries LLM for decisions. `fetch_unlabeled_candidates()` returns unlabeled `ProfileEmbedding` rows.
+- **`qualify.py`** — `run_qualification()`: selects candidates via `qualifier.acquisition_scores()`, always queries LLM for decisions. `fetch_qualification_candidates()` returns `ProfileEmbedding` rows for leads awaiting qualification.
 - **`search.py`** — `run_search()`: picks next unused keyword (generating fresh ones via LLM if exhausted), runs LinkedIn People search.
 - **`search_keywords.py`** — `generate_search_keywords()`: calls LLM to generate LinkedIn People search queries from campaign context.
 - **`ready_pool.py`** — GP confidence gate between QUALIFIED and READY_TO_CONNECT. `promote_to_ready()` promotes profiles above `min_ready_to_connect_prob` threshold.

@@ -22,12 +22,11 @@ SAMPLE_PROFILE = {
 }
 
 
-def _make_candidate(lead_id, embedding_array, label=None):
+def _make_candidate(lead_id, embedding_array):
     """Create a mock ProfileEmbedding candidate."""
     c = MagicMock()
     c.lead_id = lead_id
     c.embedding_array = embedding_array
-    c.label = label
     return c
 
 
@@ -136,7 +135,7 @@ class TestQualifySource:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates", return_value=candidates),
             patch("linkedin.pipeline.pools._needs_search", return_value=False),
             patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
             patch("linkedin.pipeline.pools.run_search") as mock_search,
@@ -152,7 +151,7 @@ class TestQualifySource:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates", return_value=candidates),
             # Always empty — search exhausts (returns None) and loop breaks
             patch("linkedin.pipeline.pools._needs_search", return_value=True),
             patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
@@ -176,7 +175,7 @@ class TestQualifySource:
             return call_count[0] <= 1
 
         with (
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates", return_value=candidates),
             patch("linkedin.pipeline.pools._needs_search", side_effect=pool_empty_side_effect),
             patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
             patch("linkedin.pipeline.pools.run_search", return_value="kw") as mock_search,
@@ -192,7 +191,7 @@ class TestQualifySource:
         candidates = [_make_candidate(1, np.zeros(384, dtype=np.float32))]
 
         with (
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates",
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates",
                   side_effect=[[], candidates, candidates]),
             patch("linkedin.pipeline.pools._needs_search", return_value=False),
             patch("linkedin.pipeline.pools.run_qualification", side_effect=["alice", None]),
@@ -208,7 +207,7 @@ class TestQualifySource:
         scorer = BayesianQualifier(seed=42)
 
         with (
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=[]),
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates", return_value=[]),
             patch("linkedin.pipeline.pools.run_search", return_value=None),
             patch("linkedin.pipeline.pools.run_qualification") as mock_qualify,
         ):
@@ -232,7 +231,7 @@ class TestGetCandidate:
         with (
             patch("linkedin.pipeline.pools.find_ready_candidate", side_effect=[None, candidate]),
             patch("linkedin.pipeline.pools.promote_to_ready", side_effect=[0, 1]),
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates", return_value=candidates),
             patch("linkedin.pipeline.pools._needs_search", return_value=False),
             patch("linkedin.pipeline.pools.run_qualification", return_value="alice"),
         ):
@@ -244,7 +243,7 @@ class TestGetCandidate:
         with (
             patch("linkedin.pipeline.pools.find_ready_candidate", return_value=None),
             patch("linkedin.pipeline.pools.promote_to_ready", return_value=0),
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=[]),
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates", return_value=[]),
             patch("linkedin.pipeline.pools.run_search", return_value=None),
         ):
             assert find_candidate(fake_session, scorer) is None
@@ -258,7 +257,7 @@ class TestGetCandidate:
         with (
             patch("linkedin.pipeline.pools.find_ready_candidate", side_effect=[None, candidate]),
             patch("linkedin.pipeline.pools.promote_to_ready", side_effect=[0, 1]),
-            patch("linkedin.pipeline.pools.fetch_unlabeled_candidates", return_value=candidates),
+            patch("linkedin.pipeline.pools.fetch_qualification_candidates", return_value=candidates),
             patch("linkedin.pipeline.pools._needs_search", return_value=False),
             patch("linkedin.pipeline.pools.run_qualification", return_value="alice"),
         ):

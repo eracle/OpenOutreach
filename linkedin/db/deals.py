@@ -21,7 +21,6 @@ _STATE_LOG_STYLE = {
     ProfileState.FAILED: ("FAILED", "red", ["bold"]),
 }
 
-
 def parse_next_step(deal) -> dict:
     """Parse deal.next_step as JSON, return empty dict on failure or empty string."""
     if not deal.next_step:
@@ -39,7 +38,7 @@ def increment_connect_attempts(session, public_id: str) -> int:
     clean_url = public_id_to_url(public_id)
     dept = session.campaign.department
     deal = Deal.objects.filter(
-        lead__website=clean_url, owner=session.django_user, department=dept,
+        lead__website=clean_url, department=dept,
     ).first()
     if not deal:
         return 1
@@ -68,7 +67,6 @@ def _deals_at_stage(session, state: ProfileState) -> list:
     stage = _get_stage(state, session.campaign)
     qs = Deal.objects.filter(
         stage=stage,
-        owner=session.django_user,
         department=session.campaign.department,
     ).select_related("lead")
     return [_deal_to_profile_dict(d) for d in qs]
@@ -103,7 +101,7 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
 
     clean_url = public_id_to_url(public_identifier)
     dept = session.campaign.department
-    deal = Deal.objects.filter(lead__website=clean_url, owner=session.django_user, department=dept).first()
+    deal = Deal.objects.filter(lead__website=clean_url, department=dept).first()
     if not deal:
         raise ValueError(f"No Deal for {public_identifier} — cannot set state {new_state}")
 
@@ -115,11 +113,6 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
     deal.stage = new_stage
     deal.change_stage_data(date.today())
     deal.next_step_date = date.today()
-
-    # Clear backoff metadata on transitions into or out of PENDING (not same-state)
-    old_is_pending = (old_stage_name == ProfileState.PENDING.value)
-    if old_is_pending != (ps == ProfileState.PENDING):
-        deal.next_step = ""
 
     if reason:
         deal.description = reason
@@ -167,7 +160,7 @@ def get_profile_dict_for_public_id(session, public_id: str) -> dict | None:
     clean_url = public_id_to_url(public_id)
     dept = session.campaign.department
     deal = (
-        Deal.objects.filter(lead__website=clean_url, owner=session.django_user, department=dept)
+        Deal.objects.filter(lead__website=clean_url, department=dept)
         .select_related("lead")
         .first()
     )
@@ -198,6 +191,7 @@ def create_disqualified_deal(session, public_id: str, reason: str = ""):
         return None
 
     closing = ClosingReason.objects.filter(name="Disqualified", department=dept).first()
+    ns = {"reason": reason} if reason else {}
     deal = _create_deal(
         name=f"LinkedIn: {public_id}",
         lead=lead,
@@ -206,6 +200,7 @@ def create_disqualified_deal(session, public_id: str, reason: str = ""):
         closing_reason=closing,
         description=reason,
         active=False,
+        next_step=json.dumps(ns) if ns else "",
     )
 
     suffix = f" ({reason})" if reason else ""

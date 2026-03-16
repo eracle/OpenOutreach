@@ -76,8 +76,6 @@ def _build_qualifiers(campaigns, cfg, kit_model=None):
     """
     from linkedin.models import ProfileEmbedding
 
-    X, y = ProfileEmbedding.get_labeled_arrays()
-
     qualifiers: dict[int, BayesianQualifier | KitQualifier] = {}
     n_regular = 0
     for campaign in campaigns:
@@ -91,18 +89,17 @@ def _build_qualifiers(campaigns, cfg, kit_model=None):
                 n_mc_samples=cfg["qualification_n_mc_samples"],
                 save_path=model_path_for_campaign(campaign.pk),
             )
+            X, y = ProfileEmbedding.get_labeled_arrays(campaign.department)
             if len(X) > 0:
                 q.warm_start(X, y)
+                logger.info(
+                    colored("GP qualifier warm-started", "cyan")
+                    + " on %d labelled samples (%d positive, %d negative)"
+                    + " for campaign %s",
+                    len(y), int((y == 1).sum()), int((y == 0).sum()), campaign,
+                )
             qualifiers[campaign.pk] = q
             n_regular += 1
-
-    if n_regular and len(X) > 0:
-        logger.info(
-            colored("GP qualifiers warm-started", "cyan")
-            + " on %d labelled samples (%d positive, %d negative)"
-            + " for %d campaign(s)",
-            len(y), int((y == 1).sum()), int((y == 0).sum()), n_regular,
-        )
 
     return qualifiers
 
@@ -162,7 +159,7 @@ def heal_tasks(session):
 
         pending_deals = Deal.objects.filter(
             stage=stage,
-            owner=session.django_user,
+            department=campaign.department,
         ).select_related("lead")
 
         for deal in pending_deals:
@@ -185,7 +182,7 @@ def heal_tasks(session):
 
         connected_deals = Deal.objects.filter(
             stage=stage,
-            owner=session.django_user,
+            department=campaign.department,
         ).select_related("lead")
 
         for deal in connected_deals:
