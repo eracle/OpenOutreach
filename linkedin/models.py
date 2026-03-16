@@ -29,6 +29,7 @@ class Campaign(models.Model):
     booking_link = models.URLField(max_length=500, blank=True)
     is_freemium = models.BooleanField(default=False)
     action_fraction = models.FloatField(default=0.2)
+    seed_public_ids = models.JSONField(default=list, blank=True)
 
     def __str__(self):
         return self.department.name

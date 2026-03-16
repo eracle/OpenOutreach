@@ -69,7 +69,7 @@ def seed_profiles(session, kit_config: dict):
             defaults={
                 "owner": session.django_user,
                 "department": session.campaign.department,
-                "lead_source": _get_lead_source(session),
+                "lead_source": _get_lead_source(session.campaign),
             },
         )
 
