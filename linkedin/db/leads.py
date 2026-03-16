@@ -98,7 +98,7 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any], data: Optio
         website=clean_url,
         owner=session.django_user,
         department=session.campaign.department,
-        lead_source=_get_lead_source(session),
+        lead_source=_get_lead_source(session.campaign),
     )
 
     _update_lead_fields(lead, profile)
@@ -160,7 +160,7 @@ def promote_lead_to_contact(session, public_id: str):
         lead=lead,
         contact=contact,
         company=company,
-        stage=_get_stage(ProfileState.QUALIFIED, session),
+        stage=_get_stage(ProfileState.QUALIFIED, session.campaign),
         owner=session.django_user,
         department=dept,
         next_step="",

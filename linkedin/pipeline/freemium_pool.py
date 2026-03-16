@@ -25,7 +25,7 @@ def find_freemium_candidate(session, qualifier) -> dict | None:
     from linkedin.models import ProfileEmbedding
 
     dept = session.campaign.department
-    qualified_stage = _get_stage(ProfileState.QUALIFIED, session)
+    qualified_stage = _get_stage(ProfileState.QUALIFIED, session.campaign)
 
     # All embedded lead IDs
     embedded_pks = set(ProfileEmbedding.objects.values_list("lead_id", flat=True))

@@ -8,13 +8,11 @@ def _make_ticket() -> str:
     return uuid.uuid4().hex[:16]
 
 
-def _get_stage(state: ProfileState, session):
+def _get_stage(state: ProfileState, campaign):
     from crm.models import Stage
-    dept = session.campaign.department
-    return Stage.objects.get(name=state.value, department=dept)
+    return Stage.objects.get(name=state.value, department=campaign.department)
 
 
-def _get_lead_source(session):
+def _get_lead_source(campaign):
     from crm.models import LeadSource
-    dept = session.campaign.department
-    return LeadSource.objects.get(name="LinkedIn Scraper", department=dept)
+    return LeadSource.objects.get(name="LinkedIn Scraper", department=campaign.department)

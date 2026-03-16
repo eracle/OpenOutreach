@@ -151,6 +151,31 @@ def _onboard_campaign():
     return campaign
 
 
+def _onboard_seed_urls(campaign):
+    """Optionally collect LinkedIn URLs to use as positive seed profiles."""
+    print()
+    add_seeds = _prompt(
+        "Do you have LinkedIn profile URLs to use as positive seeds? (y/N)",
+        default="N",
+    )
+    if add_seeds.lower() not in ("y", "yes"):
+        return
+
+    from linkedin.setup.seeds import parse_seed_urls, create_seed_leads
+
+    text = _read_multiline(
+        "Paste LinkedIn profile URLs (one per line).\n"
+        "Press Ctrl-D when done:\n"
+    )
+    public_ids = parse_seed_urls(text)
+    if not public_ids:
+        print("No valid LinkedIn URLs found.")
+        return
+
+    created = create_seed_leads(campaign, public_ids)
+    print(f"{created} seed profile(s) added as QUALIFIED.")
+
+
 def _onboard_account(campaign):
     """Create a LinkedInProfile via interactive prompts. Returns the profile."""
     from django.contrib.auth.models import User
@@ -254,11 +279,15 @@ def ensure_onboarding() -> None:
     from linkedin.models import Campaign, LinkedInProfile
 
     campaign = Campaign.objects.first()
-    if campaign is None:
+    is_new = campaign is None
+    if is_new:
         campaign = _onboard_campaign()
 
     if not LinkedInProfile.objects.filter(active=True).exists():
         _onboard_account(campaign)
+
+    if is_new:
+        _onboard_seed_urls(campaign)
 
     _ensure_llm_config()
 

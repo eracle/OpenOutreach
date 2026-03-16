@@ -65,7 +65,7 @@ def _deals_at_stage(session, state: ProfileState) -> list:
     """Return profile dicts for all Deals at the given stage in this campaign's department."""
     from crm.models import Deal
 
-    stage = _get_stage(state, session)
+    stage = _get_stage(state, session.campaign)
     qs = Deal.objects.filter(
         stage=stage,
         owner=session.django_user,
@@ -109,7 +109,7 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
 
     ps = ProfileState(new_state)
     old_stage_name = deal.stage.name if deal.stage else None
-    new_stage = _get_stage(ps, session)
+    new_stage = _get_stage(ps, session.campaign)
     state_changed = (old_stage_name != new_stage.name)
 
     deal.stage = new_stage
@@ -201,7 +201,7 @@ def create_disqualified_deal(session, public_id: str, reason: str = ""):
     deal = _create_deal(
         name=f"LinkedIn: {public_id}",
         lead=lead,
-        stage=_get_stage(ProfileState.FAILED, session),
+        stage=_get_stage(ProfileState.FAILED, session.campaign),
         session=session,
         closing_reason=closing,
         description=reason,
@@ -230,7 +230,7 @@ def create_freemium_deal(session, public_id: str):
     deal = _create_deal(
         name=f"Freemium: {public_id}",
         lead=lead,
-        stage=_get_stage(ProfileState.QUALIFIED, session),
+        stage=_get_stage(ProfileState.QUALIFIED, session.campaign),
         session=session,
         contact=lead.contact,
         company=lead.company,
