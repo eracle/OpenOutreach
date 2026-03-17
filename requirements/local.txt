@@ -4,5 +4,5 @@
 pytest
 pytest-django
 pytest-mock
-pytest-cov
+pytest-cov==7.0.0
 factory-boy
