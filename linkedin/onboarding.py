@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import logging
 
-from linkedin.conf import ENV_FILE
+from linkedin.conf import ENV_FILE, ROOT_DIR
+
+DEFAULT_PRODUCT_DOCS = ROOT_DIR / "README.md"
+DEFAULT_CAMPAIGN_OBJECTIVE = ROOT_DIR / "docs" / "default_campaign.md"
 
 logger = logging.getLogger(__name__)
 
@@ -104,31 +107,59 @@ def _onboard_campaign():
 
     campaign_name = _prompt("Campaign name", default=DEPARTMENT_NAME)
 
+    # Load defaults from files
+    default_product = ""
+    if DEFAULT_PRODUCT_DOCS.exists():
+        default_product = DEFAULT_PRODUCT_DOCS.read_text(encoding="utf-8").strip()
+    default_objective = ""
+    if DEFAULT_CAMPAIGN_OBJECTIVE.exists():
+        default_objective = DEFAULT_CAMPAIGN_OBJECTIVE.read_text(encoding="utf-8").strip()
+
     print()
     print("To qualify LinkedIn profiles, we need two things:")
     print("  1. A description of your product/service")
     print("  2. Your campaign objective (e.g. 'sell X to Y')")
     print()
 
-    while True:
-        product_docs = _read_multiline(
-            "Paste your product/service description below.\n"
-            "Press Ctrl-D when done:\n"
+    product_docs = ""
+    if default_product:
+        use_default = _prompt(
+            "Use default product description from README.md? (Y/n)",
+            default="Y",
         )
-        if product_docs:
-            break
-        print("Product description cannot be empty. Please try again.\n")
+        if use_default.lower() not in ("n", "no"):
+            product_docs = default_product
+
+    if not product_docs:
+        while True:
+            product_docs = _read_multiline(
+                "Paste your product/service description below.\n"
+                "Press Ctrl-D when done:\n"
+            )
+            if product_docs:
+                break
+            print("Product description cannot be empty. Please try again.\n")
 
     print()
 
-    while True:
-        objective = _read_multiline(
-            "Enter your campaign objective (e.g. 'sell analytics platform to CTOs').\n"
-            "Press Ctrl-D when done:\n"
+    objective = ""
+    if default_objective:
+        use_default_obj = _prompt(
+            "Use default campaign objective from docs/default_campaign.md? (Y/n)",
+            default="Y",
         )
-        if objective:
-            break
-        print("Campaign objective cannot be empty. Please try again.\n")
+        if use_default_obj.lower() not in ("n", "no"):
+            objective = default_objective
+
+    if not objective:
+        while True:
+            objective = _read_multiline(
+                "Enter your campaign objective (e.g. 'sell analytics platform to CTOs').\n"
+                "Press Ctrl-D when done:\n"
+            )
+            if objective:
+                break
+            print("Campaign objective cannot be empty. Please try again.\n")
 
     print()
     booking_link = _prompt("Booking link (optional, e.g. https://cal.com/you)", default="")
