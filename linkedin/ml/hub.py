@@ -5,15 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional
-
-from linkedin.conf import MODELS_DIR
 
 logger = logging.getLogger(__name__)
 
 
-_KIT_DIR = MODELS_DIR / "hub"
 _cached_kit: Optional[dict] = None
 _cache_attempted = False
 
@@ -26,7 +24,7 @@ _DEFAULT_REPO_ID = "eracle/campaign-kit"
 
 
 def download_kit(revision: str = "v1") -> Optional[Path]:
-    """Download campaign kit from HuggingFace Hub. Returns path or None."""
+    """Download campaign kit from HuggingFace Hub to a temp directory. Returns path or None."""
     try:
         import huggingface_hub
         from huggingface_hub import snapshot_download
@@ -35,13 +33,14 @@ def download_kit(revision: str = "v1") -> Optional[Path]:
         logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
         logging.getLogger("filelock").setLevel(logging.WARNING)
 
+        kit_dir = Path(tempfile.mkdtemp(prefix="openoutreach-kit-"))
         path = snapshot_download(
             repo_id=_DEFAULT_REPO_ID,
             revision=revision,
-            local_dir=str(_KIT_DIR),
+            local_dir=str(kit_dir),
         )
         # Remove HF download metadata cache — not needed after download
-        shutil.rmtree(_KIT_DIR / ".cache", ignore_errors=True)
+        shutil.rmtree(kit_dir / ".cache", ignore_errors=True)
         logger.info("[Freemium] Kit downloaded to %s", path)
         return Path(path)
     except Exception:
@@ -114,4 +113,3 @@ def fetch_kit() -> Optional[dict]:
 
     _cached_kit = {"config": config, "model": model}
     return _cached_kit
-

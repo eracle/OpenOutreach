@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 import jinja2
@@ -176,12 +175,12 @@ class BayesianQualifier:
     """
 
     def __init__(self, seed: int = 42, embedding_dim: int = 384, n_mc_samples: int = 100,
-                 save_path: Path | None = None):
+                 campaign=None):
         self.embedding_dim = embedding_dim
         self._seed = seed
         self._n_mc_samples = n_mc_samples
         self._pipeline = None  # Pipeline([('scaler', StandardScaler), ('gpr', GPR)])
-        self._save_path = save_path
+        self._campaign = campaign
         self._X: list[np.ndarray] = []
         self._y: list[int] = []
         self._fitted = False
@@ -290,15 +289,17 @@ class BayesianQualifier:
         return X[keep], y[keep]
 
     def _persist_pipeline(self):
-        """Persist the fitted pipeline to disk (if save_path is set)."""
-        if self._save_path is None or self._pipeline is None:
+        """Persist the fitted pipeline to the Campaign.model_blob DB field."""
+        if self._campaign is None or self._pipeline is None:
             return
+        import io
         import joblib
 
-        tmp = self._save_path.with_suffix(".tmp")
-        joblib.dump(self._pipeline, tmp)
-        tmp.rename(self._save_path)
-        logger.debug("Pipeline saved to %s", self._save_path)
+        buf = io.BytesIO()
+        joblib.dump(self._pipeline, buf)
+        self._campaign.model_blob = buf.getvalue()
+        self._campaign.save(update_fields=["model_blob"])
+        logger.debug("Pipeline saved to DB for campaign %s", self._campaign)
 
     # ------------------------------------------------------------------
     # Prediction  (needs posterior std — uses _gpr_predict)

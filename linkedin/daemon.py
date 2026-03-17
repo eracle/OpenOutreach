@@ -9,7 +9,7 @@ import traceback
 from django.utils import timezone
 from termcolor import colored
 
-from linkedin.conf import CAMPAIGN_CONFIG, model_path_for_campaign
+from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.diagnostics import failure_diagnostics
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
 from linkedin.models import Task
@@ -62,7 +62,7 @@ def _build_qualifiers(campaigns, cfg, kit_model=None):
             q = BayesianQualifier(
                 seed=42,
                 n_mc_samples=cfg["qualification_n_mc_samples"],
-                save_path=model_path_for_campaign(campaign.pk),
+                campaign=campaign,
             )
             X, y = Lead.get_labeled_arrays(campaign)
             if len(X) > 0:

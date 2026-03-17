@@ -7,13 +7,8 @@ __pycache__/
 .env
 
 /linkedin_state.json
-assets/accounts.secrets.yaml
-assets/campaign/campaign_keywords.yaml
-assets/cookies/
-assets/data/
-assets/models/
 /.coverage
-/assets/campaign/campaign_objective.txt
-/assets/campaign/product_docs.txt
 /venv/
 /linkedin/management/commands/export_model.py
+/db.sqlite3
+/media/

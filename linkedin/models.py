@@ -26,6 +26,7 @@ class Campaign(models.Model):
     is_freemium = models.BooleanField(default=False)
     action_fraction = models.FloatField(default=0.2)
     seed_public_ids = models.JSONField(default=list, blank=True)
+    model_blob = models.BinaryField(null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -48,6 +49,8 @@ class LinkedInProfile(models.Model):
     connect_weekly_limit = models.PositiveIntegerField(default=100)
     follow_up_daily_limit = models.PositiveIntegerField(default=30)
     legal_accepted = models.BooleanField(default=False)
+    cookie_data = models.JSONField(null=True, blank=True)
+    newsletter_processed = models.BooleanField(default=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

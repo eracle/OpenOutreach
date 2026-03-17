@@ -5,9 +5,8 @@ import json
 import logging
 import random
 import time
-from pathlib import Path
 
-from linkedin.conf import COOKIES_DIR, MIN_DELAY, MAX_DELAY
+from linkedin.conf import MIN_DELAY, MAX_DELAY
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,6 @@ class AccountSession:
             "password": self.linkedin_profile.linkedin_password,
             "subscribe_newsletter": self.linkedin_profile.subscribe_newsletter,
             "active": self.linkedin_profile.active,
-            "cookie_file": COOKIES_DIR / f"{self.handle}.json",
         }
 
         # Playwright objects – created on first access or after crash
@@ -71,17 +69,14 @@ class AccountSession:
         self.page.wait_for_load_state("load")
 
     def _maybe_refresh_cookies(self):
-        """Re-login if the li_at auth cookie in the saved file is expired."""
+        """Re-login if the li_at auth cookie in the saved DB state is expired."""
         from linkedin.browser.login import start_browser_session
 
-        cookie_file = Path(self.account_cfg["cookie_file"])
-        if not cookie_file.exists():
+        self.linkedin_profile.refresh_from_db(fields=["cookie_data"])
+        cookie_data = self.linkedin_profile.cookie_data
+        if not cookie_data:
             return
-        try:
-            data = json.loads(cookie_file.read_text())
-        except (json.JSONDecodeError, OSError):
-            return
-        for cookie in data.get("cookies", []):
+        for cookie in cookie_data.get("cookies", []):
             if cookie.get("name") == _AUTH_COOKIE_NAME:
                 expires = cookie.get("expires", -1)
                 if expires > 0 and expires < time.time():

@@ -34,9 +34,6 @@ RUN chown ubuntu:ubuntu ${APP_HOME}
 # Base image already has 'ubuntu' user with UID 1000
 USER ubuntu
 
-# Ensure assets directories exist (runs as ubuntu since COPY --chown made /app writable)
-RUN mkdir -p ${APP_HOME}/assets/data ${APP_HOME}/assets/models ${APP_HOME}/assets/cookies
-
 # Set the working directory
 WORKDIR ${APP_HOME}
 

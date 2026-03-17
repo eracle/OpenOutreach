@@ -6,27 +6,19 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent.parent / "assets" / ".env")
 load_dotenv()
 
 
 # ----------------------------------------------------------------------
-# Paths (all under assets/)
+# Paths
 # ----------------------------------------------------------------------
 ROOT_DIR = Path(__file__).parent.parent
-ASSETS_DIR = ROOT_DIR / "assets"
 
-COOKIES_DIR = ASSETS_DIR / "cookies"
-DATA_DIR = ASSETS_DIR / "data"
-MODELS_DIR = ASSETS_DIR / "models"
-DIAGNOSTICS_DIR = ASSETS_DIR / "diagnostics"
+PROMPTS_DIR = Path(__file__).parent / "templates" / "prompts"
 
-PROMPTS_DIR = ASSETS_DIR / "templates" / "prompts"
+DIAGNOSTICS_DIR = Path("/tmp/openoutreach-diagnostics")
 
-COOKIES_DIR.mkdir(exist_ok=True)
-DATA_DIR.mkdir(exist_ok=True)
-MODELS_DIR.mkdir(exist_ok=True)
-DIAGNOSTICS_DIR.mkdir(exist_ok=True)
+ENV_FILE = ROOT_DIR / ".env"
 
 FIXTURE_DIR = ROOT_DIR / "tests" / "fixtures"
 FIXTURE_PROFILES_DIR = FIXTURE_DIR / "profiles"
@@ -34,8 +26,6 @@ FIXTURE_PAGES_DIR = FIXTURE_DIR / "pages"
 
 MIN_DELAY = 5
 MAX_DELAY = 8
-
-ENV_FILE = ASSETS_DIR / ".env"
 
 # ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)
@@ -63,11 +53,6 @@ AI_MODEL = os.getenv("AI_MODEL")
 # ----------------------------------------------------------------------
 # Public API
 # ----------------------------------------------------------------------
-
-
-def model_path_for_campaign(campaign_id: int) -> Path:
-    """Return the model file path for a specific campaign."""
-    return MODELS_DIR / f"campaign_{campaign_id}_model.joblib"
 
 
 def get_first_active_profile_handle() -> str | None:

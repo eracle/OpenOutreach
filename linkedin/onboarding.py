@@ -34,7 +34,6 @@ def _prompt(prompt_msg: str, default: str = "") -> str:
 
 def _write_env_var(var_name: str, value: str) -> None:
     """Append a variable to .env if not already present."""
-    ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
     if ENV_FILE.exists():
         content = ENV_FILE.read_text(encoding="utf-8")
         if var_name not in content:

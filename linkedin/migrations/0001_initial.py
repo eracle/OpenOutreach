@@ -33,6 +33,7 @@ class Migration(migrations.Migration):
                 ("is_freemium", models.BooleanField(default=False)),
                 ("action_fraction", models.FloatField(default=0.2)),
                 ("seed_public_ids", models.JSONField(blank=True, default=list)),
+                ("model_blob", models.BinaryField(blank=True, null=True)),
                 (
                     "users",
                     models.ManyToManyField(
@@ -63,6 +64,8 @@ class Migration(migrations.Migration):
                 ("connect_weekly_limit", models.PositiveIntegerField(default=100)),
                 ("follow_up_daily_limit", models.PositiveIntegerField(default=30)),
                 ("legal_accepted", models.BooleanField(default=False)),
+                ("cookie_data", models.JSONField(blank=True, null=True)),
+                ("newsletter_processed", models.BooleanField(default=False)),
                 (
                     "user",
                     models.OneToOneField(

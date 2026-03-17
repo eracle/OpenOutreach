@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 class Command(BaseCommand):
     help = (
         "Delete all Leads, Deals, "
-        "ActionLogs, reset SearchKeywords, and remove GP model files. "
+        "ActionLogs, reset SearchKeywords, and clear GP model blobs. "
         "Keeps Campaigns and LinkedInProfiles."
     )
 
@@ -18,8 +18,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         from crm.models import Deal, Lead
 
-        from linkedin.conf import MODELS_DIR
-        from linkedin.models import ActionLog, SearchKeyword
+        from linkedin.models import ActionLog, Campaign, SearchKeyword
 
         counts = {
             "Leads": Lead.objects.count(),
@@ -28,14 +27,12 @@ class Command(BaseCommand):
             "SearchKeywords (to reset)": SearchKeyword.objects.count(),
         }
 
-        model_files = list(MODELS_DIR.glob("*.joblib"))
+        campaigns_with_models = Campaign.objects.exclude(model_blob=None).count()
 
         self.stdout.write("Will delete:")
         for name, count in counts.items():
             self.stdout.write(f"  {name}: {count}")
-        self.stdout.write(f"  Model files: {len(model_files)}")
-        for f in model_files:
-            self.stdout.write(f"    {f}")
+        self.stdout.write(f"  Campaign model blobs: {campaigns_with_models}")
 
         if not options["yes"]:
             confirm = input("\nProceed? [y/N] ")
@@ -51,9 +48,7 @@ class Command(BaseCommand):
         # Reset search keywords to unused
         SearchKeyword.objects.update(used=False, used_at=None)
 
-        # Remove GP model files
-        for f in model_files:
-            f.unlink()
-            self.stdout.write(f"  Removed {f.name}")
+        # Clear GP model blobs
+        Campaign.objects.exclude(model_blob=None).update(model_blob=None)
 
         self.stdout.write(self.style.SUCCESS("Reset complete."))

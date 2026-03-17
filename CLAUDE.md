@@ -37,7 +37,7 @@ For detailed module docs, see `ARCHITECTURE.md`.
 - **Entry**: `manage.py` — no args runs daemon (onboarding → browser → task queue loop); with args delegates to Django CLI. Auto-migrates + CRM bootstrap on startup.
 - **State machine**: `enums.py:ProfileState` — QUALIFIED → READY_TO_CONNECT → PENDING → CONNECTED → COMPLETED / FAILED. Deal.state is a CharField with ProfileState choices (no Stage model). `ClosingReason` (COMPLETED/FAILED/DISQUALIFIED) on Deal.closing_reason. `Lead.disqualified=True` = permanent exclusion. LLM rejections = FAILED Deals with DISQUALIFIED closing reason (campaign-scoped).
 - **Task queue**: `Task` model (persistent). Three types: `connect`, `check_pending`, `follow_up`. Handlers in `linkedin/tasks/`, signature: `handle_*(task, session, qualifiers)`.
-- **ML pipeline**: GPR (sklearn) + BALD active learning + LLM qualification. Per-campaign models at `assets/models/campaign_{id}_model.joblib`.
+- **ML pipeline**: GPR (sklearn) + BALD active learning + LLM qualification. Per-campaign models stored in `Campaign.model_blob` (DB).
 - **Config**: `.env` (LLM_API_KEY, AI_MODEL), `conf.py:CAMPAIGN_CONFIG` (timing/ML defaults), Campaign/LinkedInProfile models (Django Admin).
 - **Django apps**: `linkedin` (main — Campaign with users M2M), `crm` (Lead with embedding/Deal), `chat` (ChatMessage).
 - **Docker**: Playwright base image, VNC on port 5900, `BUILD_ENV` arg selects requirements.

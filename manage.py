@@ -48,7 +48,7 @@ def _run_daemon():
 
     ensure_onboarding()
 
-    from linkedin.conf import COOKIES_DIR, LLM_API_KEY, get_first_active_profile_handle
+    from linkedin.conf import LLM_API_KEY, get_first_active_profile_handle
 
     if not LLM_API_KEY:
         logger.error("LLM_API_KEY is required. Set it in .env or environment.")
@@ -71,13 +71,13 @@ def _run_daemon():
     session.ensure_browser()
     profile = ensure_self_profile(session)
 
-    newsletter_marker = COOKIES_DIR / f".{session.handle}_newsletter_processed"
-    if not newsletter_marker.exists():
+    if not session.linkedin_profile.newsletter_processed:
         country_code = profile.get("country_code") if profile else None
         apply_gdpr_newsletter_override(session, country_code)
         linkedin_url = public_id_to_url(profile["public_identifier"]) if profile else None
         ensure_newsletter_subscription(session, linkedin_url=linkedin_url)
-        newsletter_marker.touch()
+        session.linkedin_profile.newsletter_processed = True
+        session.linkedin_profile.save(update_fields=["newsletter_processed"])
 
     run_daemon(session)
 

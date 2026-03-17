@@ -13,10 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def capture_failure(session, error: BaseException) -> None:
-    """Save page HTML, screenshot, and error details into a per-failure folder.
-
-    Folder: ``assets/diagnostics/<timestamp>_<ErrorClass>/``
-    """
+    """Save page HTML, screenshot, and error details into a per-failure folder."""
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     error_name = type(error).__name__
     folder = DIAGNOSTICS_DIR / f"{timestamp}_{error_name}"

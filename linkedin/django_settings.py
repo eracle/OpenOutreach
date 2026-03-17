@@ -11,8 +11,6 @@ from pathlib import Path
 os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT_DIR / "assets" / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 BASE_DIR = ROOT_DIR
 
@@ -67,7 +65,7 @@ TEMPLATES = [
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": str(DATA_DIR / "crm.db"),
+        "NAME": str(ROOT_DIR / "db.sqlite3"),
     }
 }
 
@@ -79,8 +77,7 @@ STATIC_URL = "/static/"
 STATIC_ROOT = ROOT_DIR / "staticfiles"
 
 MEDIA_URL = "/media/"
-MEDIA_ROOT = DATA_DIR / "media"
-MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
+MEDIA_ROOT = ROOT_DIR / "media"
 
 LOGIN_URL = "/admin/login/"
 

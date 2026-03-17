@@ -1,6 +1,5 @@
 # linkedin/browser/login.py
 import logging
-from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
@@ -56,12 +55,20 @@ def launch_browser(storage_state=None):
     return page, context, browser, playwright
 
 
+def _save_cookies(session):
+    """Persist Playwright storage state (cookies) to the DB."""
+    state = session.context.storage_state()
+    session.linkedin_profile.cookie_data = state
+    session.linkedin_profile.save(update_fields=["cookie_data"])
+
+
 def start_browser_session(session: "AccountSession", handle: str):
     logger.debug("Configuring browser for @%s", handle)
-    config = session.account_cfg
-    state_file = Path(config["cookie_file"])
 
-    storage_state = str(state_file) if state_file.exists() else None
+    session.linkedin_profile.refresh_from_db(fields=["cookie_data"])
+    cookie_data = session.linkedin_profile.cookie_data
+
+    storage_state = cookie_data if cookie_data else None
     if storage_state:
         logger.info("Loading saved session for @%s", handle)
 
@@ -69,9 +76,8 @@ def start_browser_session(session: "AccountSession", handle: str):
 
     if not storage_state:
         playwright_login(session)
-        state_file.parent.mkdir(parents=True, exist_ok=True)
-        session.context.storage_state(path=str(state_file))
-        logger.info(colored("Login successful – session saved", "green", attrs=["bold"]) + f" → {state_file}")
+        _save_cookies(session)
+        logger.info(colored("Login successful – session saved", "green", attrs=["bold"]))
     else:
         goto_page(
             session,
