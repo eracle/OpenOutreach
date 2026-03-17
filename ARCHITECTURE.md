@@ -48,10 +48,10 @@ GPR (sklearn, ConstantKernel * RBF) inside Pipeline(StandardScaler, GPR) with BA
 - **LinkedInProfile** — 1:1 with User. Credentials, rate limits. Methods: `can_execute`/`record_action`/`mark_exhausted`.
 - **SearchKeyword** — FK to Campaign. `keyword`, `used`, `used_at`. Unique on `(campaign, keyword)`.
 - **ActionLog** — FK to LinkedInProfile + Campaign. `action_type`, `created_at`. Composite index.
-- **Lead** — Per LinkedIn URL. `description` = parsed profile JSON. `disqualified` = permanent exclusion.
-- **Contact** — Created after qualification (promotion from Lead).
-- **Company** — From first position's company name.
-- **Deal** — Per campaign (department-scoped). Stage maps to ProfileState. `next_step` = JSON metadata.
+- **Lead** — Per LinkedIn URL. `description` = parsed profile JSON. `disqualified` = permanent exclusion. Flat model (inherits Base1 only).
+- **Contact** — Created after qualification (promotion from Lead). Flat model (inherits Base1 only).
+- **Company** — From first position's company name. Flat model (inherits Base1 only).
+- **Deal** — Per campaign (department-scoped). Stage maps to ProfileState. `next_step` = JSON metadata. Inherits Base1.
 - **ProfileEmbedding** — 384-dim vectors as BinaryField. `lead_id` PK. Labels derived from Deal stage/closing_reason.
 - **Task** — `task_type`, `status`, `scheduled_at`, `payload` (JSONField). Composite index on `(status, scheduled_at)`.
 - **TheFile** — Raw Voyager JSON via GenericForeignKey.

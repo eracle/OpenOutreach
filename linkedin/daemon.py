@@ -9,7 +9,7 @@ import traceback
 from django.utils import timezone
 from termcolor import colored
 
-from linkedin.conf import CAMPAIGN_CONFIG, _LEGACY_MODEL_PATH, model_path_for_campaign
+from linkedin.conf import CAMPAIGN_CONFIG, model_path_for_campaign
 from linkedin.diagnostics import failure_diagnostics
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
 from linkedin.models import Task
@@ -45,26 +45,6 @@ class _FreemiumRotator:
             logger.info(self._MESSAGES[self._next % len(self._MESSAGES)])
             self._next += 1
 
-
-def _migrate_legacy_model(campaigns):
-    """Migrate old global model.joblib to per-campaign path if possible."""
-    if not _LEGACY_MODEL_PATH.exists():
-        return
-
-    non_freemium = [c for c in campaigns if not c.is_freemium]
-    if len(non_freemium) == 1:
-        dest = model_path_for_campaign(non_freemium[0].pk)
-        if dest.exists():
-            logger.info("Legacy model.joblib exists but %s already present — skipping migration", dest.name)
-            return
-        _LEGACY_MODEL_PATH.rename(dest)
-        logger.info("Migrated legacy model.joblib → %s", dest.name)
-    else:
-        logger.warning(
-            "Legacy model.joblib found but %d non-freemium campaigns exist — "
-            "cannot auto-migrate. Remove it manually once per-campaign models are trained.",
-            len(non_freemium),
-        )
 
 
 def _build_qualifiers(campaigns, cfg, kit_model=None):
@@ -213,9 +193,6 @@ def run_daemon(session):
             from linkedin.setup.freemium import seed_profiles
             seed_profiles(session, kit["config"])
             session.campaign = prev_campaign
-
-    # Migrate legacy single model file before creating per-campaign qualifiers
-    _migrate_legacy_model(list(session.campaigns))
 
     qualifiers = _build_qualifiers(
         session.campaigns, cfg, kit_model=kit["model"] if kit else None,

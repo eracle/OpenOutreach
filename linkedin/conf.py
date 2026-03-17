@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent / "assets" / ".env")
-load_dotenv()  # also check project root for backwards compat
+load_dotenv()
 
 
 # ----------------------------------------------------------------------
@@ -22,8 +22,6 @@ MODELS_DIR = ASSETS_DIR / "models"
 DIAGNOSTICS_DIR = ASSETS_DIR / "diagnostics"
 
 PROMPTS_DIR = ASSETS_DIR / "templates" / "prompts"
-
-_LEGACY_MODEL_PATH = MODELS_DIR / "model.joblib"
 
 COOKIES_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)

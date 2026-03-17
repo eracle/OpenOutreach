@@ -7,6 +7,7 @@
 - **Dependencies**: Managed in `requirements/*.txt` (used by local dev and Docker).
 - **Docs sync**: When modifying code, update CLAUDE.md and MEMORY.md to reflect changes.
 - **Error handling**: App should crash on unexpected errors. `try/except` only for expected, recoverable errors. Custom exceptions in `exceptions.py`.
+- **No backward compat**: CRM models are owned by this project — no need for backward compatibility shims, legacy migration code, or re-export modules. Simplify freely.
 
 ## Project Overview
 
