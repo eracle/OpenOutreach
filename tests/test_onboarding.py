@@ -31,6 +31,7 @@ class TestEnsureOnboardingAlreadyExist:
         mock_campaign_obj = MagicMock()
         with (
             patch.object(onboarding, "_onboard_campaign", return_value=mock_campaign_obj) as mock_campaign,
+            patch.object(onboarding, "_onboard_seed_urls"),
             patch.object(onboarding, "_onboard_account") as mock_account,
             patch.object(onboarding, "_ensure_llm_config"),
             patch.object(onboarding, "_require_legal_acceptance"),
