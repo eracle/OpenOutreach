@@ -34,10 +34,11 @@ pytest -k test_name                # single test
 
 For detailed module docs, see `ARCHITECTURE.md`.
 
-- **Entry**: `manage.py` — no args runs daemon (onboarding → browser → task queue loop); with args delegates to Django CLI.
-- **State machine**: `enums.py:ProfileState` — QUALIFIED → READY_TO_CONNECT → PENDING → CONNECTED → COMPLETED / FAILED. Deal.state is a CharField with ProfileState choices (no Stage model). `Lead.disqualified=True` = permanent exclusion. LLM rejections = FAILED Deals (campaign-scoped).
+- **Entry**: `manage.py` — no args runs daemon (onboarding → browser → task queue loop); with args delegates to Django CLI. Auto-migrates + CRM bootstrap on startup.
+- **State machine**: `enums.py:ProfileState` — QUALIFIED → READY_TO_CONNECT → PENDING → CONNECTED → COMPLETED / FAILED. Deal.state is a CharField with ProfileState choices (no Stage model). `ClosingReason` (COMPLETED/FAILED/DISQUALIFIED) on Deal.closing_reason. `Lead.disqualified=True` = permanent exclusion. LLM rejections = FAILED Deals with DISQUALIFIED closing reason (campaign-scoped).
 - **Task queue**: `Task` model (persistent). Three types: `connect`, `check_pending`, `follow_up`. Handlers in `linkedin/tasks/`, signature: `handle_*(task, session, qualifiers)`.
 - **ML pipeline**: GPR (sklearn) + BALD active learning + LLM qualification. Per-campaign models at `assets/models/campaign_{id}_model.joblib`.
 - **Config**: `.env` (LLM_API_KEY, AI_MODEL), `conf.py:CAMPAIGN_CONFIG` (timing/ML defaults), Campaign/LinkedInProfile models (Django Admin).
+- **Django apps**: `linkedin` (main), `crm` (Lead/Deal), `common` (BaseModel/Department), `chat` (ChatMessage).
 - **Docker**: Playwright base image, VNC on port 5900, `BUILD_ENV` arg selects requirements.
 - **CI/CD**: `.github/workflows/tests.yml` (pytest), `deploy.yml` (build + push to ghcr.io).

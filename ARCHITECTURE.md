@@ -6,8 +6,9 @@ Detailed module documentation for OpenOutreach. See `CLAUDE.md` for rules and qu
 
 `manage.py` (Django bootstrap + auto-migrate + CRM setup):
 - Suppresses Pydantic serialization warning from langchain-openai. Configures logging: DEBUG level, suppresses noisy third-party loggers.
-- No args → runs daemon: `ensure_onboarding()` → validate `LLM_API_KEY` → `get_or_create_session()` → `ensure_browser()` → `ensure_self_profile()` → GDPR newsletter override → `run_daemon(session)`.
-- Any args → delegates to Django's `execute_from_command_line`.
+- No args → runs daemon: `ensure_onboarding()` → validate `LLM_API_KEY` → `get_or_create_session(handle)` → set default campaign → `session.ensure_browser()` → `ensure_self_profile()` → GDPR newsletter override (marker-guarded) → `ensure_newsletter_subscription()` → `run_daemon(session)`.
+- With `runserver` arg → auto-migrates, then delegates to Django CLI.
+- Other args → delegates directly to `execute_from_command_line`.
 
 ## Onboarding (`onboarding.py`)
 
@@ -22,9 +23,11 @@ Detailed module documentation for OpenOutreach. See `CLAUDE.md` for rules and qu
 
 `enums.py:ProfileState` (TextChoices) values ARE CRM stage names: QUALIFIED, READY_TO_CONNECT, PENDING, CONNECTED, COMPLETED, FAILED. Pre-Deal states: url_only (no description), enriched (has description). `Lead.disqualified=True` = permanent account-level exclusion. LLM rejections = FAILED Deals with "Disqualified" closing reason (campaign-scoped).
 
+`crm/models/deal.py:ClosingReason` (TextChoices): COMPLETED, FAILED, DISQUALIFIED. Used by `Deal.closing_reason`.
+
 ## Task Queue
 
-Persistent queue backed by `Task` model. Worker loop in `daemon.py`: pop oldest due task → RUNNING → dispatch → COMPLETED/FAILED. `heal_tasks()` reconciles on startup.
+Persistent queue backed by `Task` model. Worker loop in `daemon.py`: pop oldest due task → set campaign on session → RUNNING → dispatch via `_HANDLERS` dict → COMPLETED/FAILED. Failures captured by `failure_diagnostics()` context manager. `heal_tasks()` reconciles on startup.
 
 Three task types (handlers in `linkedin/tasks/`, signature: `handle_*(task, session, qualifiers)`):
 
@@ -40,24 +43,35 @@ GPR (sklearn, ConstantKernel * RBF) inside Pipeline(StandardScaler, GPR) with BA
 2. **LLM decision** — All decisions via LLM (`qualify_lead.j2`). GP only for candidate selection and confidence gate.
 3. **READY_TO_CONNECT gate** — P(f > 0.5) above `min_ready_to_connect_prob` (0.9) promotes QUALIFIED → READY_TO_CONNECT.
 
-384-dim FastEmbed embeddings, per-campaign models at `assets/models/campaign_{id}_model.joblib`. Cold start returns None until ≥2 labels of both classes.
+384-dim FastEmbed embeddings, per-campaign models at `assets/models/campaign_{id}_model.joblib`. Cold start returns None until >=2 labels of both classes.
+
+## Django Apps
+
+Four apps in `INSTALLED_APPS`:
+
+- **`linkedin`** — Main app: Campaign, LinkedInProfile, SearchKeyword, ActionLog, ProfileEmbedding, Task models. All automation logic.
+- **`crm`** — Lead and Deal models (in `crm/models/lead.py` and `crm/models/deal.py`). Also defines `ClosingReason` enum.
+- **`common`** — `BaseModel` (abstract: creation_date, update_date, owner FK, department FK), `Department` (Group subclass), `TheFile` (GenericForeignKey attachments).
+- **`chat`** — `ChatMessage` model (GenericForeignKey to any object, content, owner, answer_to threading, topic).
 
 ## CRM Data Model
 
-- **Campaign** — 1:1 with Department. `product_docs`, `campaign_objective`, `booking_link`, `is_freemium`, `action_fraction`.
-- **LinkedInProfile** — 1:1 with User. Credentials, rate limits. Methods: `can_execute`/`record_action`/`mark_exhausted`.
-- **SearchKeyword** — FK to Campaign. `keyword`, `used`, `used_at`. Unique on `(campaign, keyword)`.
-- **ActionLog** — FK to LinkedInProfile + Campaign. `action_type`, `created_at`. Composite index.
-- **Lead** — Per LinkedIn URL. `description` = parsed profile JSON. `company_name` = from first position. `disqualified` = permanent exclusion. Inherits BaseModel.
-- **Deal** — Per campaign (department-scoped). `state` = CharField (ProfileState choices). `closing_reason` = CharField (ClosingReason choices). `reason` = qualification/failure reason. `connect_attempts` = retry count. `backoff_hours` = check_pending backoff. Inherits BaseModel.
-- **ProfileEmbedding** — 384-dim vectors as BinaryField. `lead_id` PK. Labels derived from Deal state/closing_reason.
-- **Task** — `task_type`, `status`, `scheduled_at`, `payload` (JSONField). Composite index on `(status, scheduled_at)`.
-- **TheFile** — Raw Voyager JSON via GenericForeignKey.
+- **Campaign** (`linkedin/models.py`) — 1:1 with Department. `product_docs`, `campaign_objective`, `booking_link`, `is_freemium`, `action_fraction`, `seed_public_ids` (JSONField).
+- **LinkedInProfile** (`linkedin/models.py`) — 1:1 with User. Credentials, rate limits (`connect_daily_limit`, `connect_weekly_limit`, `follow_up_daily_limit`). Methods: `can_execute`/`record_action`/`mark_exhausted`. In-memory `_exhausted` dict for daily rate limit caching.
+- **SearchKeyword** (`linkedin/models.py`) — FK to Campaign. `keyword`, `used`, `used_at`. Unique on `(campaign, keyword)`.
+- **ActionLog** (`linkedin/models.py`) — FK to LinkedInProfile + Campaign. `action_type` (connect/follow_up), `created_at`. Composite index on `(linkedin_profile, action_type, created_at)`.
+- **Lead** (`crm/models/lead.py`) — Per LinkedIn URL (`website` = unique). `description` = parsed profile JSON. `company_name` = from first position. `disqualified` = permanent exclusion. Inherits BaseModel.
+- **Deal** (`crm/models/deal.py`) — Per campaign (department-scoped). `state` = CharField (ProfileState choices). `closing_reason` = CharField (ClosingReason choices: COMPLETED/FAILED/DISQUALIFIED). `reason` = qualification/failure reason. `connect_attempts` = retry count. `backoff_hours` = check_pending backoff. Inherits BaseModel.
+- **ProfileEmbedding** (`linkedin/models.py`) — 384-dim float32 vectors as BinaryField. `lead_id` PK, `public_identifier`. `get_labeled_arrays(department)` returns (X, y) for GP warm start. Labels: non-FAILED state → 1, FAILED+DISQUALIFIED → 0, other FAILED → skipped.
+- **Task** (`linkedin/models.py`) — `task_type` (connect/check_pending/follow_up), `status` (pending/running/completed/failed), `scheduled_at`, `payload` (JSONField), `error`, `started_at`, `completed_at`. Composite index on `(status, scheduled_at)`.
+- **ChatMessage** (`chat/models.py`) — GenericForeignKey to any object. `content`, `owner`, `answer_to` (self FK), `topic` (self FK), `recipients`, `to` (M2M to User).
+- **TheFile** (`common/models.py`) — File attachments via GenericForeignKey.
 
 ## Key Modules
 
-- **`daemon.py`** — Worker loop, `_build_qualifiers()`, `heal_tasks()`, freemium import.
-- **`tasks/connect.py`** — `handle_connect`, `ConnectStrategy`, enqueue helpers.
+- **`daemon.py`** — Worker loop, `_build_qualifiers()`, `heal_tasks()`, freemium import, `_FreemiumRotator`.
+- **`diagnostics.py`** — `failure_diagnostics()` context manager, `capture_failure()` saves page HTML/screenshot/traceback to `assets/diagnostics/`.
+- **`tasks/connect.py`** — `handle_connect`, `ConnectStrategy`, `enqueue_connect`/`enqueue_check_pending`/`enqueue_follow_up`.
 - **`tasks/check_pending.py`** — `handle_check_pending`, exponential backoff.
 - **`tasks/follow_up.py`** — `handle_follow_up`, rate limiting.
 - **`pipeline/qualify.py`** — `run_qualification()`, `fetch_qualification_candidates()`.
@@ -69,38 +83,44 @@ GPR (sklearn, ConstantKernel * RBF) inside Pipeline(StandardScaler, GPR) with BA
 - **`ml/qualifier.py`** — `Qualifier` protocol, `BayesianQualifier`, `KitQualifier`, `qualify_with_llm()`.
 - **`ml/embeddings.py`** — FastEmbed utilities, `embed_profile()`.
 - **`ml/profile_text.py`** — `build_profile_text()`.
-- **`ml/hub.py`** — HuggingFace kit loader.
-- **`browser/session.py`** — `AccountSession` (central session object).
+- **`ml/hub.py`** — HuggingFace kit loader (`fetch_kit()`).
+- **`browser/session.py`** — `AccountSession`: handle, linkedin_profile, page, context, browser, playwright. `campaigns` property (via group membership). `ensure_browser()` launches/recovers browser. Cookie expiry check via `_maybe_refresh_cookies()`.
 - **`browser/registry.py`** — `AccountSessionRegistry`, `get_or_create_session()`.
-- **`browser/login.py`** — Browser launch + LinkedIn login.
+- **`browser/login.py`** — `start_browser_session()` — browser launch + LinkedIn login.
 - **`browser/nav.py`** — Navigation, auto-discovery, `goto_page()`.
-- **`db/leads.py`** — Lead CRUD, `lead_to_profile_dict()`, `get_leads_for_qualification()`.
-- **`db/deals.py`** — Deal/state ops, `set_profile_state()`, `create_disqualified_deal()`.
-- **`db/enrichment.py`** — Lazy enrichment/embedding.
+- **`db/leads.py`** — Lead CRUD, `lead_to_profile_dict()`, `get_leads_for_qualification()`, `disqualify_lead()`.
+- **`db/deals.py`** — Deal/state ops, `set_profile_state()`, `increment_connect_attempts()`, `create_freemium_deal()`.
+- **`db/enrichment.py`** — Lazy enrichment/embedding (`ensure_profile_embedded()`).
 - **`db/chat.py`** — `save_chat_message()`.
-- **`conf.py`** — Config loading, `CAMPAIGN_CONFIG`, path constants.
+- **`db/urls.py`** — `url_to_public_id()`, `public_id_to_url()` — LinkedIn URL ↔ public identifier conversion.
+- **`conf.py`** — Config loading (dotenv), `CAMPAIGN_CONFIG`, path constants, `model_path_for_campaign()`, `get_first_active_profile_handle()`.
+- **`exceptions.py`** — `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 - **`onboarding.py`** — Interactive setup.
-- **`agents/follow_up.py`** — ReAct agent for follow-up conversations.
-- **`actions/`** — `connect.py`, `status.py`, `message.py`, `profile.py`, `search.py`, `conversations.py`.
-- **`api/voyager.py`** — Voyager API response parsing.
-- **`api/messaging/`** — Messaging API (send, fetch conversations/messages).
-- **`setup/freemium.py`** — Freemium campaign import + seed profiles.
-- **`setup/gdpr.py`** — GDPR newsletter override.
-- **`setup/self_profile.py`** — Self-profile sentinel.
+- **`agents/follow_up.py`** — ReAct agent for follow-up conversations. Tools: `read_conversation`, `send_message`, `mark_completed`, `schedule_follow_up`.
+- **`actions/`** — `connect.py` (`send_connection_request`), `status.py` (`get_connection_status`), `message.py` (`send_raw_message`), `profile.py` (profile extraction), `search.py` (LinkedIn search), `conversations.py` (`get_conversation`).
+- **`api/client.py`** — `PlaywrightLinkedinAPI`: browser-context fetch (runs JS `fetch()` inside Playwright page for authentic headers). `get_profile()` with tenacity retry.
+- **`api/voyager.py`** — `LinkedInProfile` dataclass (url, urn, full_name, headline, positions, educations, country_code, supported_locales, connection_distance/degree). `parse_linkedin_voyager_response()`.
+- **`api/newsletter.py`** — `subscribe_to_newsletter()` via Brevo form, `ensure_newsletter_subscription()`.
+- **`api/messaging/send.py`** — Send messages via Voyager messaging API.
+- **`api/messaging/conversations.py`** — Fetch conversations/messages.
+- **`api/messaging/utils.py`** — Shared helpers: `get_self_urn()`, `encode_urn()`, `check_response()`.
+- **`setup/freemium.py`** — `import_freemium_campaign()`, `seed_profiles()`.
+- **`setup/gdpr.py`** — `apply_gdpr_newsletter_override()`.
+- **`setup/self_profile.py`** — `ensure_self_profile()`.
 - **`management/setup_crm.py`** — Idempotent CRM bootstrap (Department creation).
-- **`admin.py`** — Django Admin registrations.
-- **`django_settings.py`** — Django settings (SQLite at `assets/data/crm.db`).
+- **`admin.py`** — Django Admin: Campaign, LinkedInProfile, SearchKeyword, ProfileEmbedding, ActionLog, Task, ChatMessage.
+- **`django_settings.py`** — Django settings (SQLite at `assets/data/crm.db`). Apps: crm, chat, common, linkedin.
 
 ## Configuration
 
-- **`.env`** — `LLM_API_KEY` (required), `AI_MODEL` (required), `LLM_API_BASE` (optional).
-- **`conf.py:CAMPAIGN_CONFIG`** — `min_ready_to_connect_prob` (0.9), `min_positive_pool_prob` (0.20), `connect_delay_seconds` (10), `connect_no_candidate_delay_seconds` (300), `check_pending_recheck_after_hours` (24), `check_pending_jitter_factor` (0.2), `worker_poll_seconds` (5), `qualification_n_mc_samples` (100), `embedding_model` ("BAAI/bge-small-en-v1.5").
-- **Prompt templates** — `qualify_lead.j2` (temp 0.7), `search_keywords.j2` (temp 0.9), `follow_up_agent.j2`.
-- **`requirements/`** — `crm.txt`, `base.txt`, `local.txt`, `production.txt`.
+- **`.env`** (at `assets/.env` or project root) — `LLM_API_KEY` (required), `AI_MODEL` (required), `LLM_API_BASE` (optional).
+- **`conf.py:CAMPAIGN_CONFIG`** — `min_ready_to_connect_prob` (0.9), `min_positive_pool_prob` (0.20), `connect_delay_seconds` (10), `connect_no_candidate_delay_seconds` (300), `check_pending_recheck_after_hours` (24), `check_pending_jitter_factor` (0.2), `worker_poll_seconds` (5), `qualification_n_mc_samples` (100), `enrich_min_interval` (1), `min_action_interval` (120), `embedding_model` ("BAAI/bge-small-en-v1.5").
+- **Prompt templates** (at `assets/templates/prompts/`) — `qualify_lead.j2` (temp 0.7), `search_keywords.j2` (temp 0.9), `follow_up_agent.j2`, `followup2.j2`.
+- **`requirements/`** — `base.txt`, `local.txt`, `production.txt`, `crm.txt` (empty — DjangoCRM installed via `--no-deps`).
 
 ## Docker
 
-Base image: `mcr.microsoft.com/playwright/python:v1.55.0-noble`. VNC on port 5900. `BUILD_ENV` arg selects requirements. Install: uv pip → DjangoCRM `--no-deps` → requirements → Playwright chromium.
+Base image: `mcr.microsoft.com/playwright/python:v1.55.0-noble`. VNC on port 5900. `BUILD_ENV` arg selects requirements. Dockerfile at `compose/linkedin/Dockerfile`. Install: uv pip → DjangoCRM `--no-deps` → requirements → Playwright chromium.
 
 ## CI/CD
 
@@ -111,5 +131,5 @@ Base image: `mcr.microsoft.com/playwright/python:v1.55.0-noble`. VNC on port 590
 
 `requirements/` files. DjangoCRM's `mysqlclient` excluded via `--no-deps`. `uv pip install` for fast installs.
 
-Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin`, `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`
+Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin`, `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`, `tenacity`, `requests`
 ML: `scikit-learn`, `numpy`, `fastembed`, `joblib`
