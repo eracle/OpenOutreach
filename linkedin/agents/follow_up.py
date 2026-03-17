@@ -128,6 +128,7 @@ def _render_system_prompt(session, profile: dict, past_messages_count: int) -> s
         headline=profile.get("headline", profile.get("title", "")),
         current_company=profile.get("current_company", ""),
         location=profile.get("location", ""),
+        supported_locales=profile.get("supported_locales", []),
         past_messages_count=past_messages_count,
     )
 

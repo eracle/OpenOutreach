@@ -69,6 +69,7 @@ class LinkedInProfile:
     educations: List[Education] = field(default_factory=list)
 
     country_code: Optional[str] = None
+    supported_locales: List[str] = field(default_factory=list)
 
     connection_distance: Optional[ConnectionDistance] = None
     connection_degree: Optional[int] = None
@@ -262,6 +263,10 @@ def parse_linkedin_voyager_response(
     # Extract country code from profile location
     country_code = profile_entity.get("location", {}).get("countryCode")
 
+    # Extract supported languages from profile locales
+    supported_raw = profile_entity.get("supportedLocales") or []
+    supported_locales = [loc.get("language") for loc in supported_raw if loc.get("language")]
+
     # Assemble data for dataclass validation
     profile_data = {
         "urn": profile_entity["entityUrn"],
@@ -275,6 +280,7 @@ def parse_linkedin_voyager_response(
         "geo": geo_entity,
         "industry": _resolve_star_field(profile_entity, urn_map, "*industry"),
         "country_code": country_code,
+        "supported_locales": supported_locales,
         "url": f"https://www.linkedin.com/in/{profile_entity.get('publicIdentifier', '')}/",
         "positions": positions,
         "educations": educations,
