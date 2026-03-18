@@ -5,12 +5,10 @@
 Pre-built production images are published to GitHub Container Registry on every push to `master`.
 
 ```bash
-git clone https://github.com/eracle/OpenOutreach.git
-cd OpenOutreach
-docker run --pull always -it -p 5900:5900 --user "$(id -u):$(id -g)" -v ./assets:/app/assets ghcr.io/eracle/openoutreach:latest
+docker run --pull always -it -p 5900:5900 -v openoutreach_db:/app ghcr.io/eracle/openoutreach:latest
 ```
 
-The clone ensures the `assets/` directory exists with correct ownership before Docker mounts it. The interactive onboarding will guide you through LinkedIn credentials, LLM API key, and campaign setup on first run. All data (CRM database, cookies, embeddings) persists in the local `assets/` directory — the same database used by `python manage.py`.
+The interactive onboarding will guide you through LinkedIn credentials, LLM API key, and campaign setup on first run. All data (CRM database, cookies, model blobs, embeddings) persists in the `openoutreach_db` Docker volume.
 
 ### Available Tags
 
@@ -38,8 +36,8 @@ docker ps
 # Stop it
 docker stop <container-id>
 
-# Restart from the repo directory (data persists in ./assets/)
-docker run --pull always -it -p 5900:5900 --user "$(id -u):$(id -g)" -v ./assets:/app/assets ghcr.io/eracle/openoutreach:latest
+# Restart (data persists in the openoutreach_db volume)
+docker run --pull always -it -p 5900:5900 -v openoutreach_db:/app ghcr.io/eracle/openoutreach:latest
 ```
 
 ---
@@ -92,5 +90,4 @@ The VNC server is exposed on port 5900. Use `make up-view` to auto-open it, or c
 
 ### Volume Mounts
 
-The pre-built `docker run` command mounts only `./assets:/app/assets` (data persistence). The compose
-setup (`local.yml`) mounts the entire repo `.:/app` for live code editing during development.
+The pre-built `docker run` command uses a named Docker volume (`openoutreach_db`) for data persistence. The compose setup (`local.yml`) mounts the entire repo `.:/app` for live code editing during development.

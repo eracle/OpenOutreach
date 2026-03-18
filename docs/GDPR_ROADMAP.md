@@ -118,7 +118,7 @@ Reduce PII exposure in logs, diagnostics, and Lead records. Addresses report fin
    - `linkedin/onboarding.py:214`
    - `linkedin/actions/search.py:97,102,105`
 3. Auto-purge diagnostic dumps older than 7 days — add `purge_old_diagnostics()` to `linkedin/diagnostics.py`, call it at daemon startup
-4. Restrict `assets/diagnostics/` permissions to 0700 on directory creation in `conf.py`
+4. Restrict diagnostics directory permissions to 0700 on creation
 
 ---
 
@@ -132,7 +132,7 @@ Enforce maximum retention periods to satisfy Article 5(1)(e) storage limitation.
 
 | Data | TTL | Purge logic |
 |------|-----|-------------|
-| Diagnostic dumps | **7 days** | Delete folders in `assets/diagnostics/` by timestamp prefix |
+| Diagnostic dumps | **7 days** | Delete old diagnostic folders by timestamp prefix |
 | Completed/failed tasks | **6 months** | `Task.objects.filter(status__in=[COMPLETED, FAILED], completed_at__lt=cutoff).delete()` |
 | Action logs | **6 months** | `ActionLog.objects.filter(created_at__lt=cutoff).delete()` |
 | Disqualified leads | **6 months** | Delete Lead (with embedded data) for `disqualified=True` older than cutoff |
@@ -151,7 +151,7 @@ Implement individual data subject erasure to satisfy Article 17. Addresses repor
    - `Deal` (lookup via `lead__linkedin_url=public_id_to_url(public_id)`)
    - `Task` entries with `public_id` in `payload` JSON
    - `ActionLog` entries are not directly linked to a profile public_id — no action needed (they reference `LinkedInProfile`, i.e. the operator's account, not the target)
-3. Delete any diagnostic folders whose saved HTML contains the `public_id` (best-effort grep over `assets/diagnostics/*/page.html`)
+3. Delete any diagnostic folders whose saved HTML contains the `public_id`
 4. Log the erasure event without PII: `logger.info("Erasure completed for 1 profile (request_id=%s)", uuid)`
 5. Also expose as a Django Admin action on the Lead model for convenience
 

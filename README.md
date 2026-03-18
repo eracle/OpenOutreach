@@ -62,12 +62,10 @@ That's it. No spreadsheets, no lead databases, no scraping setup.
 Pre-built images are published to GitHub Container Registry on every push to `master`.
 
 ```bash
-git clone https://github.com/eracle/OpenOutreach.git
-cd OpenOutreach
-docker run --pull always -it -p 5900:5900 --user "$(id -u):$(id -g)" -v ./assets:/app/assets ghcr.io/eracle/openoutreach:latest
+docker run --pull always -it -p 5900:5900 -v openoutreach_db:/app ghcr.io/eracle/openoutreach:latest
 ```
 
-The interactive onboarding walks you through the three inputs above on first run. Your data persists in the local `assets/` directory across restarts — the same database used by `python manage.py`.
+The interactive onboarding walks you through the three inputs above on first run. All data persists in the `openoutreach_db` Docker volume across restarts.
 
 Connect a VNC client to `localhost:5900` to watch the browser live.
 
@@ -158,10 +156,6 @@ Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign 
 ## 📂 Project Structure
 
 ```
-├── assets/
-│   ├── data/                        # crm.db (SQLite)
-│   ├── models/                      # Persisted GP models (campaign_<id>_model.joblib)
-│   └── templates/prompts/           # LLM prompt templates (qualify, search, follow-up agent)
 ├── docs/
 │   ├── architecture.md              # System architecture
 │   ├── configuration.md             # Configuration reference
@@ -176,7 +170,7 @@ Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign 
 │   ├── conf.py                      # Configuration loading (.env + defaults)
 │   ├── daemon.py                    # Task queue worker loop
 │   ├── db/                          # CRM-backed CRUD (leads, deals, enrichment, chat)
-│   ├── django_settings.py           # Django/CRM settings (SQLite at assets/data/crm.db)
+│   ├── django_settings.py           # Django/CRM settings (SQLite at db.sqlite3)
 │   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Closing Reasons)
 │   ├── ml/                          # Bayesian qualifier (GPR), embeddings, profile text
 │   ├── models.py                    # Django models (Campaign, LinkedInProfile, Task, etc.)

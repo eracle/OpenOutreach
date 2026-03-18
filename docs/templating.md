@@ -15,7 +15,7 @@ that can:
 4. **Schedule the next follow-up** — to check back later.
 
 The agent's behavior is guided by a system prompt template at
-`assets/templates/prompts/follow_up_agent.j2`, which receives campaign context (product docs,
+`linkedin/templates/prompts/follow_up_agent.j2`, which receives campaign context (product docs,
 objective, booking link) and lead profile data.
 
 ## Configuration

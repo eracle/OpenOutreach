@@ -5,7 +5,7 @@ onboarding or Django Admin), and hardcoded defaults in `linkedin/conf.py`.
 
 ## LLM Configuration (`.env`)
 
-LLM settings are stored in `.env` (at `assets/.env` for Docker, or project root for local dev). Any
+LLM settings are stored in `.env` (project root). Any
 OpenAI-compatible provider works. These are prompted during interactive onboarding if missing.
 
 | Variable | Description | Default |
@@ -58,7 +58,7 @@ Australia, Japan, South Korea, New Zealand).
 - **GDPR-protected location**: the existing value is preserved (no override).
 - **Unknown/empty location**: defaults to GDPR-protected (errs on the side of caution).
 
-This check runs once per account (a marker file in `assets/cookies/` prevents re-runs).
+This check runs once per account (a database sentinel record prevents re-runs).
 
 ## Hardcoded Defaults (`conf.py:CAMPAIGN_CONFIG`)
 
@@ -78,12 +78,5 @@ Timing and ML defaults are hardcoded in `linkedin/conf.py`. These are not user-c
 | `check_pending_jitter_factor` | `0.2` | Multiplicative jitter factor for backoff. |
 
 Other constants: `MIN_DELAY` (5s) / `MAX_DELAY` (8s) for human-like wait timing.
-
-## Derived Paths
-
-The system automatically generates these paths per account:
-
-- **Cookie file**: `assets/cookies/<handle>.json` (session persistence)
-- **Model file**: `assets/models/campaign_<id>_model.joblib` (per-campaign GP model)
 
 See [Templating](./templating.md) for follow-up messaging configuration.
