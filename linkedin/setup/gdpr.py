@@ -55,8 +55,6 @@ def apply_gdpr_newsletter_override(session, country_code: str | None):
     if not is_gdpr_protected(country_code):
         session.linkedin_profile.subscribe_newsletter = True
         session.linkedin_profile.save(update_fields=["subscribe_newsletter"])
-        # Keep account_cfg in sync
-        session.account_cfg["subscribe_newsletter"] = True
         logger.info(
             "Non-GDPR country (%s): auto-enabled newsletter for %s",
             country_code, session.handle,

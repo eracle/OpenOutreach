@@ -1,6 +1,7 @@
 import logging
 
 from linkedin.db.leads import lead_profile_by_id
+from linkedin.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ def _fetch_profile(session, public_id: str) -> dict | None:
     try:
         profile, _raw = api.get_profile(public_identifier=public_id)
         return profile
-    except Exception:
-        logger.warning("Voyager API failed for %s", public_id)
+    except AuthenticationError:
+        raise
+    except (IOError, ValueError) as exc:
+        logger.warning("Voyager API failed for %s: %s", public_id, exc)
         return None

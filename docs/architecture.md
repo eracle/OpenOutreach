@@ -67,7 +67,7 @@ Freemium campaigns use the same `connect` task type; the `ConnectStrategy` datac
 - Freemium campaigns: `find_freemium_candidate()` from `pipeline/freemium_pool.py` with just-in-time Deal creation.
 - Self-reschedules via `strategy.compute_delay(elapsed)`.
 - Rate-limited by `LinkedInProfile.can_execute()` / `record_action()`.
-- Enqueue helpers: `enqueue_connect()`, `enqueue_check_pending()`, `enqueue_follow_up()`.
+- Enqueue helpers: `enqueue_connect()`, `enqueue_check_pending()`, `enqueue_follow_up()` — all backed by `_enqueue_task()` generic dedup helper.
 
 ### `check_pending.py` — handle_check_pending
 - Checks one PENDING profile via `get_connection_status()`.
@@ -101,7 +101,7 @@ Candidate sourcing, qualification, and pool management:
 
 Handles browser automation and session management:
 
-- **`session.py`** — `AccountSession`: central session object. Loads `LinkedInProfile` from DB, exposes `linkedin_profile`, `campaign`, `campaigns` (via Campaign.users M2M), `django_user`, `account_cfg` dict, and Playwright browser objects. Key methods: `ensure_browser()`, `wait()`, `_maybe_refresh_cookies()`, `close()`.
+- **`session.py`** — `AccountSession`: central session object. Loads `LinkedInProfile` from DB, exposes `linkedin_profile`, `campaign`, `campaigns` (via Campaign.users M2M), `django_user`, and Playwright browser objects (`page`, `context`, `browser`, `playwright`). Key methods: `ensure_browser()`, `wait()`, `_maybe_refresh_cookies()`, `close()`. Credentials are accessed via `linkedin_profile` directly (no config dict).
 - **`registry.py`** — `AccountSessionRegistry`: singleton registry for `AccountSession` instances. `get_or_create_session()` convenience function.
 - **`login.py`** — `launch_browser()`, `start_browser_session()`, `playwright_login()` with human-like typing.
 - **`nav.py`** — `goto_page()` with auto-discovery of `/in/` URLs via `_extract_in_urls()`. `_discover_and_enrich()` auto-enriches discovered profiles. `human_type()`, `find_top_card()`, `find_first_visible()`, `random_sleep()`.

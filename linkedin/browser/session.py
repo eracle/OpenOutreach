@@ -1,7 +1,6 @@
 # linkedin/browser/session.py
 from __future__ import annotations
 
-import json
 import logging
 import random
 import time
@@ -33,14 +32,6 @@ class AccountSession:
 
         # Active campaign — set by the daemon before each lane execution
         self.campaign = None
-
-        self.account_cfg = {
-            "handle": self.handle,
-            "username": self.linkedin_profile.linkedin_username,
-            "password": self.linkedin_profile.linkedin_password,
-            "subscribe_newsletter": self.linkedin_profile.subscribe_newsletter,
-            "active": self.linkedin_profile.active,
-        }
 
         # Playwright objects – created on first access or after crash
         self.page = None

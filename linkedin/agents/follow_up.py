@@ -98,18 +98,18 @@ def _get_self_name(session) -> str:
 
     sentinel = Lead.objects.filter(linkedin_url=ME_URL).first()
     if not sentinel or not sentinel.description:
-        return session.account_cfg.get("handle", "")
+        return session.handle
     try:
         data = _json.loads(sentinel.description)
         real_id = data["public_identifier"]
     except (ValueError, KeyError, TypeError):
-        return session.account_cfg.get("handle", "")
+        return session.handle
     real_url = public_id_to_url(real_id)
     lead = Lead.objects.filter(linkedin_url=real_url).first()
     if not lead:
-        return session.account_cfg.get("handle", "")
+        return session.handle
     full = f"{lead.first_name or ''} {lead.last_name or ''}".strip()
-    return full or session.account_cfg.get("handle", "")
+    return full or session.handle
 
 
 def _render_system_prompt(session, profile: dict, past_messages_count: int) -> str:

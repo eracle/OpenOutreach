@@ -6,6 +6,11 @@ from playwright_stealth import Stealth
 from termcolor import colored
 
 from linkedin.browser.nav import goto_page, human_type
+from linkedin.conf import (
+    BROWSER_DEFAULT_TIMEOUT_MS,
+    BROWSER_LOGIN_TIMEOUT_MS,
+    BROWSER_SLOW_MO,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +26,7 @@ SELECTORS = {
 
 def playwright_login(session: "AccountSession"):
     page = session.page
-    config = session.account_cfg
+    lp = session.linkedin_profile
     logger.info(colored("Fresh login sequence starting", "cyan") + f" for @{session.handle}")
 
     goto_page(
@@ -31,16 +36,16 @@ def playwright_login(session: "AccountSession"):
         error_message="Failed to load login page",
     )
 
-    human_type(page.locator(SELECTORS["email"]), config["username"])
+    human_type(page.locator(SELECTORS["email"]), lp.linkedin_username)
     session.wait()
-    human_type(page.locator(SELECTORS["password"]), config["password"])
+    human_type(page.locator(SELECTORS["password"]), lp.linkedin_password)
     session.wait()
 
     goto_page(
         session,
         action=lambda: page.locator(SELECTORS["submit"]).click(),
         expected_url_pattern="/feed",
-        timeout=40_000,
+        timeout=BROWSER_LOGIN_TIMEOUT_MS,
         error_message="Login failed – no redirect to feed",
     )
 
@@ -48,8 +53,9 @@ def playwright_login(session: "AccountSession"):
 def launch_browser(storage_state=None):
     logger.debug("Launching Playwright")
     playwright = sync_playwright().start()
-    browser = playwright.chromium.launch(headless=False, slow_mo=200)
+    browser = playwright.chromium.launch(headless=False, slow_mo=BROWSER_SLOW_MO)
     context = browser.new_context(storage_state=storage_state)
+    context.set_default_timeout(BROWSER_DEFAULT_TIMEOUT_MS)
     Stealth().apply_stealth_sync(context)
     page = context.new_page()
     return page, context, browser, playwright
@@ -83,7 +89,7 @@ def start_browser_session(session: "AccountSession", handle: str):
             session,
             action=lambda: session.page.goto(LINKEDIN_FEED_URL),
             expected_url_pattern="/feed",
-            timeout=30_000,
+            timeout=BROWSER_DEFAULT_TIMEOUT_MS,
             error_message="Saved session invalid",
         )
 

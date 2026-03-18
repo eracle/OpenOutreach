@@ -17,6 +17,7 @@ def _lead_profile(lead) -> Optional[dict]:
     try:
         return json.loads(lead.description)
     except (json.JSONDecodeError, TypeError):
+        logger.warning("Failed to parse profile JSON for lead pk=%s", lead.pk)
         return None
 
 

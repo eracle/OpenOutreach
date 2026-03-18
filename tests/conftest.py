@@ -23,13 +23,6 @@ class FakeAccountSession:
         self.handle = django_user.username
         self.linkedin_profile = linkedin_profile
         self.campaign = campaign
-        self.account_cfg = {
-            "handle": self.handle,
-            "username": linkedin_profile.linkedin_username,
-            "password": linkedin_profile.linkedin_password,
-            "subscribe_newsletter": linkedin_profile.subscribe_newsletter,
-            "active": linkedin_profile.active,
-        }
 
     @property
     def campaigns(self):

@@ -7,12 +7,11 @@ from urllib.parse import urlencode
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from linkedin.api.voyager import parse_linkedin_voyager_response
+from linkedin.conf import VOYAGER_REQUEST_TIMEOUT_MS
 from linkedin.db.urls import url_to_public_id
 from linkedin.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
-
-REQUEST_TIMEOUT_MS = 30_000
 
 
 class _FetchResponse:
@@ -77,7 +76,7 @@ class PlaywrightLinkedinAPI:
                     return {status: r.status, ok: r.ok, body: await r.text()};
                 });
             }""",
-            [method, url, headers, body, REQUEST_TIMEOUT_MS],
+            [method, url, headers, body, VOYAGER_REQUEST_TIMEOUT_MS],
         )
         return _FetchResponse(raw)
 

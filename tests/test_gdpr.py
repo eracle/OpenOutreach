@@ -78,7 +78,6 @@ def _make_fake_session(subscribe=None):
     session = MagicMock()
     session.handle = "testuser"
     session.linkedin_profile.subscribe_newsletter = subscribe
-    session.account_cfg = {"subscribe_newsletter": subscribe}
     return session
 
 

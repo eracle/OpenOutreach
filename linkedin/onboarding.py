@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import logging
 
-from linkedin.conf import ENV_FILE, ROOT_DIR
+from linkedin.conf import (
+    DEFAULT_CONNECT_DAILY_LIMIT,
+    DEFAULT_CONNECT_WEEKLY_LIMIT,
+    DEFAULT_FOLLOW_UP_DAILY_LIMIT,
+    ENV_FILE,
+    ROOT_DIR,
+)
 
 DEFAULT_PRODUCT_DOCS = ROOT_DIR / "README.md"
 DEFAULT_CAMPAIGN_OBJECTIVE = ROOT_DIR / "docs" / "default_campaign.md"
@@ -226,9 +232,9 @@ def _onboard_account(campaign):
     subscribe_raw = _prompt("Subscribe to OpenOutreach newsletter? (Y/n)", default="Y")
     subscribe = subscribe_raw.lower() not in ("n", "no", "false", "0")
 
-    connect_daily = int(_prompt("Connection requests daily limit", default="50"))
-    connect_weekly = int(_prompt("Connection requests weekly limit", default="250"))
-    follow_up_daily = int(_prompt("Follow-up messages daily limit", default="100"))
+    connect_daily = int(_prompt("Connection requests daily limit", default=str(DEFAULT_CONNECT_DAILY_LIMIT)))
+    connect_weekly = int(_prompt("Connection requests weekly limit", default=str(DEFAULT_CONNECT_WEEKLY_LIMIT)))
+    follow_up_daily = int(_prompt("Follow-up messages daily limit", default=str(DEFAULT_FOLLOW_UP_DAILY_LIMIT)))
 
     # Derive handle from email slug
     handle = username.split("@")[0].lower().replace(".", "_").replace("+", "_")

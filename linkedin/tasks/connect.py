@@ -16,7 +16,7 @@ from termcolor import colored
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.deals import increment_connect_attempts, set_profile_state
 from linkedin.db.leads import disqualify_lead
-from linkedin.models import ActionLog
+from linkedin.models import ActionLog, Task
 from linkedin.enums import ProfileState
 from linkedin.exceptions import ReachedConnectionLimit, SkipProfile
 
@@ -183,21 +183,35 @@ def handle_connect(task, session, qualifiers):
 # Enqueue helpers (used by all task types)
 # ------------------------------------------------------------------
 
-def enqueue_connect(campaign_id: int, delay_seconds: float = 10):
-    from datetime import timedelta
-    from django.utils import timezone
-    from linkedin.models import Task
+def _enqueue_task(task_type: "Task.TaskType", payload: dict, delay_seconds: float, dedup_keys: list[str] | None = None):
+    """Create a pending task if no duplicate exists.
 
-    if not Task.objects.filter(
-        task_type=Task.TaskType.CONNECT,
-        status=Task.Status.PENDING,
-        payload__campaign_id=campaign_id,
-    ).exists():
+    Deduplication: matches on task_type + status=PENDING + dedup_keys payload
+    fields (defaults to all payload keys).
+    """
+    from datetime import timedelta
+
+    filter_kwargs = {
+        "task_type": task_type,
+        "status": Task.Status.PENDING,
+    }
+    for key in (dedup_keys if dedup_keys is not None else payload):
+        filter_kwargs[f"payload__{key}"] = payload[key]
+
+    if not Task.objects.filter(**filter_kwargs).exists():
         Task.objects.create(
-            task_type=Task.TaskType.CONNECT,
+            task_type=task_type,
             scheduled_at=timezone.now() + timedelta(seconds=delay_seconds),
-            payload={"campaign_id": campaign_id},
+            payload=payload,
         )
+
+
+def enqueue_connect(campaign_id: int, delay_seconds: float = 10):
+    _enqueue_task(
+        task_type=Task.TaskType.CONNECT,
+        payload={"campaign_id": campaign_id},
+        delay_seconds=delay_seconds,
+    )
 
 
 def enqueue_check_pending(
@@ -206,45 +220,26 @@ def enqueue_check_pending(
     backoff_hours: float,
     jitter_factor: float | None = None,
 ):
-    from datetime import timedelta
-    from django.utils import timezone
-    from linkedin.models import Task
-
     if jitter_factor is None:
         jitter_factor = CAMPAIGN_CONFIG["check_pending_jitter_factor"]
 
     delay_hours = backoff_hours * random.uniform(1.0, 1.0 + jitter_factor)
 
-    if not Task.objects.filter(
+    _enqueue_task(
         task_type=Task.TaskType.CHECK_PENDING,
-        status=Task.Status.PENDING,
-        payload__public_id=public_id,
-        payload__campaign_id=campaign_id,
-    ).exists():
-        Task.objects.create(
-            task_type=Task.TaskType.CHECK_PENDING,
-            scheduled_at=timezone.now() + timedelta(hours=delay_hours),
-            payload={
-                "campaign_id": campaign_id,
-                "public_id": public_id,
-                "backoff_hours": backoff_hours,
-            },
-        )
+        payload={
+            "campaign_id": campaign_id,
+            "public_id": public_id,
+            "backoff_hours": backoff_hours,
+        },
+        delay_seconds=delay_hours * 3600,
+        dedup_keys=["campaign_id", "public_id"],
+    )
 
 
 def enqueue_follow_up(campaign_id: int, public_id: str, delay_seconds: float = 10):
-    from datetime import timedelta
-    from django.utils import timezone
-    from linkedin.models import Task
-
-    if not Task.objects.filter(
+    _enqueue_task(
         task_type=Task.TaskType.FOLLOW_UP,
-        status=Task.Status.PENDING,
-        payload__public_id=public_id,
-        payload__campaign_id=campaign_id,
-    ).exists():
-        Task.objects.create(
-            task_type=Task.TaskType.FOLLOW_UP,
-            scheduled_at=timezone.now() + timedelta(seconds=delay_seconds),
-            payload={"campaign_id": campaign_id, "public_id": public_id},
-        )
+        payload={"campaign_id": campaign_id, "public_id": public_id},
+        delay_seconds=delay_seconds,
+    )
