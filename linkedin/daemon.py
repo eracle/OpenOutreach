@@ -5,11 +5,14 @@ import logging
 import random
 import time
 import traceback
+from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
+
 from termcolor import colored
 
-from linkedin.conf import CAMPAIGN_CONFIG
+from linkedin.conf import ACTIVE_END_HOUR, ACTIVE_START_HOUR, ACTIVE_TIMEZONE, CAMPAIGN_CONFIG, REST_DAYS
 from linkedin.diagnostics import failure_diagnostics
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
 from linkedin.models import Task
@@ -30,7 +33,8 @@ class _FreemiumRotator:
     """Logs rotating freemium messages every *every* task executions."""
 
     _MESSAGES = [
-        colored("Join the community or give direct feedback on Telegram \u2192 https://t.me/+Y5bh9Vg8UVg5ODU0", "blue", attrs=["bold"]),
+        colored("Join the community or give direct feedback on Telegram \u2192 https://t.me/+Y5bh9Vg8UVg5ODU0", "blue",
+                attrs=["bold"]),
         "\033[38;5;208;1mLove OpenOutreach? Sponsor the project \u2192 https://github.com/sponsors/eracle\033[0m",
     ]
 
@@ -44,7 +48,6 @@ class _FreemiumRotator:
         if self._ticks % self._every == 0:
             logger.info(self._MESSAGES[self._next % len(self._MESSAGES)])
             self._next += 1
-
 
 
 def _build_qualifiers(campaigns, cfg, kit_model=None):
@@ -80,9 +83,33 @@ def _build_qualifiers(campaigns, cfg, kit_model=None):
 
 
 # ------------------------------------------------------------------
-# Task queue worker
+# Active-hours schedule guard
 # ------------------------------------------------------------------
 
+
+def seconds_until_active() -> float:
+    """Return seconds to wait before the next active window, or 0 if active now."""
+    tz = ZoneInfo(ACTIVE_TIMEZONE)
+    now = timezone.localtime(timezone=tz)
+
+    if now.weekday() not in REST_DAYS and ACTIVE_START_HOUR <= now.hour < ACTIVE_END_HOUR:
+        return 0.0
+
+    # Find the next active start: try today first, then subsequent days
+    candidate = timezone.make_aware(
+        now.replace(hour=ACTIVE_START_HOUR, minute=0, second=0, microsecond=0, tzinfo=None),
+        timezone=tz,
+    )
+    if candidate <= now:
+        candidate += timedelta(days=1)
+    while candidate.weekday() in REST_DAYS:
+        candidate += timedelta(days=1)
+    return (candidate - now).total_seconds()
+
+
+# ------------------------------------------------------------------
+# Task queue worker
+# ------------------------------------------------------------------
 
 
 def heal_tasks(session):
@@ -185,6 +212,13 @@ def run_daemon(session):
     # Single-threaded: one task at a time, no concurrent enqueuing,
     # so sleeping until the next scheduled_at is safe.
     while True:
+        pause = seconds_until_active()
+        if pause > 0:
+            h, m = int(pause // 3600), int(pause % 3600 // 60)
+            logger.info("Outside active hours — sleeping %dh%02dm", h, m)
+            time.sleep(pause)
+            continue
+
         task = Task.objects.claim_next()
         if task is None:
             wait = Task.objects.seconds_to_next()

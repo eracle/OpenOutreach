@@ -28,6 +28,14 @@ MIN_DELAY = 5
 MAX_DELAY = 8
 
 # ----------------------------------------------------------------------
+# Active-hours schedule (daemon pauses outside this window)
+# ----------------------------------------------------------------------
+ACTIVE_START_HOUR = 10   # inclusive, local time
+ACTIVE_END_HOUR = 20    # exclusive, local time
+ACTIVE_TIMEZONE = "UTC"
+REST_DAYS = (5, 6)      # 0=Mon … 6=Sun; default Sat+Sun off
+
+# ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)
 # ----------------------------------------------------------------------
 CAMPAIGN_CONFIG = {
