@@ -45,8 +45,9 @@ def register_media_upload(
     data = res.json()
     logger.debug("Media upload registration response: %s", json.dumps(data, indent=2))
 
-    # Extract asset URN and upload URL from response
-    value = data.get("value", data)
+    # Response may be nested under "data.value" or "value" depending on API version
+    value = data.get("data", data)
+    value = value.get("value", value)
 
     asset_urn = (
         value.get("urn")
@@ -55,23 +56,13 @@ def register_media_upload(
         or ""
     )
 
-    upload_url = ""
-    # The upload URL may be nested in various response shapes
-    upload_mechanism = value.get("singleUploadUrl") or value.get("uploadUrl") or ""
-    if not upload_mechanism:
-        # Try nested upload instructions
+    upload_url = value.get("singleUploadUrl") or value.get("uploadUrl") or ""
+    if not upload_url:
         instructions = value.get("uploadInstructions", [])
         if instructions:
             upload_url = instructions[0].get("uploadUrl", "")
-        # Try componentUploadUrls
-        comp_urls = value.get("componentUploadUrls", [])
-        if comp_urls:
-            upload_url = comp_urls[0]
-    else:
-        upload_url = upload_mechanism
 
     if not asset_urn:
-        # Try to find it in included/data arrays
         for item in data.get("included", []):
             urn = item.get("entityUrn", "")
             if "digitalmediaAsset" in urn:
@@ -138,6 +129,7 @@ def upload_media(
         "byteSize": file_size,
         "mediaType": mime_type,
         "name": filename,
+        "url": f"https://www.linkedin.com/dms-uploads/{asset_urn.split(':')[-1]}",
     }
 
     _upload_cache[cache_key] = attachment
