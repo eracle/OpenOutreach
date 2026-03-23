@@ -9,6 +9,7 @@ from linkedin.browser.nav import goto_page, human_type
 logger = logging.getLogger(__name__)
 
 LINKEDIN_MESSAGING_URL = "https://www.linkedin.com/messaging/thread/new/"
+LINKEDIN_MESSAGING_THREAD_URL = "https://www.linkedin.com/messaging/thread/"
 
 SELECTORS = {
     "message_button": 'button[aria-label*="Message"]:visible',
@@ -159,6 +160,86 @@ def _send_message_via_api(
         return True
     except Exception as e:
         logger.error("API send failed for %s → %s", public_identifier, e)
+        return False
+
+
+def send_media_message(session, profile: Dict[str, Any], message: str, media_path: str) -> bool:
+    """Send a message with a media attachment via UI file input.
+
+    Navigates to the existing conversation, attaches the file, optionally
+    types a message, and clicks Send.
+    """
+    import time
+    from linkedin.db.chat import save_chat_message
+    from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
+    from linkedin.api.client import PlaywrightLinkedinAPI
+    from linkedin.db.leads import resolve_urn
+
+    public_identifier = profile.get("public_identifier")
+    page = session.page
+
+    # Find conversation thread URL
+    target_urn = resolve_urn(public_identifier, session=session)
+    if not target_urn:
+        logger.error("Cannot resolve URN for %s — media send failed", public_identifier)
+        return False
+
+    api = PlaywrightLinkedinAPI(session=session)
+    conv_urn = find_conversation_urn(api, target_urn)
+    if not conv_urn:
+        conv_urn = find_conversation_urn_via_navigation(session, target_urn)
+    if not conv_urn:
+        logger.error("No conversation found for %s — media send failed", public_identifier)
+        return False
+
+    # Extract thread ID from conversation URN and navigate
+    # conv_urn format: urn:li:msg_conversation:(urn:li:fsd_profile:XXX,THREAD_ID)
+    thread_id = conv_urn.rsplit(",", 1)[-1].rstrip(")")
+    thread_url = f"{LINKEDIN_MESSAGING_THREAD_URL}{thread_id}/"
+
+    try:
+        goto_page(
+            session,
+            action=lambda: page.goto(thread_url),
+            expected_url_pattern="/messaging",
+            timeout=30_000,
+            error_message="Error opening messaging thread",
+        )
+        session.wait()
+
+        # Attach file via hidden file input
+        file_input = page.locator('input[type="file"]')
+        if file_input.count() == 0:
+            logger.error("No file input found on messaging page for %s", public_identifier)
+            return False
+
+        file_input.first.set_input_files(media_path)
+        logger.debug("Media attached via file input: %s", media_path)
+        time.sleep(3)
+        session.wait()
+
+        # Type message if provided
+        if message:
+            msg_input = page.locator(SELECTORS["message_input"])
+            if msg_input.count() > 0:
+                msg_input.first.fill(message)
+                session.wait()
+
+        # Click send
+        send_btn = page.locator(SELECTORS["send_button"])
+        if send_btn.count() == 0:
+            logger.error("Send button not found after attaching media for %s", public_identifier)
+            return False
+
+        send_btn.first.click(force=True)
+        session.wait(3, 4)
+
+        save_chat_message(session, public_identifier, message or "[media]")
+        logger.info("Media message sent to %s", public_identifier)
+        return True
+
+    except Exception as e:
+        logger.error("Media send failed for %s → %s", public_identifier, e)
         return False
 
 
