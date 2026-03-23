@@ -92,18 +92,18 @@ def _count_messages_exchanged(session, public_id: str) -> int:
 
 def _get_self_name(session) -> str:
     """Get the logged-in user's name from the /in/me/ sentinel → real profile Lead."""
-    import json as _json
     from crm.models import Lead
     from linkedin.db.urls import public_id_to_url
     from linkedin.setup.self_profile import ME_URL
 
     sentinel = Lead.objects.filter(linkedin_url=ME_URL).first()
-    if not sentinel or not sentinel.description:
+    if not sentinel:
         return session.handle
-    try:
-        data = _json.loads(sentinel.description)
-        real_id = data["public_identifier"]
-    except (ValueError, KeyError, TypeError):
+    data = sentinel.get_profile(session)
+    if not data:
+        return session.handle
+    real_id = data.get("public_identifier")
+    if not real_id:
         return session.handle
     real_url = public_id_to_url(real_id)
     lead = Lead.objects.filter(linkedin_url=real_url).first()

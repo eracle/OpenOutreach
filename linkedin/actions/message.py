@@ -141,14 +141,16 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
 
 def _send_message_via_api(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:
     """Last-resort fallback: send via Voyager Messaging API."""
+    from crm.models import Lead
     from linkedin.api.client import PlaywrightLinkedinAPI
     from linkedin.api.messaging import send_message
-    from linkedin.db.leads import resolve_urn
+    from linkedin.db.urls import public_id_to_url
     from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
 
     public_identifier = profile.get("public_identifier")
 
-    target_urn = resolve_urn(public_identifier, session=session)
+    lead = Lead.objects.filter(linkedin_url=public_id_to_url(public_identifier)).first()
+    target_urn = lead.get_urn(session) if lead else None
     if not target_urn:
         logger.error("API send failed for %s → could not resolve URN", public_identifier)
         return False

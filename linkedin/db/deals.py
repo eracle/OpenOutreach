@@ -36,9 +36,7 @@ def increment_connect_attempts(session, public_id: str) -> int:
 
 def _deal_to_profile_dict(deal) -> dict:
     """Convert a Deal (with select_related lead) to a profile dict for lanes."""
-    from linkedin.db.leads import lead_to_profile_dict
-
-    base = lead_to_profile_dict(deal.lead)
+    base = deal.lead.to_profile_dict()
     base["meta"] = {
         "connect_attempts": deal.connect_attempts,
         "backoff_hours": deal.backoff_hours,

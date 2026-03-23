@@ -87,9 +87,10 @@ if __name__ == "__main__":
     import django
     django.setup()
 
+    from crm.models import Lead
     from linkedin.conf import get_first_active_profile_handle
     from linkedin.browser.registry import get_or_create_session
-    from linkedin.db.leads import resolve_urn
+    from linkedin.db.urls import public_id_to_url
     from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
 
     logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
@@ -112,7 +113,8 @@ if __name__ == "__main__":
     api = PlaywrightLinkedinAPI(session=session)
 
     # Resolve target profile URN
-    target_urn = resolve_urn(args.profile, session=session)
+    lead = Lead.objects.filter(linkedin_url=public_id_to_url(args.profile)).first()
+    target_urn = lead.get_urn(session) if lead else None
     if not target_urn:
         print(f"Could not resolve URN for {args.profile}")
         raise SystemExit(1)

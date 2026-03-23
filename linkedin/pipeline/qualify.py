@@ -16,7 +16,6 @@ def fetch_qualification_candidates(session):
     """Return Lead rows (with embeddings) for leads awaiting qualification."""
     from crm.models import Lead
     from linkedin.db.leads import get_leads_for_qualification
-    from linkedin.db.enrichment import ensure_profile_embedded
 
     leads = get_leads_for_qualification(session)
     if not leads:
@@ -32,18 +31,12 @@ def fetch_qualification_candidates(session):
         return candidates
 
     # Robustness fallback: embed any lead that was missed at discovery time
-    embedded_ids = set(
-        Lead.objects.filter(pk__in=lead_ids, embedding__isnull=False)
-        .values_list("pk", flat=True)
-    )
     for ld in leads:
-        lid = ld["lead_id"]
-        if lid in embedded_ids:
+        lead = Lead.objects.filter(pk=ld["lead_id"]).first()
+        if not lead or lead.embedding is not None:
             continue
-        if ensure_profile_embedded(lid, ld["public_identifier"], session):
-            row = Lead.objects.filter(pk=lid, embedding__isnull=False).first()
-            if row:
-                return [row]
+        if lead.get_embedding(session) is not None:
+            return [lead]
 
     return []
 
@@ -128,12 +121,13 @@ def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: i
 
 
 def _fetch_profile_text(session, lead_id: int, public_id: str) -> str | None:
-    from linkedin.db.enrichment import ensure_lead_enriched
-    from linkedin.db.leads import lead_profile_by_id
+    from crm.models import Lead
     from linkedin.ml.profile_text import build_profile_text
 
-    ensure_lead_enriched(session, lead_id, public_id)
-    profile_data = lead_profile_by_id(lead_id)
+    lead = Lead.objects.filter(pk=lead_id).first()
+    if not lead:
+        return None
+    profile_data = lead.get_profile(session)
     if not profile_data:
         return None
     return build_profile_text({"profile": profile_data})

@@ -1,7 +1,12 @@
+import json
+import logging
+
 import numpy as np
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
+logger = logging.getLogger(__name__)
 
 
 class Lead(models.Model):
@@ -34,6 +39,79 @@ class Lead(models.Model):
         if self.disqualified:
             name = f"({_('Disqualified')}) {name}"
         return name
+
+    # ------------------------------------------------------------------
+    # Lazy accessors — fetch / compute on first access, cache in DB
+    # ------------------------------------------------------------------
+
+    def get_profile(self, session) -> dict | None:
+        """Parsed profile dict. Fetches from Voyager API if not yet enriched."""
+        if not self.description:
+            self._enrich(session)
+        return json.loads(self.description) if self.description else None
+
+    def get_urn(self, session) -> str | None:
+        """LinkedIn URN. Chains through get_profile."""
+        profile = self.get_profile(session)
+        return profile.get("urn") if profile else None
+
+    def get_embedding(self, session) -> np.ndarray | None:
+        """384-dim embedding. Chains through get_profile → embed."""
+        if self.embedding is None:
+            profile = self.get_profile(session)
+            if profile:
+                self._embed(profile)
+        return self.embedding_array
+
+    def to_profile_dict(self) -> dict | None:
+        """Standard profile dict shape used by qualifiers and pools.
+
+        Reads existing data only — does not trigger enrichment.
+        Returns None if the lead has no public_identifier.
+        """
+        from linkedin.db.urls import url_to_public_id
+
+        profile = json.loads(self.description) if self.description else {}
+        public_id = self.public_identifier
+        if not public_id:
+            public_id = url_to_public_id(self.linkedin_url) if self.linkedin_url else ""
+        if not public_id:
+            return None
+        return {
+            "lead_id": self.pk,
+            "public_identifier": public_id,
+            "url": self.linkedin_url or "",
+            "profile": profile,
+            "meta": {},
+        }
+
+    def _enrich(self, session):
+        """Fetch profile from Voyager API and save to DB fields."""
+        from linkedin.api.client import PlaywrightLinkedinAPI
+
+        session.ensure_browser()
+        api = PlaywrightLinkedinAPI(session=session)
+        profile, _raw = api.get_profile(public_identifier=self.public_identifier)
+        if not profile:
+            return
+
+        self.first_name = profile.get("first_name", "") or ""
+        self.last_name = profile.get("last_name", "") or ""
+        positions = profile.get("positions", [])
+        if positions:
+            self.company_name = positions[0].get("company_name", "") or ""
+        self.description = json.dumps(profile, ensure_ascii=False, default=str)
+        self.save()
+
+    def _embed(self, profile: dict):
+        """Compute embedding from profile and save to DB."""
+        from linkedin.ml.embeddings import embed_text
+        from linkedin.ml.profile_text import build_profile_text
+
+        text = build_profile_text({"profile": profile})
+        emb = embed_text(text)
+        self.embedding = emb.tobytes()
+        self.save(update_fields=["embedding"])
 
     @property
     def embedding_array(self) -> np.ndarray | None:

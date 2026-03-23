@@ -40,6 +40,7 @@ For detailed module docs, see `ARCHITECTURE.md`.
 - **Task queue**: `Task` model (persistent). Three types: `connect`, `check_pending`, `follow_up`. Handlers in `linkedin/tasks/`, signature: `handle_*(task, session, qualifiers)`.
 - **ML pipeline**: GPR (sklearn) + BALD active learning + LLM qualification. Per-campaign models stored in `Campaign.model_blob` (DB).
 - **Config**: `.env` (LLM_API_KEY, AI_MODEL), `conf.py:CAMPAIGN_CONFIG` (timing/ML defaults), `conf.py` browser constants (`BROWSER_*`, `HUMAN_TYPE_*`, `VOYAGER_REQUEST_TIMEOUT_MS`), `conf.py` schedule constants (`ENABLE_ACTIVE_HOURS` flag, active hours/timezone/rest days), `conf.py` onboarding defaults (`DEFAULT_*_LIMIT`), Campaign/LinkedInProfile models (Django Admin).
+- **Lazy accessors**: `Lead.get_profile(session)`, `Lead.get_urn(session)`, `Lead.get_embedding(session)` — fetch from API and cache in DB on first access. Chained: `get_embedding` → `get_profile` → Voyager API. `Lead.to_profile_dict()` reads existing data only.
 - **Django apps**: `linkedin` (main — Campaign with users M2M), `crm` (Lead with embedding/Deal), `chat` (ChatMessage).
 - **Docker**: Playwright base image, VNC on port 5900, `BUILD_ENV` arg selects requirements.
 - **CI/CD**: `.github/workflows/tests.yml` (pytest), `deploy.yml` (build + push to ghcr.io).

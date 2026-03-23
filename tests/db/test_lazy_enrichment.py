@@ -1,5 +1,5 @@
 # tests/db/test_lazy_enrichment.py
-"""Tests for lazy enrichment and embedding helpers."""
+"""Tests for Lead lazy accessors (get_profile, get_embedding)."""
 from __future__ import annotations
 
 import json
@@ -14,14 +14,14 @@ FAKE_PROFILE = {
     "last_name": "Smith",
     "headline": "Engineer at Acme",
     "positions": [{"company_name": "Acme Corp"}],
+    "urn": "urn:li:fsd_profile:ABC123",
 }
 
 
-class TestEnsureLeadEnriched:
-    def test_already_enriched(self, fake_session):
-        """Returns True immediately when lead already has a description."""
+class TestGetProfile:
+    def test_returns_cached(self, fake_session):
+        """Returns parsed JSON when description already set."""
         from crm.models import Lead
-        from linkedin.db.enrichment import ensure_lead_enriched
 
         lead = Lead.objects.create(
             linkedin_url="https://www.linkedin.com/in/alice/",
@@ -29,35 +29,36 @@ class TestEnsureLeadEnriched:
             description=json.dumps(FAKE_PROFILE),
         )
 
-        with patch("linkedin.db.enrichment._fetch_profile") as mock_fetch:
-            assert ensure_lead_enriched(fake_session, lead.pk, "alice") is True
-            mock_fetch.assert_not_called()
+        with patch.object(lead, "_enrich") as mock:
+            result = lead.get_profile(fake_session)
+            mock.assert_not_called()
 
-    def test_enriches_url_only_lead(self, fake_session):
-        """Fetches profile via Voyager API and populates the lead."""
+        assert result["first_name"] == "Alice"
+
+    def test_enriches_when_empty(self, fake_session):
+        """Calls Voyager API and populates lead when description is empty."""
         from crm.models import Lead
-        from linkedin.db.enrichment import ensure_lead_enriched
 
         lead = Lead.objects.create(
             linkedin_url="https://www.linkedin.com/in/alice/",
             public_identifier="alice",
         )
-        assert not lead.description
 
         with patch(
-            "linkedin.db.enrichment._fetch_profile",
-            return_value=FAKE_PROFILE,
-        ):
-            assert ensure_lead_enriched(fake_session, lead.pk, "alice") is True
+            "linkedin.api.client.PlaywrightLinkedinAPI"
+        ) as MockAPI:
+            MockAPI.return_value.get_profile.return_value = (FAKE_PROFILE, {})
+            result = lead.get_profile(fake_session)
 
+        assert result is not None
+        assert result["first_name"] == "Alice"
         lead.refresh_from_db()
-        assert lead.description
         assert lead.first_name == "Alice"
+        assert lead.description
 
-    def test_returns_false_on_api_failure(self, fake_session):
-        """Returns False when Voyager API returns (None, None)."""
+    def test_crashes_on_api_failure(self, fake_session):
+        """Lets API errors propagate (get_profile has its own retry)."""
         from crm.models import Lead
-        from linkedin.db.enrichment import ensure_lead_enriched
 
         lead = Lead.objects.create(
             linkedin_url="https://www.linkedin.com/in/alice/",
@@ -65,91 +66,80 @@ class TestEnsureLeadEnriched:
         )
 
         with patch(
-            "linkedin.db.enrichment._fetch_profile",
-            return_value=None,
-        ):
-            assert ensure_lead_enriched(fake_session, lead.pk, "alice") is False
-
-        lead.refresh_from_db()
-        assert not lead.description
-
-    def test_returns_false_for_missing_lead(self, fake_session):
-        """Returns False when lead PK doesn't exist."""
-        from linkedin.db.enrichment import ensure_lead_enriched
-
-        assert ensure_lead_enriched(fake_session, 99999, "nobody") is False
+            "linkedin.api.client.PlaywrightLinkedinAPI"
+        ) as MockAPI:
+            MockAPI.return_value.get_profile.side_effect = IOError("timeout")
+            with pytest.raises(IOError):
+                lead.get_profile(fake_session)
 
 
-class TestEnsureProfileEmbedded:
-    def test_already_embedded(self, fake_session, embeddings_db):
-        """Returns True immediately when embedding exists."""
+class TestGetUrn:
+    def test_extracts_urn(self, fake_session):
+        """Returns URN from cached profile."""
         from crm.models import Lead
-        from linkedin.db.enrichment import ensure_profile_embedded
+
+        lead = Lead.objects.create(
+            linkedin_url="https://www.linkedin.com/in/alice/",
+            public_identifier="alice",
+            description=json.dumps(FAKE_PROFILE),
+        )
+
+        assert lead.get_urn(fake_session) == "urn:li:fsd_profile:ABC123"
+
+
+class TestGetEmbedding:
+    def test_returns_cached(self, fake_session, embeddings_db):
+        """Returns existing embedding without recomputing."""
+        from crm.models import Lead
 
         emb = np.ones(384, dtype=np.float32)
-        Lead.objects.create(
-            pk=1, public_identifier="alice",
+        lead = Lead.objects.create(
             linkedin_url="https://www.linkedin.com/in/alice/",
+            public_identifier="alice",
             embedding=emb.tobytes(),
         )
 
-        with patch("linkedin.ml.embeddings.embed_profile") as mock_embed:
-            assert ensure_profile_embedded(1, "alice", fake_session) is True
-            mock_embed.assert_not_called()
+        with patch.object(lead, "_embed") as mock:
+            result = lead.get_embedding(fake_session)
+            mock.assert_not_called()
 
-    def test_embeds_enriched_lead(self, fake_session, embeddings_db):
-        """Creates embedding from lead description."""
+        np.testing.assert_array_almost_equal(result, emb)
+
+    def test_enriches_and_embeds(self, fake_session, embeddings_db):
+        """Fetches profile and computes embedding when both are missing."""
         from crm.models import Lead
-        from linkedin.db.enrichment import ensure_profile_embedded
 
-        Lead.objects.create(
+        lead = Lead.objects.create(
             linkedin_url="https://www.linkedin.com/in/alice/",
             public_identifier="alice",
-            description=json.dumps(FAKE_PROFILE),
-            pk=42,
         )
 
-        with patch("linkedin.ml.embeddings.embed_profile", return_value=True) as mock_embed:
-            assert ensure_profile_embedded(42, "alice", fake_session) is True
-            mock_embed.assert_called_once_with(42, "alice", FAKE_PROFILE)
+        fake_emb = np.ones(384, dtype=np.float32)
 
-    def test_enriches_then_embeds_with_session(self, fake_session, embeddings_db):
-        """When session is provided, enriches url-only lead then embeds."""
-        from crm.models import Lead
-        from linkedin.db.enrichment import ensure_profile_embedded
-
-        Lead.objects.create(
-            linkedin_url="https://www.linkedin.com/in/bob/",
-            public_identifier="bob",
-            pk=44,
-        )
-
-        with (
-            patch(
-                "linkedin.db.enrichment._fetch_profile",
-                return_value=FAKE_PROFILE,
-            ),
-            patch(
-                "linkedin.ml.embeddings.embed_profile",
-                return_value=True,
-            ) as mock_embed,
+        with patch(
+            "linkedin.api.client.PlaywrightLinkedinAPI"
+        ) as MockAPI, patch(
+            "linkedin.ml.embeddings.embed_text",
+            return_value=fake_emb,
         ):
-            assert ensure_profile_embedded(44, "bob", session=fake_session) is True
-            mock_embed.assert_called_once()
+            MockAPI.return_value.get_profile.return_value = (FAKE_PROFILE, {})
+            result = lead.get_embedding(fake_session)
 
-    def test_returns_false_with_session_on_api_failure(self, fake_session, embeddings_db):
-        """Returns False when session provided but enrichment fails."""
+        assert result is not None
+        np.testing.assert_array_almost_equal(result, fake_emb)
+
+    def test_crashes_on_api_failure(self, fake_session, embeddings_db):
+        """Lets API errors propagate."""
         from crm.models import Lead
-        from linkedin.db.enrichment import ensure_profile_embedded
 
-        Lead.objects.create(
-            linkedin_url="https://www.linkedin.com/in/bob/",
-            public_identifier="bob",
-            pk=45,
+        lead = Lead.objects.create(
+            linkedin_url="https://www.linkedin.com/in/alice/",
+            public_identifier="alice",
         )
 
         with patch(
-            "linkedin.db.enrichment._fetch_profile",
-            return_value=None,
-        ):
-            assert ensure_profile_embedded(45, "bob", session=fake_session) is False
+            "linkedin.api.client.PlaywrightLinkedinAPI"
+        ) as MockAPI:
+            MockAPI.return_value.get_profile.side_effect = IOError("timeout")
+            with pytest.raises(IOError):
+                lead.get_embedding(fake_session)

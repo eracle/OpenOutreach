@@ -11,7 +11,6 @@ from linkedin.db.deals import (
     get_ready_to_connect_profiles,
     set_profile_state,
 )
-from linkedin.db.enrichment import load_embedding
 from linkedin.ml.qualifier import BayesianQualifier
 from linkedin.enums import ProfileState
 
@@ -24,6 +23,8 @@ def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) ->
     Returns the number of profiles promoted. Returns 0 when the GP model
     is not fitted (cold start) or when no QUALIFIED profiles exist.
     """
+    from crm.models import Lead
+
     profiles = get_qualified_profiles(session)
     if not profiles:
         return 0
@@ -31,7 +32,8 @@ def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) ->
     embeddings = []
     valid = []
     for p in profiles:
-        emb = load_embedding(p.get("lead_id"), p.get("public_identifier"), session)
+        lead = Lead.objects.filter(pk=p.get("lead_id")).first()
+        emb = lead.get_embedding(session) if lead else None
         if emb is not None:
             embeddings.append(emb)
             valid.append(p)

@@ -10,59 +10,6 @@ from linkedin.enums import ProfileState
 logger = logging.getLogger(__name__)
 
 
-def _lead_profile(lead) -> Optional[dict]:
-    """Return the parsed profile dict stored as description on the Lead."""
-    if not lead.description:
-        return None
-    try:
-        return json.loads(lead.description)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("Failed to parse profile JSON for lead pk=%s", lead.pk)
-        return None
-
-
-def resolve_urn(public_id: str, session=None) -> Optional[str]:
-    """Return the LinkedIn URN for a public identifier.
-
-    Reads from the stored profile JSON. If the lead isn't enriched yet and a
-    session is provided, calls ensure_lead_enriched first (lazy Voyager fetch).
-    """
-    from crm.models import Lead
-
-    clean_url = public_id_to_url(public_id)
-    lead = Lead.objects.filter(linkedin_url=clean_url).first()
-    if not lead:
-        return None
-
-    if not lead.description and session:
-        from linkedin.db.enrichment import ensure_lead_enriched
-        ensure_lead_enriched(session, lead.pk, public_id)
-        lead.refresh_from_db(fields=["description"])
-
-    profile = _lead_profile(lead)
-    return profile.get("urn") if profile else None
-
-
-def lead_to_profile_dict(lead) -> dict | None:
-    """Convert a Lead to the standard profile dict shape used by qualifiers and pools.
-
-    Returns None if the lead has no public_identifier.
-    """
-    profile = _lead_profile(lead) or {}
-    public_id = lead.public_identifier
-    if not public_id:
-        public_id = url_to_public_id(lead.linkedin_url) if lead.linkedin_url else ""
-    if not public_id:
-        return None
-    return {
-        "lead_id": lead.pk,
-        "public_identifier": public_id,
-        "url": lead.linkedin_url or "",
-        "profile": profile,
-        "meta": {},
-    }
-
-
 def lead_exists(url: str) -> bool:
     """Check if Lead already exists for this LinkedIn URL."""
     from crm.models import Lead
@@ -133,9 +80,8 @@ def promote_lead_to_deal(session, public_id: str, reason: str = ""):
 def get_leads_for_qualification(session) -> list:
     """Leads eligible for qualification in the current campaign.
 
-    Returns leads that are not permanently disqualified and have no Deal in
-    this campaign. A lead rejected by another campaign (FAILED Deal in a
-    different campaign) is still eligible here.
+    Returns profile dicts for leads that are not permanently disqualified
+    and have no Deal in this campaign.
     """
     from crm.models import Lead
 
@@ -145,12 +91,7 @@ def get_leads_for_qualification(session) -> list:
         deal__campaign=session.campaign,
     )
 
-    result = []
-    for lead in leads:
-        d = lead_to_profile_dict(lead)
-        if d:
-            result.append(d)
-    return result
+    return [d for lead in leads if (d := lead.to_profile_dict())]
 
 
 def disqualify_lead(public_id: str):
@@ -164,16 +105,6 @@ def disqualify_lead(public_id: str):
         return
     lead.disqualified = True
     lead.save(update_fields=["disqualified"])
-
-
-def lead_profile_by_id(lead_id: int) -> Optional[dict]:
-    """Load and parse the profile JSON stored on a Lead, looked up by PK."""
-    from crm.models import Lead
-
-    lead = Lead.objects.filter(pk=lead_id).first()
-    if not lead:
-        return None
-    return _lead_profile(lead)
 
 
 def _update_lead_fields(lead, profile: Dict[str, Any]):

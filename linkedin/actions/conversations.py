@@ -112,12 +112,14 @@ def get_conversation(session, public_identifier: str) -> list[dict] | None:
 
     Returns a list of {sender, text, timestamp} dicts, or None if no conversation exists.
     """
-    from linkedin.db.leads import resolve_urn
+    from crm.models import Lead
+    from linkedin.db.urls import public_id_to_url
 
     session.ensure_browser()
     api = PlaywrightLinkedinAPI(session=session)
 
-    target_urn = resolve_urn(public_identifier, session=session)
+    lead = Lead.objects.filter(linkedin_url=public_id_to_url(public_identifier)).first()
+    target_urn = lead.get_urn(session) if lead else None
     if not target_urn:
         logger.warning("Could not resolve URN for %s", public_identifier)
         return None

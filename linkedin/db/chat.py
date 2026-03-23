@@ -43,12 +43,11 @@ def _sync_from_api(session, public_identifier: str, lead, ct):
     from linkedin.api.client import PlaywrightLinkedinAPI
     from linkedin.api.messaging import fetch_messages
     from linkedin.api.messaging.utils import get_self_urn
-    from linkedin.db.leads import resolve_urn
 
     session.ensure_browser()
     api = PlaywrightLinkedinAPI(session=session)
 
-    target_urn = resolve_urn(public_identifier, session=session)
+    target_urn = lead.get_urn(session)
     if not target_urn:
         logger.debug("sync: could not resolve URN for %s", public_identifier)
         return

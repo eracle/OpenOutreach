@@ -52,10 +52,9 @@ def find_freemium_candidate(session, qualifier) -> dict | None:
 def _pick_best(lead_pks: list[int], qualifier, session) -> dict | None:
     """Rank leads by qualifier and return the top-1 profile dict."""
     from crm.models import Lead
-    from linkedin.db.leads import lead_to_profile_dict
 
     leads = Lead.objects.filter(pk__in=lead_pks, disqualified=False)
-    profiles = [d for lead in leads if (d := lead_to_profile_dict(lead))]
+    profiles = [d for lead in leads if (d := lead.to_profile_dict())]
 
     if not profiles:
         return None

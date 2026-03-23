@@ -42,7 +42,6 @@ def seed_profiles(session, kit_config: dict):
     from crm.models import Lead
 
     from linkedin.db.deals import create_freemium_deal
-    from linkedin.db.enrichment import ensure_profile_embedded
     from linkedin.db.urls import public_id_to_url
 
     public_ids = kit_config.get("seed_profiles", [])
@@ -54,5 +53,5 @@ def seed_profiles(session, kit_config: dict):
 
         lead, _ = Lead.objects.get_or_create(linkedin_url=url, defaults={"public_identifier": public_id})
 
-        ensure_profile_embedded(lead.pk, public_id, session, quiet=True)
+        lead.get_embedding(session)
         create_freemium_deal(session, public_id)

@@ -114,11 +114,12 @@ def _load_profile_embeddings(profiles: list, session, *, skip_missing: bool = Fa
 
     Returns list of (profile, embedding) pairs.
     """
-    from linkedin.db.enrichment import load_embedding
+    from crm.models import Lead
 
     result = []
     for p in profiles:
-        emb = load_embedding(p.get("lead_id"), p.get("public_identifier"), session)
+        lead = Lead.objects.filter(pk=p.get("lead_id")).first()
+        emb = lead.get_embedding(session) if lead else None
         if emb is None:
             if skip_missing:
                 continue
@@ -415,9 +416,10 @@ class BayesianQualifier:
 
     def explain(self, profile: dict, session) -> str:
         """Human-readable compact scoring explanation."""
-        from linkedin.db.enrichment import load_embedding
+        from crm.models import Lead
 
-        emb = load_embedding(profile.get("lead_id"), profile.get("public_identifier"), session)
+        lead = Lead.objects.filter(pk=profile.get("lead_id")).first()
+        emb = lead.get_embedding(session) if lead else None
         if emb is None:
             return "No embedding found for profile"
         if not self._fit_if_needed():
@@ -462,9 +464,10 @@ class KitQualifier:
 
     def explain(self, profile: dict, session) -> str:
         """Human-readable compact scoring explanation."""
-        from linkedin.db.enrichment import load_embedding
+        from crm.models import Lead
 
-        emb = load_embedding(profile.get("lead_id"), profile.get("public_identifier"), session)
+        lead = Lead.objects.filter(pk=profile.get("lead_id")).first()
+        emb = lead.get_embedding(session) if lead else None
         if emb is None:
             return "No embedding found for profile"
         mean, std = _gpr_predict(self._model, emb)

@@ -38,7 +38,7 @@ class TestPromoteToReady:
         scorer = BayesianQualifier(seed=42)
 
         with patch(
-            "linkedin.pipeline.ready_pool.load_embedding",
+            "crm.models.lead.Lead.get_embedding",
             return_value=np.ones(384),
         ), patch.object(
             scorer, "predict_probs", return_value=np.array([0.95, 0.80]),
@@ -59,7 +59,7 @@ class TestPromoteToReady:
         scorer = BayesianQualifier(seed=42)
 
         with patch(
-            "linkedin.pipeline.ready_pool.load_embedding",
+            "crm.models.lead.Lead.get_embedding",
             return_value=np.ones(384),
         ), patch.object(
             scorer, "predict_probs", return_value=None,

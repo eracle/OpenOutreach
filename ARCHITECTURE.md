@@ -85,9 +85,8 @@ Three apps in `INSTALLED_APPS`:
 - **`browser/registry.py`** — `AccountSessionRegistry`, `get_or_create_session()`.
 - **`browser/login.py`** — `start_browser_session()` — browser launch + LinkedIn login.
 - **`browser/nav.py`** — Navigation, auto-discovery, `goto_page()`.
-- **`db/leads.py`** — Lead CRUD, `lead_to_profile_dict()`, `get_leads_for_qualification()`, `disqualify_lead()`.
+- **`db/leads.py`** — Lead CRUD, `get_leads_for_qualification()`, `disqualify_lead()`.
 - **`db/deals.py`** — Deal/state ops, `set_profile_state()`, `increment_connect_attempts()`, `create_freemium_deal()`.
-- **`db/enrichment.py`** — Lazy enrichment/embedding (`ensure_profile_embedded()`).
 - **`db/chat.py`** — `save_chat_message()`.
 - **`db/urls.py`** — `url_to_public_id()`, `public_id_to_url()` — LinkedIn URL ↔ public identifier conversion.
 - **`conf.py`** — Config loading (dotenv), `CAMPAIGN_CONFIG`, path constants, `get_first_active_profile_handle()`.
