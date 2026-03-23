@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 SELECTORS = {
     "weekly_limit": 'div[class*="ip-fuse-limit-alert__warning"]',
-    "invite_to_connect": 'button[aria-label*="Invite"][aria-label*="to connect"]:visible',
+    "invite_to_connect": 'button[aria-label*="Invite"][aria-label*="to connect"]:visible, button[aria-label*="Connect with"]:visible',
     "error_toast": 'div[data-test-artdeco-toast-item-type="error"]',
     "more_button": 'button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible',
-    "connect_option": 'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]',
+    "connect_option": 'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"], div[role="button"][aria-label*="Connect with"]',
     "send_now": 'button:has-text("Send now"), button[aria-label*="Send without"], button[aria-label*="Send invitation"]',
     "add_note": 'button:has-text("Add a note")',
     "note_textarea": 'textarea[name="message"], textarea#custom-message, textarea[id*="custom-message"]',
@@ -85,7 +85,8 @@ def _connect_via_more(session):
 
     session.wait()
 
-    connect_option = top_card.locator(SELECTORS["connect_option"])
+    # Search at page level — LinkedIn renders dropdown as a portal outside top_card
+    connect_option = session.page.locator(SELECTORS["connect_option"])
     if connect_option.count() == 0:
         return False
     connect_option.first.click()

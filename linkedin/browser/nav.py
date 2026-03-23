@@ -107,10 +107,10 @@ def _discover_and_enrich(session, urls: set):
 
 
 def find_first_visible(page, selectors: list[str]):
-    """Try selectors in order, return first locator that matches."""
+    """Try selectors in order, return first locator that is actually visible."""
     for selector in selectors:
         locator = page.locator(selector)
-        if locator.count() > 0:
+        if locator.count() > 0 and locator.first.is_visible():
             return locator.first
     return None
 
