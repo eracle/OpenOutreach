@@ -79,34 +79,15 @@ def send_message(
 
 
 if __name__ == "__main__":
-    import os
-    import argparse
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
-
-    import django
-    django.setup()
-
     from crm.models import Lead
-    from linkedin.conf import resolve_profile
-    from linkedin.browser.registry import get_or_create_session
+    from linkedin.browser.registry import cli_parser, cli_session
     from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
 
-    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
-
-    parser = argparse.ArgumentParser(description="Send a message via Voyager Messaging API")
-    parser.add_argument("--handle", default=None, help="Django username (default: first active)")
+    parser = cli_parser("Send a message via Voyager Messaging API")
     parser.add_argument("--profile", required=True, help="Public identifier of target profile")
     parser.add_argument("--text", required=True, help="Message text to send")
     args = parser.parse_args()
-
-    linkedin_profile = resolve_profile(args.handle)
-    if not linkedin_profile:
-        print("No active LinkedInProfile found.")
-        raise SystemExit(1)
-
-    session = get_or_create_session(linkedin_profile)
-    session.campaign = session.campaigns[0]
+    session = cli_session(args)
     session.ensure_browser()
 
     api = PlaywrightLinkedinAPI(session=session)

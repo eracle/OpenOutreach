@@ -35,7 +35,7 @@ def _make_connected(session, public_id="alice"):
 @pytest.mark.django_db
 class TestHealTasks:
     @pytest.fixture(autouse=True)
-    def _db(self, embeddings_db):
+    def _db(self, db):
         pass
 
     def test_recovers_stale_running_tasks(self, fake_session):

@@ -87,7 +87,7 @@ class TestGetUrn:
 
 
 class TestGetEmbedding:
-    def test_returns_cached(self, fake_session, embeddings_db):
+    def test_returns_cached(self, fake_session, db):
         """Returns existing embedding without recomputing."""
         from crm.models import Lead
 
@@ -104,7 +104,7 @@ class TestGetEmbedding:
 
         np.testing.assert_array_almost_equal(result, emb)
 
-    def test_enriches_and_embeds(self, fake_session, embeddings_db):
+    def test_enriches_and_embeds(self, fake_session, db):
         """Fetches profile and computes embedding when both are missing."""
         from crm.models import Lead
 
@@ -127,7 +127,7 @@ class TestGetEmbedding:
         assert result is not None
         np.testing.assert_array_almost_equal(result, fake_emb)
 
-    def test_crashes_on_api_failure(self, fake_session, embeddings_db):
+    def test_crashes_on_api_failure(self, fake_session, db):
         """Lets API errors propagate."""
         from crm.models import Lead
 

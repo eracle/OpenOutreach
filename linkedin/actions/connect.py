@@ -98,40 +98,19 @@ def _click_without_note(session):
 
 
 if __name__ == "__main__":
-    import os
-    import argparse
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
-
-    import django
-    django.setup()
-
-    from linkedin.conf import resolve_profile
+    from linkedin.browser.registry import cli_parser, cli_session
     from linkedin.actions.status import get_connection_status
-    from linkedin.browser.registry import get_or_create_session
 
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="[%(levelname)s] %(message)s",
-    )
-
-    parser = argparse.ArgumentParser(description="Send a LinkedIn connection request")
-    parser.add_argument("--handle", default=None, help="Django username (default: first active profile)")
+    parser = cli_parser("Send a LinkedIn connection request")
     parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
     args = parser.parse_args()
-
-    linkedin_profile = resolve_profile(args.handle)
-    if not linkedin_profile:
-        print("No active LinkedInProfile found.")
-        raise SystemExit(1)
+    session = cli_session(args)
 
     test_profile = {
         "url": f"https://www.linkedin.com/in/{args.profile}/",
         "public_identifier": args.profile,
     }
 
-    session = get_or_create_session(linkedin_profile)
-    session.campaign = session.campaigns[0]
     print(f"Testing connection request as {session} → {args.profile}")
 
     connection_status = get_connection_status(session, test_profile)

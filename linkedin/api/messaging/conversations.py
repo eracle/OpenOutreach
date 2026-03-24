@@ -58,33 +58,14 @@ def fetch_messages(api: PlaywrightLinkedinAPI, conversation_urn: str) -> dict:
 
 
 if __name__ == "__main__":
-    import os
-    import argparse
     import json
+    from linkedin.browser.registry import cli_parser, cli_session
 
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
-
-    import django
-    django.setup()
-
-    from linkedin.conf import resolve_profile
-    from linkedin.browser.registry import get_or_create_session
-
-    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
-
-    parser = argparse.ArgumentParser(description="Fetch raw Voyager messaging data")
-    parser.add_argument("--handle", default=None, help="Django username (default: first active)")
+    parser = cli_parser("Fetch raw Voyager messaging data")
     parser.add_argument("--conversations", action="store_true", help="List recent conversations")
     parser.add_argument("--messages", default=None, metavar="CONVERSATION_URN", help="Fetch messages for a conversation URN")
     args = parser.parse_args()
-
-    linkedin_profile = resolve_profile(args.handle)
-    if not linkedin_profile:
-        print("No active LinkedInProfile found.")
-        raise SystemExit(1)
-
-    session = get_or_create_session(linkedin_profile)
-    session.campaign = session.campaigns[0]
+    session = cli_session(args)
     session.ensure_browser()
 
     api = PlaywrightLinkedinAPI(session=session)

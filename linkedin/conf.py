@@ -78,29 +78,3 @@ LLM_API_KEY = os.getenv("LLM_API_KEY")
 LLM_API_BASE = os.getenv("LLM_API_BASE")
 AI_MODEL = os.getenv("AI_MODEL")
 
-# ----------------------------------------------------------------------
-# Public API
-# ----------------------------------------------------------------------
-
-
-def get_first_active_profile():
-    """Return the first active LinkedInProfile, or None."""
-    from linkedin.models import LinkedInProfile
-
-    return LinkedInProfile.objects.filter(active=True).select_related("user").first()
-
-
-def get_profile_by_username(username: str):
-    """Look up a LinkedInProfile by Django username, or None."""
-    from linkedin.models import LinkedInProfile
-
-    return LinkedInProfile.objects.select_related("user").filter(
-        user__username=username,
-    ).first()
-
-
-def resolve_profile(username: str | None = None):
-    """Resolve a LinkedInProfile from an optional username, falling back to first active."""
-    if username:
-        return get_profile_by_username(username)
-    return get_first_active_profile()

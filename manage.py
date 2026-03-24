@@ -47,7 +47,8 @@ def _run_daemon():
 
     ensure_onboarding()
 
-    from linkedin.conf import LLM_API_KEY, get_first_active_profile
+    from linkedin.conf import LLM_API_KEY
+    from linkedin.browser.registry import get_first_active_profile
 
     if not LLM_API_KEY:
         logger.error("LLM_API_KEY is required. Set it in .env or environment.")

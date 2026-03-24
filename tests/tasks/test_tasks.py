@@ -93,7 +93,7 @@ def _build_context(fake_session):
 @pytest.mark.django_db
 class TestHandleConnect:
     @pytest.fixture(autouse=True)
-    def _db(self, embeddings_db):
+    def _db(self, db):
         pass
 
     def _candidate(self):
@@ -225,7 +225,7 @@ class TestHandleConnect:
 @pytest.mark.django_db
 class TestHandleCheckPending:
     @pytest.fixture(autouse=True)
-    def _db(self, embeddings_db):
+    def _db(self, db):
         pass
 
     @patch("linkedin.actions.status.get_connection_status")

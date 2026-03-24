@@ -220,7 +220,7 @@ class TestQualifySource:
 @pytest.mark.django_db
 class TestGetCandidate:
     @pytest.fixture(autouse=True)
-    def _db(self, embeddings_db):
+    def _db(self, db):
         pass
 
     def test_backfills_then_returns(self, fake_session):

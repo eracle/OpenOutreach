@@ -37,7 +37,7 @@ def _fake_leads(lead_id=1, public_id="alice"):
 
 
 class TestQualifyAutoDecisions:
-    def test_always_calls_llm(self, embeddings_db):
+    def test_always_calls_llm(self, db):
         qualifier = _make_trained_qualifier()
         session = MagicMock()
         _create_lead_with_embedding(1, "alice")
@@ -52,7 +52,7 @@ class TestQualifyAutoDecisions:
             run_qualification(session, qualifier)
             mock_llm.assert_called_once()
 
-    def test_llm_on_cold_start(self, embeddings_db):
+    def test_llm_on_cold_start(self, db):
         qualifier = BayesianQualifier(seed=42)
         session = MagicMock()
         _create_lead_with_embedding(1, "alice")
@@ -67,7 +67,7 @@ class TestQualifyAutoDecisions:
             run_qualification(session, qualifier)
             mock_llm.assert_called_once()
 
-    def test_disqualify_on_promote_failure(self, embeddings_db):
+    def test_disqualify_on_promote_failure(self, db):
         qualifier = _make_trained_qualifier()
         session = MagicMock()
         _create_lead_with_embedding(1, "alice")

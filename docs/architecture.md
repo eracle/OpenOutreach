@@ -102,7 +102,7 @@ Candidate sourcing, qualification, and pool management:
 Handles browser automation and session management:
 
 - **`session.py`** — `AccountSession`: central session object. Loads `LinkedInProfile` from DB, exposes `linkedin_profile`, `campaign`, `campaigns` (via Campaign.users M2M), `django_user`, and Playwright browser objects (`page`, `context`, `browser`, `playwright`). Key methods: `ensure_browser()`, `wait()`, `_maybe_refresh_cookies()`, `close()`. Credentials are accessed via `linkedin_profile` directly (no config dict).
-- **`registry.py`** — `AccountSessionRegistry`: singleton registry for `AccountSession` instances. `get_or_create_session()` convenience function.
+- **`registry.py`** — `get_or_create_session()`, `get_first_active_profile()`, `resolve_profile()`, `cli_parser()`/`cli_session()` (shared CLI bootstrap for `__main__` scripts).
 - **`login.py`** — `launch_browser()`, `start_browser_session()`, `playwright_login()` with human-like typing.
 - **`nav.py`** — `goto_page()` with auto-discovery of `/in/` URLs via `_extract_in_urls()`. `_discover_and_enrich()` auto-enriches discovered profiles. `human_type()`, `find_top_card()`, `find_first_visible()`, `random_sleep()`.
 

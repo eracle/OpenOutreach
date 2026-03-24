@@ -119,7 +119,7 @@ class TestRankProfiles:
         qualifier = BayesianQualifier(seed=42)
         assert qualifier.rank_profiles([], session=MagicMock()) == []
 
-    def test_rank_profiles_orders_by_posterior(self, embeddings_db):
+    def test_rank_profiles_orders_by_posterior(self, db):
         from crm.models import Lead
 
         qualifier, pos_emb, neg_emb = _make_trained_qualifier()
@@ -215,13 +215,13 @@ class TestPoolHasTargets:
 
 
 class TestExplainProfile:
-    def test_explain_no_embedding(self, embeddings_db):
+    def test_explain_no_embedding(self, db):
         qualifier = BayesianQualifier(seed=42)
         profile = {"lead_id": 999, "public_identifier": "nonexistent"}
         explanation = qualifier.explain(profile, session=MagicMock())
         assert "no embedding" in explanation.lower()
 
-    def test_explain_with_embedding(self, embeddings_db):
+    def test_explain_with_embedding(self, db):
         from crm.models import Lead
 
         qualifier, pos_emb, _ = _make_trained_qualifier()
@@ -236,7 +236,7 @@ class TestExplainProfile:
         assert "mean=" in explanation
         assert "obs=" in explanation
 
-    def test_explain_unfitted(self, embeddings_db):
+    def test_explain_unfitted(self, db):
         from crm.models import Lead
 
         qualifier = BayesianQualifier(seed=42)

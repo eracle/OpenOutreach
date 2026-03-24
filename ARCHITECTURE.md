@@ -82,21 +82,21 @@ Three apps in `INSTALLED_APPS`:
 - **`ml/profile_text.py`** — `build_profile_text()`.
 - **`ml/hub.py`** — HuggingFace kit loader (`fetch_kit()`).
 - **`browser/session.py`** — `AccountSession`: linkedin_profile, page, context, browser, playwright. `campaigns` cached_property (list, via Campaign.users M2M). `ensure_browser()` launches/recovers browser. `self_profile` cached_property (reads from `self_lead`, discovers via API on first run). Cookie expiry check via `_maybe_refresh_cookies()`.
-- **`browser/registry.py`** — `AccountSessionRegistry`, `get_or_create_session()`.
+- **`browser/registry.py`** — `get_or_create_session()`, `get_first_active_profile()`, `resolve_profile()`, `cli_parser()`/`cli_session()` (shared CLI bootstrap for `__main__` scripts).
 - **`browser/login.py`** — `start_browser_session()` — browser launch + LinkedIn login.
 - **`browser/nav.py`** — Navigation, auto-discovery, `goto_page()`.
 - **`db/leads.py`** — Lead CRUD, `get_leads_for_qualification()`, `disqualify_lead()`.
 - **`db/deals.py`** — Deal/state ops, `set_profile_state()`, `increment_connect_attempts()`, `create_freemium_deal()`.
 - **`db/chat.py`** — `save_chat_message()`.
 - **`db/urls.py`** — `url_to_public_id()`, `public_id_to_url()` — LinkedIn URL ↔ public identifier conversion.
-- **`conf.py`** — Config loading (dotenv), `CAMPAIGN_CONFIG`, path constants, `get_first_active_profile()`, `resolve_profile()`.
+- **`conf.py`** — Config loading (dotenv), `CAMPAIGN_CONFIG`, path constants.
 - **`exceptions.py`** — `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 - **`onboarding.py`** — Interactive setup.
 - **`agents/follow_up.py`** — ReAct agent for follow-up conversations. Tools: `read_conversation`, `send_message`, `mark_completed`, `schedule_follow_up`.
 - **`actions/`** — `connect.py` (`send_connection_request`), `status.py` (`get_connection_status`), `message.py` (`send_raw_message`), `profile.py` (profile extraction), `search.py` (LinkedIn search), `conversations.py` (`get_conversation`).
 - **`api/client.py`** — `PlaywrightLinkedinAPI`: browser-context fetch (runs JS `fetch()` inside Playwright page for authentic headers). `get_profile()` with tenacity retry.
 - **`api/voyager.py`** — `LinkedInProfile` dataclass (url, urn, full_name, headline, positions, educations, country_code, supported_locales, connection_distance/degree). `parse_linkedin_voyager_response()`.
-- **`api/newsletter.py`** — `subscribe_to_newsletter()` via Brevo form, `ensure_newsletter_subscription()`.
+- **`api/newsletter.py`** — `subscribe_to_newsletter()` via Brevo form, `ensure_newsletter_subscription()`. No config parsing — subscribe_newsletter is a BooleanField.
 - **`api/messaging/send.py`** — Send messages via Voyager messaging API.
 - **`api/messaging/conversations.py`** — Fetch conversations/messages.
 - **`api/messaging/utils.py`** — Shared helpers: `encode_urn()`, `check_response()`.

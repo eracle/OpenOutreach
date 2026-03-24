@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import requests
 from linkedin.browser.session import AccountSession
@@ -60,24 +59,6 @@ def subscribe_to_newsletter(email: str, linkedin: str | None = None) -> bool:
     except requests.RequestException as e:
         logger.error("Newsletter request failed for %s: %s", email, e)
         return False
-
-
-def normalize_boolean(value: Any) -> bool | None:
-    """Robust boolean normalization from YAML/config values."""
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        cleaned = value.strip().lower()
-        if cleaned in ("true", "t", "yes", "y", "1", "on"):
-            return True
-        if cleaned in ("false", "f", "no", "n", "0", "off", ""):
-            return False
-        return None
-    if isinstance(value, (int, float)):
-        return bool(value)
-    return None
 
 
 def ensure_newsletter_subscription(session: AccountSession, linkedin_url: str | None = None):

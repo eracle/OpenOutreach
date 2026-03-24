@@ -36,7 +36,7 @@ class TestEmbedText:
 
 
 class TestLeadEmbeddingFields:
-    def test_store_and_retrieve(self, embeddings_db):
+    def test_store_and_retrieve(self, db):
         from crm.models import Lead
 
         emb = np.random.randn(384).astype(np.float32)
@@ -48,7 +48,7 @@ class TestLeadEmbeddingFields:
         lead = Lead.objects.get(pk=1)
         np.testing.assert_array_almost_equal(lead.embedding_array, emb)
 
-    def test_embedding_array_setter(self, embeddings_db):
+    def test_embedding_array_setter(self, db):
         from crm.models import Lead
 
         emb = np.random.randn(384).astype(np.float32)
@@ -59,7 +59,7 @@ class TestLeadEmbeddingFields:
         lead = Lead.objects.get(pk=1)
         np.testing.assert_array_almost_equal(lead.embedding_array, emb)
 
-    def test_embedding_array_none_when_no_embedding(self, embeddings_db):
+    def test_embedding_array_none_when_no_embedding(self, db):
         from crm.models import Lead
 
         lead = Lead.objects.create(
@@ -127,7 +127,7 @@ class TestLeadEmbeddingFields:
         X, y = Lead.get_labeled_arrays(campaign)
         assert len(X) == 0
 
-    def test_embedded_lead_ids(self, embeddings_db):
+    def test_embedded_lead_ids(self, db):
         from crm.models import Lead
 
         emb = np.random.randn(384).astype(np.float32)

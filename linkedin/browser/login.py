@@ -98,24 +98,11 @@ def start_browser_session(session: "AccountSession"):
 
 
 if __name__ == "__main__":
-    import sys
+    from linkedin.browser.registry import cli_parser, cli_session
 
-    logging.getLogger().handlers.clear()
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(levelname)-8s │ %(message)s',
-    )
-
-    if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.browser.login <username>")
-        sys.exit(1)
-
-    from linkedin.models import LinkedInProfile
-    from linkedin.browser.registry import get_or_create_session
-
-    profile = LinkedInProfile.objects.select_related("user").get(user__username=sys.argv[1])
-    session = get_or_create_session(profile)
-
+    parser = cli_parser("Start a LinkedIn browser session")
+    args = parser.parse_args()
+    session = cli_session(args)
     session.ensure_browser()
 
     start_browser_session(session=session)

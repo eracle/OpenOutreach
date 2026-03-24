@@ -53,9 +53,3 @@ def fake_session(db):
     )
 
     return FakeAccountSession(django_user=user, linkedin_profile=linkedin_profile, campaign=campaign)
-
-
-@pytest.fixture
-def embeddings_db(db):
-    """Marker fixture — embeddings now live in the Django test DB."""
-    yield

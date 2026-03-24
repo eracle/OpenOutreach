@@ -1,7 +1,7 @@
 # tests/test_conf.py
 import pytest
 
-from linkedin.conf import get_first_active_profile
+from linkedin.browser.registry import get_first_active_profile
 
 
 @pytest.mark.django_db

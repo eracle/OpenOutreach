@@ -136,39 +136,18 @@ def _simulate_human_search(session: "AccountSession", profile: Dict[str, Any]) -
 
 # ——————————————————————————————————————————————————————————————
 if __name__ == "__main__":
-    import os
-    import argparse
+    from linkedin.browser.registry import cli_parser, cli_session
 
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
-
-    import django
-    django.setup()
-
-    from linkedin.conf import resolve_profile
-    from linkedin.browser.registry import get_or_create_session
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="[%(levelname)s] %(message)s",
-    )
-
-    parser = argparse.ArgumentParser(description="Navigate to a LinkedIn profile")
-    parser.add_argument("--handle", default=None, help="Django username (default: first active profile)")
+    parser = cli_parser("Navigate to a LinkedIn profile")
     parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
     args = parser.parse_args()
-
-    linkedin_profile = resolve_profile(args.handle)
-    if not linkedin_profile:
-        print("No active LinkedInProfile found.")
-        raise SystemExit(1)
+    session = cli_session(args)
 
     test_profile = {
         "url": f"https://www.linkedin.com/in/{args.profile}/",
         "public_identifier": args.profile,
     }
 
-    session = get_or_create_session(linkedin_profile)
-    session.campaign = session.campaigns[0]
     print(f"Navigating to profile as {session} → {args.profile}")
 
     search_profile(session, test_profile)

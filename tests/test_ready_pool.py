@@ -28,7 +28,7 @@ def _make_qualified(session, public_id="alice"):
 @pytest.mark.django_db
 class TestPromoteToReady:
     @pytest.fixture(autouse=True)
-    def _db(self, embeddings_db):
+    def _db(self, db):
         pass
 
     def test_promotes_above_threshold(self, fake_session):
@@ -74,7 +74,7 @@ class TestPromoteToReady:
 @pytest.mark.django_db
 class TestGetReadyCandidate:
     @pytest.fixture(autouse=True)
-    def _db(self, embeddings_db):
+    def _db(self, db):
         pass
 
     def test_returns_none_when_empty(self, fake_session):

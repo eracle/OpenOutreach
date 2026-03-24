@@ -174,31 +174,12 @@ def _send_message_via_api(session: "AccountSession", profile: Dict[str, Any], me
 
 
 if __name__ == "__main__":
-    import os
-    import argparse
+    from linkedin.browser.registry import cli_parser, cli_session
 
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
-
-    import django
-    django.setup()
-
-    from linkedin.conf import resolve_profile
-    from linkedin.browser.registry import get_or_create_session
-
-    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
-
-    parser = argparse.ArgumentParser(description="Debug LinkedIn messaging search results")
-    parser.add_argument("--handle", default=None, help="Django username (default: first active profile)")
+    parser = cli_parser("Debug LinkedIn messaging search results")
     parser.add_argument("--name", required=True, help="Full name to search for")
     args = parser.parse_args()
-
-    linkedin_profile = resolve_profile(args.handle)
-    if not linkedin_profile:
-        print("No active LinkedInProfile found.")
-        raise SystemExit(1)
-
-    session = get_or_create_session(linkedin_profile)
-    session.campaign = session.campaigns[0]
+    session = cli_session(args)
     session.ensure_browser()
 
     print(f"Searching for '{args.name}' ...")

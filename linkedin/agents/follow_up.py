@@ -179,35 +179,16 @@ def run_follow_up_agent(
 
 
 if __name__ == "__main__":
-    import os
-    import argparse
-
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
-
-    import django
-    django.setup()
-
-    from linkedin.conf import resolve_profile
-    from linkedin.browser.registry import get_or_create_session
+    from linkedin.browser.registry import cli_parser, cli_session
     from linkedin.db.deals import get_profile_dict_for_public_id
     from linkedin.models import Task
 
-    logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
-
-    parser = argparse.ArgumentParser(description="Run the follow-up agent for a profile")
-    parser.add_argument("--handle", default=None, help="Django username (default: first active)")
+    parser = cli_parser("Run the follow-up agent for a profile")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--profile", help="Public identifier of the target profile")
     group.add_argument("--task-id", type=int, help="Task ID to run the agent for")
     args = parser.parse_args()
-
-    linkedin_profile = resolve_profile(args.handle)
-    if not linkedin_profile:
-        print("No active LinkedInProfile found.")
-        raise SystemExit(1)
-
-    session = get_or_create_session(linkedin_profile)
-    session.campaign = session.campaigns[0]
+    session = cli_session(args)
     session.ensure_browser()
 
     if args.task_id:
