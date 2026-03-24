@@ -47,18 +47,18 @@ def _run_daemon():
 
     ensure_onboarding()
 
-    from linkedin.conf import LLM_API_KEY, get_first_active_profile_handle
+    from linkedin.conf import LLM_API_KEY, get_first_active_profile
 
     if not LLM_API_KEY:
         logger.error("LLM_API_KEY is required. Set it in .env or environment.")
         sys.exit(1)
 
-    handle = get_first_active_profile_handle()
-    if handle is None:
+    linkedin_profile = get_first_active_profile()
+    if linkedin_profile is None:
         logger.error("No active LinkedIn profiles found.")
         sys.exit(1)
 
-    session = get_or_create_session(handle=handle)
+    session = get_or_create_session(linkedin_profile)
 
     # Set default campaign (first non-freemium, or first available) for startup tasks
     first_campaign = next((c for c in session.campaigns if not c.is_freemium), None) or session.campaigns[0]
@@ -67,7 +67,7 @@ def _run_daemon():
         sys.exit(1)
     session.campaign = first_campaign
 
-    profile = session.get_self_profile()
+    profile = session.self_profile
 
     if not session.linkedin_profile.newsletter_processed:
         country_code = profile.get("country_code")

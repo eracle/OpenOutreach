@@ -76,7 +76,6 @@ def test_all_eu_members_present():
 def _make_fake_session(subscribe=None):
     """Create a fake session with a linkedin_profile mock."""
     session = MagicMock()
-    session.handle = "testuser"
     session.linkedin_profile.subscribe_newsletter = subscribe
     return session
 

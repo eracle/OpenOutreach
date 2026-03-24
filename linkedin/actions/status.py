@@ -84,7 +84,7 @@ if __name__ == "__main__":
     import django
     django.setup()
 
-    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.conf import resolve_profile
     from linkedin.browser.registry import get_or_create_session
 
     logging.basicConfig(
@@ -93,13 +93,13 @@ if __name__ == "__main__":
     )
 
     parser = argparse.ArgumentParser(description="Check LinkedIn connection status")
-    parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active profile)")
+    parser.add_argument("--handle", default=None, help="Django username (default: first active profile)")
     parser.add_argument("--profile", required=True, help="Public identifier of the target profile")
     args = parser.parse_args()
 
-    handle = args.handle or get_first_active_profile_handle()
-    if not handle:
-        print("No active LinkedInProfile found and no --handle provided.")
+    linkedin_profile = resolve_profile(args.handle)
+    if not linkedin_profile:
+        print("No active LinkedInProfile found.")
         raise SystemExit(1)
 
     test_profile = {
@@ -107,9 +107,8 @@ if __name__ == "__main__":
         "public_identifier": args.profile,
     }
 
-    print(f"Checking connection status as @{handle} → {args.profile}")
-
-    session = get_or_create_session(handle=handle)
+    session = get_or_create_session(linkedin_profile)
     session.campaign = session.campaigns[0]
+    print(f"Checking connection status as {session} → {args.profile}")
     status = get_connection_status(session, test_profile)
     print(f"Connection status → {status.value}")

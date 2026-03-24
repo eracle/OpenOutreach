@@ -16,7 +16,7 @@ class CampaignAdmin(admin.ModelAdmin):
 class LinkedInProfileAdmin(admin.ModelAdmin):
     list_display = ("user", "linkedin_username", "active", "legal_accepted")
     list_filter = ("active",)
-    raw_id_fields = ("user",)
+    raw_id_fields = ("user", "self_lead")
 
 
 @admin.register(SearchKeyword)

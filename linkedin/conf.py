@@ -83,9 +83,24 @@ AI_MODEL = os.getenv("AI_MODEL")
 # ----------------------------------------------------------------------
 
 
-def get_first_active_profile_handle() -> str | None:
-    """Return the username of the first active LinkedInProfile, or None."""
+def get_first_active_profile():
+    """Return the first active LinkedInProfile, or None."""
     from linkedin.models import LinkedInProfile
 
-    profile = LinkedInProfile.objects.filter(active=True).select_related("user").first()
-    return profile.user.username if profile else None
+    return LinkedInProfile.objects.filter(active=True).select_related("user").first()
+
+
+def get_profile_by_username(username: str):
+    """Look up a LinkedInProfile by Django username, or None."""
+    from linkedin.models import LinkedInProfile
+
+    return LinkedInProfile.objects.select_related("user").filter(
+        user__username=username,
+    ).first()
+
+
+def resolve_profile(username: str | None = None):
+    """Resolve a LinkedInProfile from an optional username, falling back to first active."""
+    if username:
+        return get_profile_by_username(username)
+    return get_first_active_profile()

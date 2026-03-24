@@ -41,6 +41,13 @@ class LinkedInProfile(models.Model):
         on_delete=models.CASCADE,
         related_name="linkedin_profile",
     )
+    self_lead = models.ForeignKey(
+        "crm.Lead",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     linkedin_username = models.CharField(max_length=200)
     linkedin_password = models.CharField(max_length=200)
     subscribe_newsletter = models.BooleanField(default=True)

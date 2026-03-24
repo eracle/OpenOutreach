@@ -20,7 +20,6 @@ class FakeAccountSession:
 
     def __init__(self, django_user, linkedin_profile, campaign):
         self.django_user = django_user
-        self.handle = django_user.username
         self.linkedin_profile = linkedin_profile
         self.campaign = campaign
 

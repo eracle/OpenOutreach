@@ -236,11 +236,10 @@ def _onboard_account(campaign):
     connect_weekly = int(_prompt("Connection requests weekly limit", default=str(DEFAULT_CONNECT_WEEKLY_LIMIT)))
     follow_up_daily = int(_prompt("Follow-up messages daily limit", default=str(DEFAULT_FOLLOW_UP_DAILY_LIMIT)))
 
-    # Derive handle from email slug
-    handle = username.split("@")[0].lower().replace(".", "_").replace("+", "_")
+    django_username = username.split("@")[0].lower().replace(".", "_").replace("+", "_")
 
     user, created = User.objects.get_or_create(
-        username=handle,
+        username=django_username,
         defaults={"is_staff": True, "is_active": True},
     )
     if created:
@@ -260,9 +259,9 @@ def _onboard_account(campaign):
         follow_up_daily_limit=follow_up_daily,
     )
 
-    logger.info("Created LinkedIn profile for %s (handle=%s)", username, handle)
+    logger.info("Created LinkedIn profile for %s (user=%s)", username, django_username)
     print()
-    print(f"Account '{handle}' created!")
+    print(f"Account '{django_username}' created!")
     print()
     return profile
 

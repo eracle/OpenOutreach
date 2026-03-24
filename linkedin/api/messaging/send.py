@@ -38,7 +38,7 @@ def send_message(
         API response dict with delivery confirmation.
     """
     if not mailbox_urn:
-        mailbox_urn = api.session.get_self_profile()["urn"]
+        mailbox_urn = api.session.self_profile["urn"]
 
     origin_token = str(uuid.uuid4())
     tracking_id = os.urandom(16).hex()
@@ -88,24 +88,24 @@ if __name__ == "__main__":
     django.setup()
 
     from crm.models import Lead
-    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.conf import resolve_profile
     from linkedin.browser.registry import get_or_create_session
     from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
 
     logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Send a message via Voyager Messaging API")
-    parser.add_argument("--handle", default=None)
+    parser.add_argument("--handle", default=None, help="Django username (default: first active)")
     parser.add_argument("--profile", required=True, help="Public identifier of target profile")
     parser.add_argument("--text", required=True, help="Message text to send")
     args = parser.parse_args()
 
-    handle = args.handle or get_first_active_profile_handle()
-    if not handle:
+    linkedin_profile = resolve_profile(args.handle)
+    if not linkedin_profile:
         print("No active LinkedInProfile found.")
         raise SystemExit(1)
 
-    session = get_or_create_session(handle=handle)
+    session = get_or_create_session(linkedin_profile)
     session.campaign = session.campaigns[0]
     session.ensure_browser()
 

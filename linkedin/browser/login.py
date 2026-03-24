@@ -27,7 +27,7 @@ SELECTORS = {
 def playwright_login(session: "AccountSession"):
     page = session.page
     lp = session.linkedin_profile
-    logger.info(colored("Fresh login sequence starting", "cyan") + f" for @{session.handle}")
+    logger.info(colored("Fresh login sequence starting", "cyan") + f" for {session}")
 
     goto_page(
         session,
@@ -68,15 +68,15 @@ def _save_cookies(session):
     session.linkedin_profile.save(update_fields=["cookie_data"])
 
 
-def start_browser_session(session: "AccountSession", handle: str):
-    logger.debug("Configuring browser for @%s", handle)
+def start_browser_session(session: "AccountSession"):
+    logger.debug("Configuring browser for %s", session)
 
     session.linkedin_profile.refresh_from_db(fields=["cookie_data"])
     cookie_data = session.linkedin_profile.cookie_data
 
     storage_state = cookie_data if cookie_data else None
     if storage_state:
-        logger.info("Loading saved session for @%s", handle)
+        logger.info("Loading saved session for %s", session)
 
     session.page, session.context, session.browser, session.playwright = launch_browser(storage_state=storage_state)
 
@@ -107,16 +107,17 @@ if __name__ == "__main__":
     )
 
     if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.browser.login <handle>")
+        print("Usage: python -m linkedin.browser.login <username>")
         sys.exit(1)
 
-    handle = sys.argv[1]
-
+    from linkedin.models import LinkedInProfile
     from linkedin.browser.registry import get_or_create_session
-    session = get_or_create_session(handle=handle)
+
+    profile = LinkedInProfile.objects.select_related("user").get(user__username=sys.argv[1])
+    session = get_or_create_session(profile)
 
     session.ensure_browser()
 
-    start_browser_session(session=session, handle=handle)
+    start_browser_session(session=session)
     print("Logged in! Close browser manually.")
     session.page.pause()

@@ -35,7 +35,7 @@ def backfill(apps, schema_editor):
             lead.public_identifier = pid
             lead.save(update_fields=["public_identifier"])
 
-    # Clear stale profile_data on /in/me/ marker so get_self_profile re-fetches with urn.
+    # Clear stale profile_data on /in/me/ marker so self_profile re-fetches with urn.
     Lead.objects.filter(linkedin_url="https://www.linkedin.com/in/me/").update(profile_data=None)
 
     for lead in Lead.objects.filter(linkedin_url=""):

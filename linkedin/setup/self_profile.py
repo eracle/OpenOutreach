@@ -1,4 +1,4 @@
-# linkedin/self_profile.py
+# linkedin/setup/self_profile.py
 """Discover and persist the logged-in user's own LinkedIn profile."""
 from __future__ import annotations
 
@@ -6,15 +6,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-ME_URL = "https://www.linkedin.com/in/me/"
-
 
 def discover_self_profile(session) -> dict:
-    """Fetch the logged-in user's profile via Voyager API and persist as disqualified Leads.
+    """Fetch the logged-in user's profile via Voyager API and persist.
 
-    Creates two disqualified leads: one for the real profile URL (so auto-discovery
-    won't re-enrich it) and a ``/in/me/`` marker that caches the full profile for
-    lazy accessors.  Neither lead gets an embedding.
+    Creates a disqualified Lead for the real profile (so auto-discovery
+    won't target it) and links it as ``linkedin_profile.self_lead``.
 
     Returns the parsed profile dict.
     Raises ``AuthenticationError`` if the API call fails.
@@ -33,8 +30,7 @@ def discover_self_profile(session) -> dict:
     real_id = profile["public_identifier"]
     real_url = public_id_to_url(real_id)
 
-    # Real lead — keyed by public_identifier, set url + full profile.
-    Lead.objects.update_or_create(
+    lead, _ = Lead.objects.update_or_create(
         public_identifier=real_id,
         defaults={
             "linkedin_url": real_url,
@@ -46,13 +42,7 @@ def discover_self_profile(session) -> dict:
     )
     logger.info("Self-profile discovered: %s", real_url)
 
-    # /in/me/ marker — caches the full profile (no public_identifier to avoid conflicts).
-    Lead.objects.update_or_create(
-        linkedin_url=ME_URL,
-        defaults={
-            "disqualified": True,
-            "profile_data": profile,
-        },
-    )
+    session.linkedin_profile.self_lead = lead
+    session.linkedin_profile.save(update_fields=["self_lead"])
 
     return profile

@@ -93,8 +93,8 @@ def _render_system_prompt(session, profile: dict, messages_exchanged: int) -> st
     template = env.get_template("follow_up_agent.j2")
 
     campaign = session.campaign
-    self_prof = session.get_self_profile()
-    self_name = f"{self_prof.get('first_name', '')} {self_prof.get('last_name', '')}".strip() or session.handle
+    self_prof = session.self_profile
+    self_name = f"{self_prof.get('first_name', '')} {self_prof.get('last_name', '')}".strip() or session.django_user.username
 
     return template.render(
         self_name=self_name,
@@ -187,7 +187,7 @@ if __name__ == "__main__":
     import django
     django.setup()
 
-    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.conf import resolve_profile
     from linkedin.browser.registry import get_or_create_session
     from linkedin.db.deals import get_profile_dict_for_public_id
     from linkedin.models import Task
@@ -195,18 +195,18 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Run the follow-up agent for a profile")
-    parser.add_argument("--handle", default=None, help="LinkedIn handle (default: first active)")
+    parser.add_argument("--handle", default=None, help="Django username (default: first active)")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--profile", help="Public identifier of the target profile")
     group.add_argument("--task-id", type=int, help="Task ID to run the agent for")
     args = parser.parse_args()
 
-    handle = args.handle or get_first_active_profile_handle()
-    if not handle:
+    linkedin_profile = resolve_profile(args.handle)
+    if not linkedin_profile:
         print("No active LinkedInProfile found.")
         raise SystemExit(1)
 
-    session = get_or_create_session(handle=handle)
+    session = get_or_create_session(linkedin_profile)
     session.campaign = session.campaigns[0]
     session.ensure_browser()
 
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     profile = profile_dict.get("profile") or profile_dict
     profile.setdefault("public_identifier", public_id)
 
-    print(f"Running follow-up agent as @{handle} for {public_id}")
+    print(f"Running follow-up agent as {session} for {public_id}")
     print(f"Campaign: {session.campaign}")
     print()
 

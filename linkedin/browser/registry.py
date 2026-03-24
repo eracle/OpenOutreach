@@ -8,88 +8,41 @@ logger = logging.getLogger(__name__)
 
 
 class AccountSessionRegistry:
-    """
-    Singleton-like registry where each LinkedIn handle has exactly ONE AccountSession.
-    Ignores campaign_name and csv_hash — only handle matters.
-    """
-    _instances: dict[str, "AccountSession"] = {}
+    """Singleton registry: each LinkedInProfile has exactly ONE AccountSession."""
+    _instances: dict[int, "AccountSession"] = {}
 
     @classmethod
-    def get_or_create(cls, handle: str) -> "AccountSession":
-        """
-        Main method - get or create session for given handle.
-        Handle is normalized (lowercase + strip) to avoid duplicates.
-        """
+    def get_or_create(cls, linkedin_profile) -> "AccountSession":
         from linkedin.browser.session import AccountSession
 
-        normalized = cls._normalize_handle(handle)
-
-        if normalized not in cls._instances:
-            session = AccountSession(handle=normalized)
-            cls._instances[normalized] = session
-            logger.debug("Created new account session for handle → %s", normalized)
+        pk = linkedin_profile.pk
+        if pk not in cls._instances:
+            session = AccountSession(linkedin_profile)
+            cls._instances[pk] = session
+            logger.debug("Created new account session for %s", linkedin_profile)
         else:
-            logger.debug("Reusing existing account session for handle → %s", normalized)
+            logger.debug("Reusing existing account session for %s", linkedin_profile)
 
-        return cls._instances[normalized]
-
-    @classmethod
-    def get(cls, handle: str) -> Optional["AccountSession"]:
-        """Just get existing session or None"""
-        normalized = cls._normalize_handle(handle)
-        return cls._instances.get(normalized)
+        return cls._instances[pk]
 
     @classmethod
-    def exists(cls, handle: str) -> bool:
-        return cls._normalize_handle(handle) in cls._instances
+    def get(cls, linkedin_profile) -> Optional["AccountSession"]:
+        return cls._instances.get(linkedin_profile.pk)
+
+    @classmethod
+    def exists(cls, linkedin_profile) -> bool:
+        return linkedin_profile.pk in cls._instances
 
     @classmethod
     def close_all(cls):
-        """Close all open sessions (useful on application shutdown)"""
-        for handle, session in list(cls._instances.items()):
+        for pk, session in list(cls._instances.items()):
             try:
                 session.close()
-                logger.info("Closed session for handle → %s", handle)
+                logger.info("Closed session for %s", session)
             except Exception as e:
-                logger.warning("Error while closing session %s: %s", handle, e)
+                logger.warning("Error closing session %s: %s", session, e)
         cls._instances.clear()
 
-    @staticmethod
-    def _normalize_handle(handle: str) -> str:
-        """Standardize handle format → case insensitive & clean"""
-        if not handle:
-            raise ValueError("Handle cannot be empty")
-        return handle.strip().lower()
 
-
-def get_or_create_session(handle: str) -> "AccountSession":
-    return AccountSessionRegistry.get_or_create(handle)
-
-
-# For convenience in scripts/tests
-if __name__ == "__main__":
-    import sys
-
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)-8s │ %(message)s",
-    )
-
-    if len(sys.argv) != 2:
-        print("Usage: python -m linkedin.browser.registry <handle>")
-        sys.exit(1)
-
-    handle = sys.argv[1]
-
-    session = get_or_create_session(handle)
-
-    print("\nSession ready!")
-    print(f"   Handle   : {session.handle}")
-    print("   → Same handle = same session instance (always)")
-
-    try:
-        session.ensure_browser()
-        session.page.pause()  # keep browser open for manual testing
-    except KeyboardInterrupt:
-        print("\nClosing session...")
-        session.close()
+def get_or_create_session(linkedin_profile) -> "AccountSession":
+    return AccountSessionRegistry.get_or_create(linkedin_profile)

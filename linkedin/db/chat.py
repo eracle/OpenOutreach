@@ -52,7 +52,7 @@ def _sync_from_api(session, public_identifier: str, lead, ct):
     raw = fetch_messages(api, conversation_urn)
     elements = raw.get("data", {}).get("messengerMessagesBySyncToken", {}).get("elements", [])
 
-    self_urn = session.get_self_profile()["urn"]
+    self_urn = session.self_profile["urn"]
 
     for msg in elements:
         parsed = parse_message_element(msg)

@@ -28,7 +28,7 @@ def _graphql_headers(api: PlaywrightLinkedinAPI) -> dict:
 )
 def fetch_conversations(api: PlaywrightLinkedinAPI) -> dict:
     """Fetch recent conversations list. Returns raw API response."""
-    mailbox_urn = api.session.get_self_profile()["urn"]
+    mailbox_urn = api.session.self_profile["urn"]
     url = (
         f"{_GRAPHQL_BASE}"
         f"?queryId={_CONVERSATIONS_QUERY_ID}"
@@ -67,23 +67,23 @@ if __name__ == "__main__":
     import django
     django.setup()
 
-    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.conf import resolve_profile
     from linkedin.browser.registry import get_or_create_session
 
     logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Fetch raw Voyager messaging data")
-    parser.add_argument("--handle", default=None)
+    parser.add_argument("--handle", default=None, help="Django username (default: first active)")
     parser.add_argument("--conversations", action="store_true", help="List recent conversations")
     parser.add_argument("--messages", default=None, metavar="CONVERSATION_URN", help="Fetch messages for a conversation URN")
     args = parser.parse_args()
 
-    handle = args.handle or get_first_active_profile_handle()
-    if not handle:
+    linkedin_profile = resolve_profile(args.handle)
+    if not linkedin_profile:
         print("No active LinkedInProfile found.")
         raise SystemExit(1)
 
-    session = get_or_create_session(handle=handle)
+    session = get_or_create_session(linkedin_profile)
     session.campaign = session.campaigns[0]
     session.ensure_browser()
 

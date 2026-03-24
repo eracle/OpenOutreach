@@ -141,25 +141,25 @@ if __name__ == "__main__":
     import django
     django.setup()
 
-    from linkedin.conf import get_first_active_profile_handle
+    from linkedin.conf import resolve_profile
     from linkedin.browser.registry import get_or_create_session
 
     logging.basicConfig(level=logging.DEBUG, format="[%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="Retrieve LinkedIn conversation history")
-    parser.add_argument("--handle", default=None)
+    parser.add_argument("--handle", default=None, help="Django username (default: first active)")
     parser.add_argument("--profile", required=True, help="Public identifier of target profile")
     args = parser.parse_args()
 
-    handle = args.handle or get_first_active_profile_handle()
-    if not handle:
+    linkedin_profile = resolve_profile(args.handle)
+    if not linkedin_profile:
         print("No active LinkedInProfile found.")
         raise SystemExit(1)
 
-    session = get_or_create_session(handle=handle)
+    session = get_or_create_session(linkedin_profile)
     session.campaign = session.campaigns[0]
 
-    print(f"Fetching conversation as @{handle} → {args.profile}")
+    print(f"Fetching conversation as {session} → {args.profile}")
     messages = get_conversation(session, args.profile)
 
     if messages is None:

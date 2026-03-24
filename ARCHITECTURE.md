@@ -6,7 +6,7 @@ Detailed module documentation for OpenOutreach. See `CLAUDE.md` for rules and qu
 
 `manage.py` (Django bootstrap + auto-migrate + CRM setup):
 - Suppresses Pydantic serialization warning from langchain-openai. Configures logging: DEBUG level, suppresses noisy third-party loggers.
-- No args → runs daemon: `ensure_onboarding()` → validate `LLM_API_KEY` → `get_or_create_session(handle)` → set default campaign → `session.get_self_profile()` → GDPR newsletter override (marker-guarded) → `ensure_newsletter_subscription()` → `run_daemon(session)`.
+- No args → runs daemon: `ensure_onboarding()` → validate `LLM_API_KEY` → `get_or_create_session(linkedin_profile)` → set default campaign → `session.self_profile` → GDPR newsletter override (marker-guarded) → `ensure_newsletter_subscription()` → `run_daemon(session)`.
 - With `runserver` arg → auto-migrates, then delegates to Django CLI.
 - Other args → delegates directly to `execute_from_command_line`.
 
@@ -15,7 +15,7 @@ Detailed module documentation for OpenOutreach. See `CLAUDE.md` for rules and qu
 `ensure_onboarding()` ensures Campaign, active LinkedInProfile, LLM config, and legal acceptance exist. Four checks:
 
 1. **Campaign** — interactive prompts for campaign name, product docs, objective, booking link. Creates `Campaign` with M2M user membership.
-2. **LinkedInProfile** — prompts for LinkedIn email, password, newsletter, rate limits. Handle from email slug.
+2. **LinkedInProfile** — prompts for LinkedIn email, password, newsletter, rate limits. Django username from email slug.
 3. **LLM config** — prompts for `LLM_API_KEY`, `AI_MODEL`, `LLM_API_BASE` → writes to `.env`.
 4. **Legal notice** — per-account acceptance stored as `LinkedInProfile.legal_accepted`.
 
@@ -56,7 +56,7 @@ Three apps in `INSTALLED_APPS`:
 ## CRM Data Model
 
 - **Campaign** (`linkedin/models.py`) — `name` (unique), `users` (M2M to User), `product_docs`, `campaign_objective`, `booking_link`, `is_freemium`, `action_fraction`, `seed_public_ids` (JSONField).
-- **LinkedInProfile** (`linkedin/models.py`) — 1:1 with User. Credentials, rate limits (`connect_daily_limit`, `connect_weekly_limit`, `follow_up_daily_limit`). Methods: `can_execute`/`record_action`/`mark_exhausted`. In-memory `_exhausted` dict for daily rate limit caching.
+- **LinkedInProfile** (`linkedin/models.py`) — 1:1 with User. `self_lead` FK to Lead (nullable, set on first self-profile discovery). Credentials, rate limits (`connect_daily_limit`, `connect_weekly_limit`, `follow_up_daily_limit`). Methods: `can_execute`/`record_action`/`mark_exhausted`. In-memory `_exhausted` dict for daily rate limit caching.
 - **SearchKeyword** (`linkedin/models.py`) — FK to Campaign. `keyword`, `used`, `used_at`. Unique on `(campaign, keyword)`.
 - **ActionLog** (`linkedin/models.py`) — FK to LinkedInProfile + Campaign. `action_type` (connect/follow_up), `created_at`. Composite index on `(linkedin_profile, action_type, created_at)`.
 - **Lead** (`crm/models/lead.py`) — Per LinkedIn URL (`linkedin_url` = unique). `public_identifier` (derived from URL). `first_name`, `last_name`, `company_name`. `profile_data` = JSONField (parsed profile dict, nullable). `embedding` = 384-dim float32 BinaryField (nullable). `disqualified` = permanent exclusion. `embedding_array` property for numpy access. `get_labeled_arrays(campaign)` classmethod returns (X, y) for GP warm start. Labels: non-FAILED state → 1, FAILED+DISQUALIFIED → 0, other FAILED → skipped.
@@ -81,7 +81,7 @@ Three apps in `INSTALLED_APPS`:
 - **`ml/embeddings.py`** — FastEmbed utilities, `embed_text()`, `embed_texts()`.
 - **`ml/profile_text.py`** — `build_profile_text()`.
 - **`ml/hub.py`** — HuggingFace kit loader (`fetch_kit()`).
-- **`browser/session.py`** — `AccountSession`: handle, linkedin_profile, page, context, browser, playwright. `campaigns` cached_property (list, via Campaign.users M2M). `ensure_browser()` launches/recovers browser. `get_self_profile()` returns authenticated user's profile dict (instance-cached, discovers via API on first run). Cookie expiry check via `_maybe_refresh_cookies()`.
+- **`browser/session.py`** — `AccountSession`: linkedin_profile, page, context, browser, playwright. `campaigns` cached_property (list, via Campaign.users M2M). `ensure_browser()` launches/recovers browser. `self_profile` cached_property (reads from `self_lead`, discovers via API on first run). Cookie expiry check via `_maybe_refresh_cookies()`.
 - **`browser/registry.py`** — `AccountSessionRegistry`, `get_or_create_session()`.
 - **`browser/login.py`** — `start_browser_session()` — browser launch + LinkedIn login.
 - **`browser/nav.py`** — Navigation, auto-discovery, `goto_page()`.
@@ -89,7 +89,7 @@ Three apps in `INSTALLED_APPS`:
 - **`db/deals.py`** — Deal/state ops, `set_profile_state()`, `increment_connect_attempts()`, `create_freemium_deal()`.
 - **`db/chat.py`** — `save_chat_message()`.
 - **`db/urls.py`** — `url_to_public_id()`, `public_id_to_url()` — LinkedIn URL ↔ public identifier conversion.
-- **`conf.py`** — Config loading (dotenv), `CAMPAIGN_CONFIG`, path constants, `get_first_active_profile_handle()`.
+- **`conf.py`** — Config loading (dotenv), `CAMPAIGN_CONFIG`, path constants, `get_first_active_profile()`, `resolve_profile()`.
 - **`exceptions.py`** — `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 - **`onboarding.py`** — Interactive setup.
 - **`agents/follow_up.py`** — ReAct agent for follow-up conversations. Tools: `read_conversation`, `send_message`, `mark_completed`, `schedule_follow_up`.
@@ -102,7 +102,7 @@ Three apps in `INSTALLED_APPS`:
 - **`api/messaging/utils.py`** — Shared helpers: `encode_urn()`, `check_response()`.
 - **`setup/freemium.py`** — `import_freemium_campaign()`, `seed_profiles()`.
 - **`setup/gdpr.py`** — `apply_gdpr_newsletter_override()`.
-- **`setup/self_profile.py`** — `discover_self_profile()`, `ME_URL`.
+- **`setup/self_profile.py`** — `discover_self_profile()` — fetches self profile via Voyager API, sets `linkedin_profile.self_lead`.
 - **`setup/seeds.py`** — User-provided seed profiles: parse URLs, create Leads + QUALIFIED Deals.
 - **`management/setup_crm.py`** — Idempotent CRM bootstrap (Site creation).
 - **`admin.py`** — Django Admin: Campaign, LinkedInProfile, SearchKeyword, ActionLog, Task, ChatMessage.
