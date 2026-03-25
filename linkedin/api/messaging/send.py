@@ -4,8 +4,6 @@ import json
 import logging
 import os
 import uuid
-from typing import Optional
-
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from linkedin.api.client import PlaywrightLinkedinAPI
@@ -24,7 +22,7 @@ def send_message(
         api: PlaywrightLinkedinAPI,
         conversation_urn: str,
         message_text: str,
-        mailbox_urn: Optional[str] = None,
+        mailbox_urn: str,
 ) -> dict:
     """Send a message via Voyager Messaging API.
 
@@ -32,13 +30,11 @@ def send_message(
         api: Authenticated PlaywrightLinkedinAPI instance.
         conversation_urn: e.g. "urn:li:msg_conversation:(urn:li:fsd_profile:XXX,2-threadId)"
         message_text: The message body.
-        mailbox_urn: Sender's profile URN. Auto-discovered from /in/me/ if omitted.
+        mailbox_urn: Sender's profile URN.
 
     Returns:
         API response dict with delivery confirmation.
     """
-    if not mailbox_urn:
-        mailbox_urn = api.session.self_profile["urn"]
 
     origin_token = str(uuid.uuid4())
     tracking_id = os.urandom(16).hex()
@@ -98,7 +94,9 @@ if __name__ == "__main__":
     print(f"Resolved URN: {target_urn}")
 
     # Find conversation URN
-    conversation_urn = find_conversation_urn(api, target_urn)
+    mailbox_urn = session.self_profile["urn"]
+
+    conversation_urn = find_conversation_urn(api, target_urn, mailbox_urn)
     if not conversation_urn:
         print("Not in recent conversations, trying navigation fallback...")
         conversation_urn = find_conversation_urn_via_navigation(session, target_urn)
@@ -109,6 +107,6 @@ if __name__ == "__main__":
 
     # Send message via API
     print(f"Sending message to {args.profile}: {args.text}")
-    result = send_message(api, conversation_urn, args.text)
+    result = send_message(api, conversation_urn, args.text, mailbox_urn)
     delivered_at = result.get("value", {}).get("deliveredAt")
     print(f"Message sent successfully! (deliveredAt: {delivered_at})")

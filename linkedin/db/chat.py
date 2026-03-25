@@ -39,9 +39,10 @@ def _sync_from_api(session, public_identifier: str, lead, ct):
     api = PlaywrightLinkedinAPI(session=session)
 
     target_urn = lead.get_urn(session)
+    mailbox_urn = session.self_profile["urn"]
 
     # Find conversation URN
-    conversation_urn = find_conversation_urn(api, target_urn)
+    conversation_urn = find_conversation_urn(api, target_urn, mailbox_urn)
     if not conversation_urn:
         conversation_urn = find_conversation_urn_via_navigation(session, target_urn)
     if not conversation_urn:

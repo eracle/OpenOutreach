@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Dict, Any, Optional
 
 from django.db import transaction
@@ -98,6 +99,48 @@ def disqualify_lead(public_id: str):
         return
     lead.disqualified = True
     lead.save(update_fields=["disqualified"])
+
+
+def discover_and_enrich(session, urls: set):
+    """For each new URL, call Voyager API, create enriched Lead (with embedding).
+
+    Skips URLs that already have a Lead. Rate-limits with enrich_min_interval.
+    """
+    from linkedin.api.client import PlaywrightLinkedinAPI
+    from linkedin.conf import CAMPAIGN_CONFIG
+
+    new_urls = [u for u in urls if not lead_exists(u)]
+    if not new_urls:
+        return
+
+    logger.info("Discovered %d new profiles (%d total on page)", len(new_urls), len(urls))
+
+    min_interval = CAMPAIGN_CONFIG.get("enrich_min_interval", 1)
+    session.ensure_browser()
+    api = PlaywrightLinkedinAPI(session=session)
+    enriched = 0
+
+    for url in new_urls:
+        public_id = url_to_public_id(url)
+        if not public_id:
+            continue
+
+        try:
+            profile, _raw = api.get_profile(profile_url=url)
+        except Exception:
+            logger.warning("Voyager API failed for %s — skipping", url)
+            continue
+
+        if not profile:
+            logger.warning("Empty profile for %s — skipping", url)
+            continue
+
+        if create_enriched_lead(session, url, profile) is not None:
+            enriched += 1
+
+        time.sleep(min_interval)
+
+    logger.info("Enriched %d/%d new profiles", enriched, len(new_urls))
 
 
 def _update_lead_fields(lead, profile: Dict[str, Any]):

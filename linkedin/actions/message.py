@@ -140,24 +140,24 @@ def _send_message(session: "AccountSession", profile: Dict[str, Any], message: s
 
 
 def _send_message_via_api(session: "AccountSession", profile: Dict[str, Any], message: str) -> bool:
-    """Last-resort fallback: send via Voyager Messaging API."""
-    from crm.models import Lead
+    """Last-resort fallback: send via Voyager Messaging API.
+
+    Requires profile dict to contain 'urn' (target profile URN).
+    """
     from linkedin.api.client import PlaywrightLinkedinAPI
     from linkedin.api.messaging import send_message
     from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
 
     public_identifier = profile.get("public_identifier")
-
-    try:
-        lead = Lead.objects.get(public_identifier=public_identifier)
-        target_urn = lead.get_urn(session)
-    except (Lead.DoesNotExist, ValueError):
-        logger.error("API send failed for %s → could not resolve lead/URN", public_identifier)
+    target_urn = profile.get("urn")
+    if not target_urn:
+        logger.error("API send failed for %s → no URN in profile dict", public_identifier)
         return False
 
+    mailbox_urn = session.self_profile["urn"]
     api = PlaywrightLinkedinAPI(session=session)
 
-    conversation_urn = find_conversation_urn(api, target_urn)
+    conversation_urn = find_conversation_urn(api, target_urn, mailbox_urn)
     if not conversation_urn:
         conversation_urn = find_conversation_urn_via_navigation(session, target_urn)
     if not conversation_urn:
@@ -165,7 +165,7 @@ def _send_message_via_api(session: "AccountSession", profile: Dict[str, Any], me
         return False
 
     try:
-        send_message(api, conversation_urn, message)
+        send_message(api, conversation_urn, message, mailbox_urn)
         logger.info("Message sent to %s (API fallback)", public_identifier)
         return True
     except Exception as e:

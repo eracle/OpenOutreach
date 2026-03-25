@@ -25,7 +25,7 @@ class Deal(models.Model):
     )
     state = models.CharField(
         max_length=20,
-        choices=ProfileState.choices,
+        choices=[(s.value, s.value) for s in ProfileState],
         default=ProfileState.QUALIFIED,
     )
     closing_reason = models.CharField(

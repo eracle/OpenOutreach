@@ -26,9 +26,8 @@ def _graphql_headers(api: PlaywrightLinkedinAPI) -> dict:
     retry=retry_if_exception_type(IOError),
     reraise=True,
 )
-def fetch_conversations(api: PlaywrightLinkedinAPI) -> dict:
+def fetch_conversations(api: PlaywrightLinkedinAPI, mailbox_urn: str) -> dict:
     """Fetch recent conversations list. Returns raw API response."""
-    mailbox_urn = api.session.self_profile["urn"]
     url = (
         f"{_GRAPHQL_BASE}"
         f"?queryId={_CONVERSATIONS_QUERY_ID}"
@@ -71,7 +70,8 @@ if __name__ == "__main__":
     api = PlaywrightLinkedinAPI(session=session)
 
     if args.conversations:
-        raw = fetch_conversations(api)
+        mailbox_urn = session.self_profile["urn"]
+        raw = fetch_conversations(api, mailbox_urn)
         elements = raw.get("data", {}).get("messengerConversationsBySyncToken", {}).get("elements", [])
         print(f"Got {len(elements)} conversations:\n")
         for conv in elements:

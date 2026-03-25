@@ -9,9 +9,9 @@ from linkedin.api.messaging import fetch_conversations, fetch_messages, encode_u
 logger = logging.getLogger(__name__)
 
 
-def find_conversation_urn(api: PlaywrightLinkedinAPI, target_urn: str) -> str | None:
+def find_conversation_urn(api: PlaywrightLinkedinAPI, target_urn: str, mailbox_urn: str) -> str | None:
     """Find conversation URN for a target profile URN by scanning recent conversations."""
-    raw = fetch_conversations(api)
+    raw = fetch_conversations(api, mailbox_urn)
     elements = raw.get("data", {}).get("messengerConversationsBySyncToken", {}).get("elements", [])
 
     for conv in elements:
@@ -107,25 +107,25 @@ def parse_messages(raw: dict) -> list[dict]:
     return messages
 
 
-def get_conversation(session, public_identifier: str) -> list[dict] | None:
+def get_conversation(session, target_urn: str, mailbox_urn: str) -> list[dict] | None:
     """Retrieve past messages with a profile.
+
+    Args:
+        session: Browser session.
+        target_urn: Target profile URN.
+        mailbox_urn: Authenticated user's profile URN.
 
     Returns a list of {sender, text, timestamp} dicts, or None if no conversation exists.
     """
-    from crm.models import Lead
-
     session.ensure_browser()
     api = PlaywrightLinkedinAPI(session=session)
 
-    lead = Lead.objects.get(public_identifier=public_identifier)
-    target_urn = lead.get_urn(session)
-
-    conversation_urn = find_conversation_urn(api, target_urn)
+    conversation_urn = find_conversation_urn(api, target_urn, mailbox_urn)
     if not conversation_urn:
         logger.debug("Not in recent conversations, trying navigation fallback")
         conversation_urn = find_conversation_urn_via_navigation(session, target_urn)
     if not conversation_urn:
-        logger.info("No conversation found for %s", public_identifier)
+        logger.info("No conversation found for %s", target_urn)
         return None
 
     raw = fetch_messages(api, conversation_urn)
@@ -133,6 +133,7 @@ def get_conversation(session, public_identifier: str) -> list[dict] | None:
 
 
 if __name__ == "__main__":
+    from crm.models import Lead
     from linkedin.browser.registry import cli_parser, cli_session
 
     parser = cli_parser("Retrieve LinkedIn conversation history")
@@ -141,7 +142,10 @@ if __name__ == "__main__":
     session = cli_session(args)
 
     print(f"Fetching conversation as {session} → {args.profile}")
-    messages = get_conversation(session, args.profile)
+    lead = Lead.objects.get(public_identifier=args.profile)
+    target_urn = lead.get_urn(session)
+    mailbox_urn = session.self_profile["urn"]
+    messages = get_conversation(session, target_urn, mailbox_urn)
 
     if messages is None:
         print(f"No conversation found with {args.profile}")
