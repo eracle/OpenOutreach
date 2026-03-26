@@ -10,10 +10,13 @@ logger = logging.getLogger(__name__)
 
 SELECTORS = {
     "weekly_limit": 'div[class*="ip-fuse-limit-alert__warning"]',
-    "invite_to_connect": 'button[aria-label*="Invite"][aria-label*="to connect"]:visible',
+    "invite_to_connect": (
+        'button[aria-label*="Invite"][aria-label*="to connect"]:visible, '
+        'a:has(span:text-is("Connect")):visible'
+    ),
     "error_toast": 'div[data-test-artdeco-toast-item-type="error"]',
-    "more_button": 'button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible',
-    "connect_option": 'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"]',
+    "more_button": 'button[aria-label="More"]:visible, button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible',
+    "connect_option": 'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"], div[role="button"]:text-is("Connect")',
     "send_now": 'button:has-text("Send now"), button[aria-label*="Send without"], button[aria-label*="Send invitation"]',
 }
 

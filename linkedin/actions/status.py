@@ -10,7 +10,11 @@ logger = logging.getLogger(__name__)
 
 SELECTORS = {
     "pending_button": '[aria-label*="Pending"]',
-    "invite_to_connect": 'button[aria-label*="Invite"][aria-label*="to connect"]:visible',
+    "invite_to_connect": (
+        'button[aria-label*="Invite"][aria-label*="to connect"]:visible, '
+        'a:has(span:text-is("Connect")):visible'
+    ),
+    "message_button": 'a[href*="/messaging/compose/"]:visible, button:has-text("Message"):visible',
 }
 
 
@@ -57,14 +61,17 @@ def get_connection_status(
             logger.debug(msg)
             return state
 
-    # Connect button or label visible → not connected
-    if top_card.locator(SELECTORS["invite_to_connect"]).count() > 0:
+    has_connect = top_card.locator(SELECTORS["invite_to_connect"]).count() > 0
+    has_message = top_card.locator(SELECTORS["message_button"]).count() > 0
+
+    # Connect button wins over Message (InMail/Open Profile show Message without being connected)
+    if has_connect:
         logger.debug("Found 'Connect' button → NOT_CONNECTED")
         return ProfileState.QUALIFIED
 
-    if "Connect" in main_text:
-        logger.debug("Connect label present → NOT_CONNECTED")
-        return ProfileState.QUALIFIED
+    if has_message and not has_connect:
+        logger.debug("Detected 'Message' button (no Connect) → CONNECTED")
+        return ProfileState.CONNECTED
 
     if degree:
         logger.debug("No UI indicators but degree=%s → NOT_CONNECTED", degree)
