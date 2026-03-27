@@ -13,4 +13,4 @@ tendo
 pyyaml
 fastembed
 scikit-learn
-huggingface_hub
+huggingface_hub==1.7.2
