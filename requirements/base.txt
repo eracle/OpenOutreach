@@ -11,6 +11,6 @@ termcolor
 Django>=5.2,<7.0
 tendo
 pyyaml
-fastembed
+fastembed==0.8.0
 scikit-learn
 huggingface_hub
