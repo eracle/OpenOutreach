@@ -5,7 +5,7 @@ from typing import Dict, Any
 from linkedin.actions.connect import SELECTORS as CONNECT_SELECTORS
 from linkedin.actions.search import visit_profile
 from linkedin.enums import ProfileState
-from linkedin.browser.nav import find_top_card
+from linkedin.browser.nav import find_top_card, dump_page_html
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,14 @@ def get_connection_status(
         logger.debug("API reports 1st degree → CONNECTED")
         return ProfileState.CONNECTED
     if degree in (2, 3):
-        logger.debug("API reports degree %d → NOT_CONNECTED", degree)
+        logger.debug("API reports degree %d → checking UI for pending", degree)
+        visit_profile(session, profile)
+        session.wait()
+        top_card = find_top_card(session)
+        if top_card.locator(SELECTORS["pending_button"]).count() > 0:
+            logger.debug("API says degree %d but UI shows 'Pending' → PENDING", degree)
+            return ProfileState.PENDING
+        logger.debug("API degree %d confirmed NOT_CONNECTED by UI", degree)
         return ProfileState.QUALIFIED
 
     # --- Fallback: UI inspection (API returned None) ---

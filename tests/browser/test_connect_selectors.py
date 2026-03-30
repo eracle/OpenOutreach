@@ -9,6 +9,7 @@ every file in each subdirectory so new dumps are tested without manual setup.
 import pytest
 
 from linkedin.actions.connect import SELECTORS as CONNECT_SELECTORS
+from linkedin.actions.status import SELECTORS as STATUS_SELECTORS
 from linkedin.browser.nav import TOP_CARD_SELECTORS
 from linkedin.conf import FIXTURE_PAGES_DIR
 from tests.browser.conftest import load_fixture
@@ -81,3 +82,20 @@ def test_connect_dump_has_connect_or_more(page, fixture):
     connect = top_card.locator(CONNECT_SELECTORS["invite_to_connect"]).count()
     more = top_card.locator(CONNECT_SELECTORS["more_button"]).count()
     assert connect or more, f"connect/{fixture}: no Connect or More button"
+
+
+# -- auto-discovered: pages/pending/ ------------------------------------------
+# Pages where the UI shows "Pending" despite the API reporting degree 2/3.
+
+PENDING_DUMPS = sorted(
+    p.name for p in (FIXTURE_PAGES_DIR / "pending").glob("*.html")
+) if (FIXTURE_PAGES_DIR / "pending").exists() else []
+
+
+@pytest.mark.parametrize("fixture", PENDING_DUMPS)
+def test_pending_dump_has_pending_button(page, fixture):
+    pg = load_fixture(page, "pending", fixture)
+    top_card = find_top_card(pg)
+    assert top_card is not None, f"pending/{fixture}: no top card"
+    pending = top_card.locator(STATUS_SELECTORS["pending_button"]).count()
+    assert pending, f"pending/{fixture}: no Pending button"

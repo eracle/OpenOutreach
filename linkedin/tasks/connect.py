@@ -140,11 +140,7 @@ def handle_connect(task, session, qualifiers):
             _reschedule()
             return
 
-        # API-path in get_connection_status may skip profile navigation,
-        # but send_connection_request assumes the profile page is loaded.
-        from linkedin.actions.search import visit_profile
-        visit_profile(session, profile)
-
+        # get_connection_status already navigated to the profile page
         new_state = send_connection_request(session=session, profile=profile)
 
         if new_state == ProfileState.QUALIFIED:
