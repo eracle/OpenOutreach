@@ -99,12 +99,16 @@ def _find(page, key: str, timeout: int = 5000) -> Locator:
 
 def send_raw_message(session, profile: Dict[str, Any], message: str) -> bool:
     """Send an arbitrary message to a profile. Returns True if sent."""
+    from linkedin.actions.search import _go_to_profile
+    from linkedin.url_utils import public_id_to_url
+
     public_identifier = profile.get("public_identifier")
+    _go_to_profile(session, public_id_to_url(public_identifier), public_identifier)
 
     sent = (
-        _send_message_via_api(session, profile, message)
-        or _send_msg_pop_up(session, profile, message)
+        _send_msg_pop_up(session, profile, message)
         or _send_message(session, profile, message)
+        or _send_message_via_api(session, profile, message)
     )
     if not sent:
         logger.error("All send methods failed for %s", public_identifier)
