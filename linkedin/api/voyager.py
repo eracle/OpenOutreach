@@ -139,6 +139,19 @@ def _enrich_education(edu: dict, urn_map: Dict[str, dict]) -> Education:
     )
 
 
+def _degree_from_union(union: dict) -> tuple[Optional[str], Optional[int]]:
+    """Extract (distance_str, degree) from a memberRelationshipUnion/Data dict."""
+    if any(k in union for k in ("connectedMember", "connected", "*connection", "connection")):
+        return "DISTANCE_1", 1
+
+    if "noConnection" in union:
+        distance_str = union["noConnection"].get("memberDistance")
+        degree = DISTANCE_TO_DEGREE.get(distance_str)
+        return distance_str, degree
+
+    return None, None
+
+
 def _extract_connection_info(profile_entity: dict, urn_map: Dict[str, dict]) -> tuple[Optional[str], Optional[int]]:
     member_rel_urn = profile_entity.get("*memberRelationship")
     if not member_rel_urn:
@@ -152,15 +165,26 @@ def _extract_connection_info(profile_entity: dict, urn_map: Dict[str, dict]) -> 
     if not union:
         return None, None
 
-    if "connectedMember" in union or "connected" in union:
-        return "DISTANCE_1", 1
+    return _degree_from_union(union)
 
-    if "noConnection" in union:
-        distance_str = union["noConnection"].get("memberDistance")
-        degree = DISTANCE_TO_DEGREE.get(distance_str)
-        return distance_str, degree
 
-    return None, None
+def parse_connection_degree(json_response: dict) -> Optional[int]:
+    """Extract connection degree by scanning included entities directly.
+
+    Works with any Voyager decoration that includes MemberRelationship
+    entities (e.g. TopCardSupplementary-120).  Does not depend on the
+    profile entity linking via *memberRelationship.
+    """
+    for entity in json_response.get("included", []):
+        if entity.get("$type") != "com.linkedin.voyager.dash.relationships.MemberRelationship":
+            continue
+        union = entity.get("memberRelationshipUnion") or entity.get("memberRelationshipData")
+        if not union:
+            continue
+        _, degree = _degree_from_union(union)
+        if degree is not None:
+            return degree
+    return None
 
 
 # ======================

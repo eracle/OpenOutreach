@@ -1,11 +1,11 @@
 # linkedin/actions/status.py
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from linkedin.actions.connect import SELECTORS as CONNECT_SELECTORS
 from linkedin.actions.search import visit_profile
 from linkedin.enums import ProfileState
-from linkedin.browser.nav import find_top_card, dump_page_html
+from linkedin.browser.nav import find_top_card
 
 logger = logging.getLogger(__name__)
 
@@ -17,70 +17,56 @@ SELECTORS = {
 }
 
 
-def get_connection_status(
-        session: "AccountSession",
-        profile: Dict[str, Any],
-) -> ProfileState:
-    """
-    Detects connection status.
+# ── API layer ──────────────────────────────────────────────────────
 
-    Priority:
-      1. API connection_degree — degree 1 = CONNECTED, degree 2/3 = QUALIFIED.
-         Callers should pass a fresh profile (via Lead.refresh_profile) so the
-         degree is up-to-date.
-      2. UI inspection fallback — only when API returns None.
+def _fetch_degree(session, public_identifier: str, profile: Dict[str, Any]) -> Optional[int]:
+    """Return connection degree from API, trying two decorations.
+
+    1. Refresh via FullProfileWithEntities (main profile endpoint).
+    2. If that returns None, try TopCardSupplementary (lightweight,
+       reliably includes MemberRelationship entities).
     """
     from crm.models import Lead
+    from linkedin.api.client import PlaywrightLinkedinAPI
 
-    public_identifier = profile.get("public_identifier")
-    session.ensure_browser()
-
-    logger.debug("Checking connection status → %s", public_identifier)
-
-    # Fresh API fetch — connection_degree in the passed profile dict may be stale
     lead = Lead.objects.get(public_identifier=public_identifier)
     lead.refresh_profile(session, profile_dict=profile)
     degree = profile.get("connection_degree")
 
-    if degree == 1:
-        logger.debug("API reports 1st degree → CONNECTED")
-        return ProfileState.CONNECTED
-    if degree in (2, 3):
-        logger.debug("API reports degree %d → checking UI for pending", degree)
-        visit_profile(session, profile)
-        session.wait()
-        top_card = find_top_card(session)
-        if top_card.locator(SELECTORS["pending_button"]).count() > 0:
-            logger.debug("API says degree %d but UI shows 'Pending' → PENDING", degree)
-            return ProfileState.PENDING
-        logger.debug("API degree %d confirmed NOT_CONNECTED by UI", degree)
-        return ProfileState.QUALIFIED
+    if degree is None:
+        api = PlaywrightLinkedinAPI(session=session)
+        degree = api.get_connection_degree(public_identifier)
+        logger.debug("TopCard degree lookup → %s", degree)
 
-    # --- Fallback: UI inspection (API returned None) ---
-    logger.debug("API degree=None → falling back to UI inspection")
+    return degree
+
+
+# ── UI layer ───────────────────────────────────────────────────────
+
+def _inspect_ui(session, profile: Dict[str, Any]) -> ProfileState:
+    """Determine connection status from profile page buttons.
+
+    Returns PENDING, QUALIFIED (connect available), or CONNECTED
+    (no connect/pending buttons found).
+    """
     visit_profile(session, profile)
     session.wait()
-
     top_card = find_top_card(session)
 
-    has_pending = top_card.locator(SELECTORS["pending_button"]).count() > 0
-    has_connect = top_card.locator(SELECTORS["invite_to_connect"]).count() > 0
-
-    if has_pending:
-        logger.debug("Detected 'Pending' button → PENDING")
+    if top_card.locator(SELECTORS["pending_button"]).count() > 0:
+        logger.debug("UI → 'Pending' button detected")
         return ProfileState.PENDING
 
-    if has_connect:
-        logger.debug("Found 'Connect' button → NOT_CONNECTED")
+    if top_card.locator(SELECTORS["invite_to_connect"]).count() > 0:
+        logger.debug("UI → 'Connect' button detected")
         return ProfileState.QUALIFIED
 
-    has_connect_in_more = _has_connect_in_more(session, top_card)
-    if has_connect_in_more:
-        logger.debug("Found 'Connect' in More menu → NOT_CONNECTED")
+    if _has_connect_in_more(session, top_card):
+        logger.debug("UI → 'Connect' in More menu")
         return ProfileState.QUALIFIED
 
-    logger.debug("No clear indicators → defaulting to NOT_CONNECTED")
-    return ProfileState.QUALIFIED
+    logger.debug("UI → no connect/pending indicators → CONNECTED")
+    return ProfileState.CONNECTED
 
 
 def _has_connect_in_more(session, top_card) -> bool:
@@ -94,6 +80,33 @@ def _has_connect_in_more(session, top_card) -> bool:
     if not found:
         session.page.keyboard.press("Escape")
     return found
+
+
+# ── Public entry point ─────────────────────────────────────────────
+
+def get_connection_status(
+        session: "AccountSession",
+        profile: Dict[str, Any],
+) -> ProfileState:
+    """Detect connection status via API with UI fallback.
+
+    Priority:
+      1. API degree (two decorations) — degree 1 = CONNECTED.
+      2. For degree 2/3 or None — UI inspection decides between
+         PENDING, QUALIFIED, and CONNECTED.
+    """
+    public_identifier = profile.get("public_identifier")
+    session.ensure_browser()
+    logger.debug("Checking connection status → %s", public_identifier)
+
+    degree = _fetch_degree(session, public_identifier, profile)
+
+    if degree == 1:
+        logger.debug("API degree 1 → CONNECTED")
+        return ProfileState.CONNECTED
+
+    # degree 2/3 or None — let the UI decide
+    return _inspect_ui(session, profile)
 
 
 if __name__ == "__main__":
