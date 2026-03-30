@@ -16,7 +16,12 @@ SELECTORS = {
         'button:has(span:text-is("Connect")):visible'
     ),
     "error_toast": 'div[data-test-artdeco-toast-item-type="error"]',
-    "more_button": 'button[aria-label="More"]:visible, button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible',
+    "more_button": (
+        'button[aria-label="More"]:visible, '
+        'button[id*="overflow"]:visible, '
+        'button[aria-label*="More actions"]:visible, '
+        'button:has(span:text-is("More")):visible'
+    ),
     "connect_option": (
         'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"], '
         'div[role="button"]:text-is("Connect"), '

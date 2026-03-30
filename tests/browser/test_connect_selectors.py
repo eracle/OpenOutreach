@@ -27,6 +27,7 @@ def find_top_card(page):
 
 CONNECTED_FIXTURE = "771_connected_profile.html"
 CONNECT_FIXTURE = "771_connect_profile.html"
+FOLLOW_FIRST_FIXTURE = "adivirsingh13.html"
 
 
 @pytest.fixture
@@ -39,6 +40,12 @@ def connected_page(page):
 def connect_page(page):
     """Profile page where the viewer is NOT connected (shows 'Connect')."""
     return load_fixture(page, CONNECT_FIXTURE)
+
+
+@pytest.fixture
+def follow_first_page(page):
+    """Follow-first (creator) profile — primary button is Follow, Connect is under More."""
+    return load_fixture(page, FOLLOW_FIRST_FIXTURE)
 
 
 # -- top card detection -------------------------------------------------------
@@ -70,4 +77,16 @@ class TestConnectButton:
     def test_invite_to_connect_selector(self, connect_page):
         top_card = find_top_card(connect_page)
         loc = top_card.locator(CONNECT_SELECTORS["invite_to_connect"])
+        assert loc.count() > 0
+
+
+class TestFollowFirstProfile:
+    """Follow-first (creator) profiles hide Connect under the More dropdown."""
+
+    def test_top_card_found(self, follow_first_page):
+        assert find_top_card(follow_first_page) is not None
+
+    def test_more_button_found(self, follow_first_page):
+        top_card = find_top_card(follow_first_page)
+        loc = top_card.locator(CONNECT_SELECTORS["more_button"])
         assert loc.count() > 0
