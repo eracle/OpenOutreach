@@ -4,7 +4,7 @@ from typing import Dict, Any
 
 from linkedin.enums import ProfileState
 from linkedin.exceptions import SkipProfile, ReachedConnectionLimit
-from linkedin.browser.nav import find_top_card
+from linkedin.browser.nav import find_top_card, dump_page_html
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,13 @@ SELECTORS = {
     ),
     "error_toast": 'div[data-test-artdeco-toast-item-type="error"]',
     "more_button": 'button[aria-label="More"]:visible, button[id*="overflow"]:visible, button[aria-label*="More actions"]:visible',
-    "connect_option": 'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"], div[role="button"]:text-is("Connect")',
+    "connect_option": (
+        'div[role="button"][aria-label^="Invite"][aria-label*=" to connect"], '
+        'div[role="button"]:text-is("Connect"), '
+        '[role="menuitem"][aria-label*="Connect"], '
+        'li:text-is("Connect"), '
+        'span[role="button"]:text-is("Connect")'
+    ),
     "send_now": 'button:has-text("Send now"), button[aria-label*="Send without"], button[aria-label*="Send invitation"]',
 }
 
@@ -37,6 +43,7 @@ def send_connection_request(
     # Send invitation WITHOUT note (current active flow)
     if not _connect_direct(session) and not _connect_via_more(session):
         logger.debug("Connect button not found for %s — staying at current stage", public_identifier)
+        dump_page_html(session, profile)
         return ProfileState.QUALIFIED
 
     _click_without_note(session)
@@ -72,8 +79,10 @@ def _connect_direct(session):
 def _connect_via_more(session):
     session.wait()
     top_card = find_top_card(session)
+    page = session.page
 
-    connect_option = top_card.locator(SELECTORS["connect_option"])
+    # Dropdown may render as a portal outside top_card, so search page-wide
+    connect_option = page.locator(SELECTORS["connect_option"])
 
     # Connect option may already be visible (More dropdown opened by status check)
     if connect_option.count() == 0:
@@ -83,7 +92,7 @@ def _connect_via_more(session):
         more.first.click()
         session.wait()
 
-    connect_option = top_card.locator(SELECTORS["connect_option"])
+    connect_option = page.locator(SELECTORS["connect_option"])
     if connect_option.count() == 0:
         return False
     connect_option.first.click()

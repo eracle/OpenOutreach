@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 SELECTORS = {
     "pending_button": '[aria-label*="Pending"]',
     "invite_to_connect": CONNECT_SELECTORS["invite_to_connect"],
-    "message_button": 'a[href*="/messaging/compose/"]:visible, button:has-text("Message"):visible',
     "more_button": CONNECT_SELECTORS["more_button"],
     "connect_option": CONNECT_SELECTORS["connect_option"],
 }
@@ -59,7 +58,6 @@ def get_connection_status(
 
     has_pending = top_card.locator(SELECTORS["pending_button"]).count() > 0
     has_connect = top_card.locator(SELECTORS["invite_to_connect"]).count() > 0
-    has_message = top_card.locator(SELECTORS["message_button"]).count() > 0
 
     if has_pending:
         logger.debug("Detected 'Pending' button → PENDING")
@@ -74,10 +72,6 @@ def get_connection_status(
         logger.debug("Found 'Connect' in More menu → NOT_CONNECTED")
         return ProfileState.QUALIFIED
 
-    if has_message:
-        logger.debug("Detected 'Message' button (no Connect anywhere) → CONNECTED")
-        return ProfileState.CONNECTED
-
     logger.debug("No clear indicators → defaulting to NOT_CONNECTED")
     return ProfileState.QUALIFIED
 
@@ -88,7 +82,8 @@ def _has_connect_in_more(session, top_card) -> bool:
         return False
     more.first.click()
     session.wait()
-    found = top_card.locator(SELECTORS["connect_option"]).count() > 0
+    # Dropdown may render as a portal outside top_card, so search page-wide
+    found = session.page.locator(SELECTORS["connect_option"]).count() > 0
     if not found:
         session.page.keyboard.press("Escape")
     return found
