@@ -13,4 +13,4 @@ __pycache__/
 /db.sqlite3
 /media/
 .cache/
-tests/fixtures/pages/*.html
+tests/fixtures/pages/**/*.html
