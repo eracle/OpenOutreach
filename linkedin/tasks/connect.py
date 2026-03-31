@@ -219,12 +219,10 @@ def enqueue_check_pending(
     campaign_id: int,
     public_id: str,
     backoff_hours: float,
-    jitter_factor: float | None = None,
 ):
-    if jitter_factor is None:
-        jitter_factor = CAMPAIGN_CONFIG["check_pending_jitter_factor"]
-
-    delay_hours = backoff_hours * random.uniform(1.0, 1.0 + jitter_factor)
+    # Equal-jitter backoff: uniform spread across [half, backoff]
+    half = backoff_hours / 2
+    delay_hours = half + random.uniform(0, half)
 
     _enqueue_task(
         task_type=Task.TaskType.CHECK_PENDING,

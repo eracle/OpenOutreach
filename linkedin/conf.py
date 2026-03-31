@@ -69,7 +69,6 @@ CAMPAIGN_CONFIG = {
     "embedding_model": "BAAI/bge-small-en-v1.5",
     "connect_delay_seconds": 10,
     "connect_no_candidate_delay_seconds": 300,
-    "check_pending_jitter_factor": 0.2,
 }
 
 # ----------------------------------------------------------------------
