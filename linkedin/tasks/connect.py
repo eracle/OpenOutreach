@@ -13,7 +13,14 @@ from typing import Callable
 from django.utils import timezone
 from termcolor import colored
 
-from linkedin.conf import CAMPAIGN_CONFIG, CONNECTION_NOTE_PERSONALIZED, CONNECTION_NOTE_FALLBACK
+from linkedin.conf import (
+    ACTIVE_END_HOUR,
+    ACTIVE_START_HOUR,
+    CAMPAIGN_CONFIG,
+    CONNECTION_NOTE_FALLBACK,
+    CONNECTION_NOTE_PERSONALIZED,
+    ENABLE_ACTIVE_HOURS,
+)
 from linkedin.db.deals import increment_connect_attempts, set_profile_state
 from linkedin.db.leads import disqualify_lead
 from linkedin.models import ActionLog, Task
@@ -94,6 +101,22 @@ def _seconds_until_tomorrow() -> float:
     return (tomorrow - now).total_seconds()
 
 
+def recommended_action_delay(profile, action_type: str) -> float:
+    """Spread actions across the active window instead of firing in bursts."""
+    if action_type == ActionLog.ActionType.CONNECT:
+        daily_limit = max(profile.connect_daily_limit or 1, 1)
+    else:
+        daily_limit = max(profile.follow_up_daily_limit or 1, 1)
+
+    active_hours = ACTIVE_END_HOUR - ACTIVE_START_HOUR if ENABLE_ACTIVE_HOURS else 24
+    window_seconds = max(active_hours, 1) * 3600
+    base_delay = window_seconds / daily_limit
+    return max(
+        CAMPAIGN_CONFIG["min_action_interval"],
+        random.uniform(base_delay * 0.7, base_delay * 1.3),
+    )
+
+
 def handle_connect(task, session, qualifiers):
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.status import get_connection_status
@@ -105,7 +128,13 @@ def handle_connect(task, session, qualifiers):
 
     def _reschedule():
         elapsed = (timezone.now() - task.started_at).total_seconds() if task.started_at else 0
-        enqueue_connect(campaign_id, delay_seconds=strategy.compute_delay(elapsed))
+        enqueue_connect(
+            campaign_id,
+            delay_seconds=max(
+                strategy.compute_delay(elapsed),
+                recommended_action_delay(session.linkedin_profile, ActionLog.ActionType.CONNECT),
+            ),
+        )
 
     # --- Rate limit check ---
     if not session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT):
@@ -142,7 +171,13 @@ def handle_connect(task, session, qualifiers):
 
         if status == ProfileState.CONNECTED:
             set_profile_state(session, public_id, status.value)
-            enqueue_follow_up(campaign_id, public_id)
+            enqueue_follow_up(
+                campaign_id,
+                public_id,
+                delay_seconds=recommended_action_delay(
+                    session.linkedin_profile, ActionLog.ActionType.FOLLOW_UP,
+                ),
+            )
             _reschedule()
             return
 
@@ -181,7 +216,13 @@ def handle_connect(task, session, qualifiers):
                     backoff_hours=cfg["check_pending_recheck_after_hours"],
                 )
             elif new_state == ProfileState.CONNECTED:
-                enqueue_follow_up(campaign_id, public_id)
+                enqueue_follow_up(
+                    campaign_id,
+                    public_id,
+                    delay_seconds=recommended_action_delay(
+                        session.linkedin_profile, ActionLog.ActionType.FOLLOW_UP,
+                    ),
+                )
 
     except ReachedConnectionLimit as e:
         logger.warning("Rate limited: %s", e)

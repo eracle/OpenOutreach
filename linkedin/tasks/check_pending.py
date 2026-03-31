@@ -19,7 +19,12 @@ logger = logging.getLogger(__name__)
 def handle_check_pending(task, session, qualifiers):
     from crm.models import Deal
     from linkedin.actions.status import get_connection_status
-    from linkedin.tasks.connect import enqueue_check_pending, enqueue_follow_up
+    from linkedin.models import ActionLog
+    from linkedin.tasks.connect import (
+        enqueue_check_pending,
+        enqueue_follow_up,
+        recommended_action_delay,
+    )
 
     payload = task.payload
     public_id = payload["public_id"]
@@ -48,7 +53,13 @@ def handle_check_pending(task, session, qualifiers):
     set_profile_state(session, public_id, new_state.value)
 
     if new_state == ProfileState.CONNECTED:
-        enqueue_follow_up(campaign_id, public_id)
+        enqueue_follow_up(
+            campaign_id,
+            public_id,
+            delay_seconds=recommended_action_delay(
+                session.linkedin_profile, ActionLog.ActionType.FOLLOW_UP,
+            ),
+        )
     elif new_state == ProfileState.PENDING:
         new_backoff = backoff_hours * 2
         clean_url = public_id_to_url(public_id)

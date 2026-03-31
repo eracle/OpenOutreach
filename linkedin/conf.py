@@ -41,19 +41,24 @@ VOYAGER_REQUEST_TIMEOUT_MS = 30_000
 # ----------------------------------------------------------------------
 # Onboarding defaults (shown to user during interactive setup)
 # ----------------------------------------------------------------------
-DEFAULT_CONNECT_DAILY_LIMIT = 50
-DEFAULT_CONNECT_WEEKLY_LIMIT = 250
-DEFAULT_FOLLOW_UP_DAILY_LIMIT = 100
+DEFAULT_CONNECT_DAILY_LIMIT = 20
+DEFAULT_CONNECT_WEEKLY_LIMIT = 100
+DEFAULT_FOLLOW_UP_DAILY_LIMIT = 30
+MAX_TOTAL_DAILY_ACTIONS = int(os.getenv("MAX_TOTAL_DAILY_ACTIONS", "200"))
 
 # ----------------------------------------------------------------------
 # Active-hours schedule (daemon pauses outside this window)
 # Set to False to run 24/7.
 # ----------------------------------------------------------------------
-ENABLE_ACTIVE_HOURS = True
-ACTIVE_START_HOUR = 10   # inclusive, local time
-ACTIVE_END_HOUR = 20    # exclusive, local time
-ACTIVE_TIMEZONE = "UTC"
-REST_DAYS = (5, 6)      # 0=Mon … 6=Sun; default Sat+Sun off
+ENABLE_ACTIVE_HOURS = os.getenv("ENABLE_ACTIVE_HOURS", "true").strip().lower() in {
+    "1", "true", "yes", "on",
+}
+ACTIVE_START_HOUR = int(os.getenv("ACTIVE_START_HOUR", "9"))   # inclusive, local time
+ACTIVE_END_HOUR = int(os.getenv("ACTIVE_END_HOUR", "17"))     # exclusive, local time
+ACTIVE_TIMEZONE = os.getenv("ACTIVE_TIMEZONE", "America/Toronto")
+REST_DAYS = tuple(
+    int(day.strip()) for day in os.getenv("REST_DAYS", "5,6").split(",") if day.strip()
+)      # 0=Mon … 6=Sun; default Sat+Sun off
 
 # ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)
@@ -78,8 +83,26 @@ CONNECTION_NOTE_FALLBACK = (
     "Want the quick demo?"
 )
 
-# Path to GIF/image to attach to follow-up messages (empty = disabled)
-FOLLOW_UP_MEDIA_PATH = os.getenv("FOLLOW_UP_MEDIA_PATH", "")
+# Path to GIF/image to attach to follow-up messages (empty = disabled).
+# Relative paths are resolved from the repo root so the same .env works
+# across machines without requiring identical checkout locations.
+_raw_follow_up_media_path = os.getenv("FOLLOW_UP_MEDIA_PATH", "").strip()
+if _raw_follow_up_media_path:
+    _follow_up_media_path = Path(_raw_follow_up_media_path).expanduser()
+    if not _follow_up_media_path.is_absolute():
+        _follow_up_media_path = ROOT_DIR / _follow_up_media_path
+    FOLLOW_UP_MEDIA_PATH = str(_follow_up_media_path)
+else:
+    FOLLOW_UP_MEDIA_PATH = ""
+
+# Tracked walkthrough link sent after a connection is accepted without a reply.
+# Empty = keep the generic follow-up agent behavior.
+POST_ACCEPT_VIDEO_LINK = os.getenv("POST_ACCEPT_VIDEO_LINK", "")
+POST_ACCEPT_MESSAGE_TEMPLATE = os.getenv(
+    "POST_ACCEPT_MESSAGE_TEMPLATE",
+    "Hey {first_name} - put together a 60-second walkthrough of what I mentioned. "
+    "Easier to show than explain: {video_link}",
+)
 
 CAMPAIGN_CONFIG = {
     "check_pending_recheck_after_hours": 24,

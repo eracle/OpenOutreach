@@ -91,3 +91,16 @@ class TestGetReadyCandidate:
         result = find_ready_candidate(fake_session, scorer)
         assert result is not None
         assert result["public_identifier"] == "alice"
+
+    def test_falls_back_to_fifo_when_ranker_cold_starts(self, fake_session):
+        _make_qualified(fake_session, "alice")
+        _make_qualified(fake_session, "bob")
+        set_profile_state(fake_session, "alice", ProfileState.READY_TO_CONNECT.value)
+        set_profile_state(fake_session, "bob", ProfileState.READY_TO_CONNECT.value)
+
+        scorer = BayesianQualifier(seed=42)
+        scorer.rank_profiles = lambda profiles, **kw: []
+
+        result = find_ready_candidate(fake_session, scorer)
+        assert result is not None
+        assert result["public_identifier"] == "alice"

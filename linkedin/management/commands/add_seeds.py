@@ -17,6 +17,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Read CSV with Profile URL, First Name, Last Name, Company columns.",
         )
+        parser.add_argument(
+            "--ready-to-connect",
+            action="store_true",
+            help="Create imported deals directly in Ready to Connect.",
+        )
 
     def handle(self, *args, **options):
         from linkedin.models import Campaign
@@ -31,6 +36,8 @@ class Command(BaseCommand):
         if not campaign:
             self.stderr.write(f"Campaign {options['campaign_id']} not found.")
             sys.exit(1)
+
+        initial_state = "Ready to Connect" if options["ready_to_connect"] else "Qualified"
 
         if sys.stdin.isatty():
             if options["csv"]:
@@ -55,14 +62,14 @@ class Command(BaseCommand):
             if not leads:
                 self.stderr.write("No valid LinkedIn URLs found in CSV.")
                 return
-            created = create_seed_leads_from_csv(campaign, leads)
+            created = create_seed_leads_from_csv(campaign, leads, initial_state=initial_state)
             self.stdout.write(self.style.SUCCESS(
-                f"{created} seed(s) added as QUALIFIED from {len(leads)} CSV rows."
+                f"{created} seed(s) added as {initial_state.upper()} from {len(leads)} CSV rows."
             ))
         else:
             public_ids = parse_seed_urls(text)
             if not public_ids:
                 self.stderr.write("No valid LinkedIn URLs found.")
                 return
-            created = create_seed_leads(campaign, public_ids)
-            self.stdout.write(self.style.SUCCESS(f"{created} seed profile(s) added as QUALIFIED."))
+            created = create_seed_leads(campaign, public_ids, initial_state=initial_state)
+            self.stdout.write(self.style.SUCCESS(f"{created} seed profile(s) added as {initial_state.upper()}."))

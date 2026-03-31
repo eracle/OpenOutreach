@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import random
 import time
 import traceback
 from datetime import timedelta
@@ -22,9 +21,15 @@ from linkedin.conf import (
 )
 from linkedin.diagnostics import failure_diagnostics
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
-from linkedin.models import Task
+from linkedin.models import ActionLog, Task
 from linkedin.tasks.check_pending import handle_check_pending
-from linkedin.tasks.connect import enqueue_check_pending, enqueue_connect, enqueue_follow_up, handle_connect
+from linkedin.tasks.connect import (
+    enqueue_check_pending,
+    enqueue_connect,
+    enqueue_follow_up,
+    handle_connect,
+    recommended_action_delay,
+)
 from linkedin.tasks.follow_up import handle_follow_up
 
 logger = logging.getLogger(__name__)
@@ -144,7 +149,7 @@ def heal_tasks(session):
 
     # 2. Seed connect tasks per campaign (regular first, freemium deferred)
     for campaign in session.campaigns:
-        delay = CAMPAIGN_CONFIG["connect_delay_seconds"] if campaign.is_freemium else 0
+        delay = recommended_action_delay(session.linkedin_profile, ActionLog.ActionType.CONNECT)
         enqueue_connect(campaign.pk, delay_seconds=delay)
 
     # 3. Check_pending tasks for PENDING profiles
@@ -174,7 +179,13 @@ def heal_tasks(session):
             public_id = url_to_public_id(deal.lead.linkedin_url) if deal.lead.linkedin_url else None
             if not public_id:
                 continue
-            enqueue_follow_up(campaign.pk, public_id, delay_seconds=random.uniform(5, 60))
+            enqueue_follow_up(
+                campaign.pk,
+                public_id,
+                delay_seconds=recommended_action_delay(
+                    session.linkedin_profile, ActionLog.ActionType.FOLLOW_UP,
+                ),
+            )
 
     pending_count = Task.objects.pending().count()
     logger.info("Task queue healed: %d pending tasks", pending_count)

@@ -30,8 +30,20 @@ def parse_seed_urls(text: str) -> list[str]:
     return list(public_ids)
 
 
-def create_seed_leads(campaign, public_ids: list[str]) -> int:
-    """Create url-only Leads + QUALIFIED Deals for seed profiles.
+def _coerce_seed_state(initial_state: str | ProfileState) -> str:
+    """Normalize a caller-provided initial state for seed imports."""
+    if isinstance(initial_state, ProfileState):
+        return initial_state.value
+    return ProfileState(initial_state).value
+
+
+def create_seed_leads(
+    campaign,
+    public_ids: list[str],
+    *,
+    initial_state: str | ProfileState = ProfileState.QUALIFIED,
+) -> int:
+    """Create url-only Leads + Deals for seed profiles.
 
     Works without a browser session — leads will be lazily enriched
     and embedded when the daemon processes them.
@@ -40,6 +52,7 @@ def create_seed_leads(campaign, public_ids: list[str]) -> int:
     """
     from crm.models import Deal, Lead
 
+    initial_state = _coerce_seed_state(initial_state)
     existing_seeds = set(campaign.seed_public_ids or [])
     created = 0
     for public_id in public_ids:
@@ -55,11 +68,11 @@ def create_seed_leads(campaign, public_ids: list[str]) -> int:
         Deal.objects.create(
             lead=lead,
             campaign=campaign,
-            state=ProfileState.QUALIFIED,
+            state=initial_state,
         )
         existing_seeds.add(public_id)
         created += 1
-        logger.info("Seed %s → QUALIFIED", public_id)
+        logger.info("Seed %s → %s", public_id, initial_state)
 
     campaign.seed_public_ids = list(existing_seeds)
     campaign.save(update_fields=["seed_public_ids"])
@@ -114,13 +127,19 @@ def parse_csv_leads(text: str) -> list[dict]:
     return leads
 
 
-def create_seed_leads_from_csv(campaign, leads: list[dict]) -> int:
-    """Create Leads with pre-populated names + QUALIFIED Deals from CSV data.
+def create_seed_leads_from_csv(
+    campaign,
+    leads: list[dict],
+    *,
+    initial_state: str | ProfileState = ProfileState.QUALIFIED,
+) -> int:
+    """Create Leads with pre-populated names + Deals from CSV data.
 
     Returns the number of new seeds created.
     """
     from crm.models import Deal, Lead
 
+    initial_state = _coerce_seed_state(initial_state)
     existing_seeds = set(campaign.seed_public_ids or [])
     created = 0
     for entry in leads:
@@ -149,11 +168,11 @@ def create_seed_leads_from_csv(campaign, leads: list[dict]) -> int:
         Deal.objects.create(
             lead=lead,
             campaign=campaign,
-            state=ProfileState.QUALIFIED,
+            state=initial_state,
         )
         existing_seeds.add(public_id)
         created += 1
-        logger.info("Seed %s → QUALIFIED", public_id)
+        logger.info("Seed %s → %s", public_id, initial_state)
 
     campaign.seed_public_ids = list(existing_seeds)
     campaign.save(update_fields=["seed_public_ids"])

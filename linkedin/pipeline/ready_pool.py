@@ -62,4 +62,7 @@ def find_ready_candidate(session, qualifier: BayesianQualifier) -> dict | None:
         return None
 
     ranked = qualifier.rank_profiles(profiles, session=session)
-    return ranked[0] if ranked else None
+    # Curated seed imports can intentionally bypass the GP gate. On cold start
+    # the model cannot rank yet, so fall back to FIFO ordering instead of
+    # stalling the connect pipeline.
+    return ranked[0] if ranked else profiles[0]
