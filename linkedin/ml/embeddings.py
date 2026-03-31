@@ -6,7 +6,7 @@ import logging
 
 import numpy as np
 
-from linkedin.conf import CAMPAIGN_CONFIG
+from linkedin.conf import CAMPAIGN_CONFIG, FASTEMBED_CACHE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,8 @@ def _get_model():
 
         model_name = CAMPAIGN_CONFIG["embedding_model"]
         logger.debug("Loading embedding model: %s", model_name)
-        _model = TextEmbedding(model_name=model_name)
+        FASTEMBED_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _model = TextEmbedding(model_name=model_name, cache_dir=str(FASTEMBED_CACHE_DIR))
     return _model
 
 

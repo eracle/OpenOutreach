@@ -12,4 +12,5 @@ __pycache__/
 /linkedin/management/commands/export_model.py
 /db.sqlite3
 /media/
+.cache/
 tests/fixtures/pages/*.html
