@@ -2,6 +2,7 @@
 import logging
 import random
 import time
+from collections.abc import Callable
 from urllib.parse import unquote, urlparse, urljoin
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -17,6 +18,7 @@ def goto_page(session: "AccountSession",
               expected_url_pattern: str,
               timeout: int = BROWSER_NAV_TIMEOUT_MS,
               error_message: str = "",
+              url_ok: Callable[[str], bool] | None = None,
               ):
     page = session.page
     action()
@@ -34,7 +36,8 @@ def goto_page(session: "AccountSession",
     if expected_url_pattern not in current:
         if "/404" in current:
             raise SkipProfile(f"Profile returned 404 → {current}")
-        raise RuntimeError(f"{error_message} → expected '{expected_url_pattern}' | got '{current}'")
+        if not (url_ok and url_ok(current)):
+            raise RuntimeError(f"{error_message} → expected '{expected_url_pattern}' | got '{current}'")
 
     logger.debug("Navigated to %s", page.url)
     urls = _extract_in_urls(session)
