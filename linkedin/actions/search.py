@@ -5,6 +5,7 @@ from typing import Dict, Any
 from urllib.parse import urlparse, parse_qs, urlencode
 
 from linkedin.browser.nav import goto_page, human_type
+from linkedin.db.urls import url_to_public_id
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,33 @@ SELECTORS = {
     "search_bar": "//input[contains(@placeholder, 'Search')]",
     "profile_links": 'a[href*="/in/"]',
 }
+
+
+def _normalize_public_identifier(public_identifier: str | None) -> str:
+    """Collapse LinkedIn's legacy vanity suffixes to a comparable base slug."""
+    pid = (public_identifier or "").strip("/")
+    if not pid:
+        return ""
+
+    head, sep, tail = pid.rpartition("-")
+    if sep and len(tail) >= 6 and any(ch.isdigit() for ch in tail):
+        return head
+    return pid
+
+
+def _matches_profile_redirect(current_url: str, expected_public_identifier: str) -> bool:
+    """Allow canonical LinkedIn redirects for the same profile slug."""
+    current_public_identifier = url_to_public_id(current_url)
+    if not current_public_identifier:
+        return False
+
+    if current_public_identifier == expected_public_identifier:
+        return True
+
+    return (
+        _normalize_public_identifier(current_public_identifier)
+        == _normalize_public_identifier(expected_public_identifier)
+    )
 
 
 def _go_to_profile(session: "AccountSession", url: str, public_identifier: str):
@@ -22,7 +50,8 @@ def _go_to_profile(session: "AccountSession", url: str, public_identifier: str):
         session,
         action=lambda: session.page.goto(url),
         expected_url_pattern=f"/in/{public_identifier}",
-        error_message="Failed to navigate to the target profile"
+        error_message="Failed to navigate to the target profile",
+        url_ok=lambda current_url: _matches_profile_redirect(current_url, public_identifier),
     )
 
 

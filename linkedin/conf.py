@@ -45,6 +45,9 @@ DEFAULT_CONNECT_DAILY_LIMIT = 20
 DEFAULT_CONNECT_WEEKLY_LIMIT = 100
 DEFAULT_FOLLOW_UP_DAILY_LIMIT = 30
 MAX_TOTAL_DAILY_ACTIONS = int(os.getenv("MAX_TOTAL_DAILY_ACTIONS", "200"))
+ENABLE_FREEMIUM_CAMPAIGN = os.getenv("ENABLE_FREEMIUM_CAMPAIGN", "false").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 
 # ----------------------------------------------------------------------
 # Active-hours schedule (daemon pauses outside this window)

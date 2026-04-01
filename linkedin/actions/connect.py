@@ -21,6 +21,19 @@ SELECTORS = {
 }
 
 
+def _first_visible(locator):
+    """Return the first visible Playwright locator match, or None."""
+    count = locator.count()
+    for idx in range(count):
+        candidate = locator.nth(idx)
+        try:
+            if candidate.is_visible():
+                return candidate
+        except Exception:
+            continue
+    return None
+
+
 def send_connection_request(
         session: "AccountSession",
         profile: Dict[str, Any],
@@ -78,18 +91,19 @@ def _connect_via_more(session):
     top_card = find_top_card(session)
 
     # Fallback: More → Connect
-    more = top_card.locator(SELECTORS["more_button"])
-    if more.count() == 0:
+    more = _first_visible(top_card.locator(SELECTORS["more_button"]))
+    if more is None:
         return False
-    more.first.click()
+    more.click()
 
     session.wait()
 
     # Search at page level — LinkedIn renders dropdown as a portal outside top_card
     connect_option = session.page.locator(SELECTORS["connect_option"])
-    if connect_option.count() == 0:
+    visible_connect_option = _first_visible(connect_option)
+    if visible_connect_option is None:
         return False
-    connect_option.first.click()
+    visible_connect_option.click(force=True)
     logger.debug("Used 'More → Connect' flow")
 
     return True

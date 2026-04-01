@@ -43,7 +43,12 @@ class AccountSession:
     def campaigns(self):
         """All campaigns this user belongs to."""
         from linkedin.models import Campaign
-        return Campaign.objects.filter(users=self.django_user)
+        from linkedin.conf import ENABLE_FREEMIUM_CAMPAIGN
+
+        campaigns = Campaign.objects.filter(users=self.django_user)
+        if not ENABLE_FREEMIUM_CAMPAIGN:
+            campaigns = campaigns.filter(is_freemium=False)
+        return campaigns
 
     def ensure_browser(self):
         """Launch or recover browser + login if needed. Call before using .page"""

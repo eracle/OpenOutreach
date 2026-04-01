@@ -78,7 +78,20 @@ def start_browser_session(session: "AccountSession", handle: str):
     if storage_state:
         logger.info("Loading saved session for @%s", handle)
 
-    session.page, session.context, session.browser, session.playwright = launch_browser(storage_state=storage_state)
+    try:
+        session.page, session.context, session.browser, session.playwright = launch_browser(
+            storage_state=storage_state,
+        )
+    except Exception:
+        if not storage_state:
+            raise
+        logger.warning("Saved browser state for @%s failed to load — falling back to fresh login", handle)
+        session.linkedin_profile.cookie_data = None
+        session.linkedin_profile.save(update_fields=["cookie_data"])
+        session.page, session.context, session.browser, session.playwright = launch_browser(
+            storage_state=None,
+        )
+        storage_state = None
 
     if not storage_state:
         playwright_login(session)

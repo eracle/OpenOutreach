@@ -16,6 +16,7 @@ from linkedin.conf import (
     ACTIVE_START_HOUR,
     ACTIVE_TIMEZONE,
     CAMPAIGN_CONFIG,
+    ENABLE_FREEMIUM_CAMPAIGN,
     ENABLE_ACTIVE_HOURS,
     REST_DAYS,
 )
@@ -137,6 +138,7 @@ def heal_tasks(session):
     from crm.models import Deal
     from linkedin.db.urls import url_to_public_id
     from linkedin.enums import ProfileState
+    from linkedin.models import Campaign
 
     cfg = CAMPAIGN_CONFIG
 
@@ -146,6 +148,22 @@ def heal_tasks(session):
     )
     if stale_count:
         logger.info("Recovered %d stale running tasks", stale_count)
+
+    if not ENABLE_FREEMIUM_CAMPAIGN:
+        disabled_campaign_ids = list(
+            Campaign.objects.filter(users=session.django_user, is_freemium=True)
+            .values_list("pk", flat=True),
+        )
+        if disabled_campaign_ids:
+            disabled_tasks = Task.objects.filter(
+                payload__campaign_id__in=disabled_campaign_ids,
+                status=Task.Status.PENDING,
+            ).update(
+                status=Task.Status.FAILED,
+                error="Freemium campaign disabled",
+            )
+            if disabled_tasks:
+                logger.info("Disabled %d pending freemium tasks", disabled_tasks)
 
     # 2. Seed connect tasks per campaign (regular first, freemium deferred)
     for campaign in session.campaigns:
@@ -199,7 +217,7 @@ def run_daemon(session):
     cfg = CAMPAIGN_CONFIG
 
     # Load kit model for freemium campaigns
-    kit = fetch_kit()
+    kit = fetch_kit() if ENABLE_FREEMIUM_CAMPAIGN else None
     if kit:
         freemium_campaign = import_freemium_campaign(kit["config"])
         if freemium_campaign:
@@ -208,6 +226,8 @@ def run_daemon(session):
             from linkedin.setup.freemium import seed_profiles
             seed_profiles(session, kit["config"])
             session.campaign = prev_campaign
+    elif not ENABLE_FREEMIUM_CAMPAIGN:
+        logger.info("Freemium campaign disabled")
 
     qualifiers = _build_qualifiers(
         session.campaigns, cfg, kit_model=kit["model"] if kit else None,
