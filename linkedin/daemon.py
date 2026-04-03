@@ -63,6 +63,42 @@ class _FreemiumRotator:
             self._next += 1
 
 
+def _bring_task_forward(task_type: str, payload: dict, scheduled_at) -> tuple[bool, bool]:
+    """Ensure one pending task exists and is scheduled no later than *scheduled_at*.
+
+    Returns ``(created, rescheduled)``.
+    """
+    filters = {
+        "task_type": task_type,
+        "status": Task.Status.PENDING,
+    }
+    for key, value in payload.items():
+        filters[f"payload__{key}"] = value
+
+    existing = Task.objects.filter(**filters).order_by("scheduled_at").first()
+    if existing is None:
+        Task.objects.create(
+            task_type=task_type,
+            scheduled_at=scheduled_at,
+            payload=payload,
+        )
+        return True, False
+
+    update_fields: list[str] = []
+    if existing.scheduled_at > scheduled_at:
+        existing.scheduled_at = scheduled_at
+        update_fields.append("scheduled_at")
+    if existing.payload != payload:
+        existing.payload = payload
+        update_fields.append("payload")
+
+    if update_fields:
+        existing.save(update_fields=update_fields)
+        return False, True
+
+    return False, False
+
+
 def _build_qualifiers(campaigns, cfg, kit_model=None):
     """Create a qualifier for every campaign, keyed by campaign PK."""
     from crm.models import Lead
@@ -170,39 +206,78 @@ def heal_tasks(session):
         delay = recommended_action_delay(session.linkedin_profile, ActionLog.ActionType.CONNECT)
         enqueue_connect(campaign.pk, delay_seconds=delay)
 
-    # 3. Check_pending tasks for PENDING profiles
+    # 3. Check_pending tasks for PENDING profiles. Bring these forward on
+    # startup so accepted connections are caught up immediately after a restart
+    # instead of waiting on stale 24h/48h backoff tasks.
     for campaign in session.campaigns:
         session.campaign = campaign
         pending_deals = Deal.objects.filter(
             state=ProfileState.PENDING,
             campaign=campaign,
-        ).select_related("lead")
+        ).select_related("lead").order_by("update_date", "id")
 
-        for deal in pending_deals:
+        created = 0
+        rescheduled = 0
+        base_time = timezone.now()
+
+        for index, deal in enumerate(pending_deals):
             public_id = url_to_public_id(deal.lead.linkedin_url) if deal.lead.linkedin_url else None
             if not public_id:
                 continue
-            backoff = deal.backoff_hours or cfg["check_pending_recheck_after_hours"]
-            enqueue_check_pending(campaign.pk, public_id, backoff_hours=backoff)
+            target_time = base_time + timedelta(seconds=index * 15)
+            was_created, was_rescheduled = _bring_task_forward(
+                Task.TaskType.CHECK_PENDING,
+                {
+                    "campaign_id": campaign.pk,
+                    "public_id": public_id,
+                    "backoff_hours": cfg["check_pending_recheck_after_hours"],
+                },
+                target_time,
+            )
+            created += int(was_created)
+            rescheduled += int(was_rescheduled)
+        if created or rescheduled:
+            logger.info(
+                "[%s] pending catch-up queued: %d created, %d rescheduled",
+                campaign,
+                created,
+                rescheduled,
+            )
 
-    # 4. Follow_up tasks for CONNECTED profiles
+    # 4. Follow_up tasks for CONNECTED profiles. If the worker was down when a
+    # lead accepted, make sure those follow-ups get a prompt retry on startup.
     for campaign in session.campaigns:
         session.campaign = campaign
         connected_deals = Deal.objects.filter(
             state=ProfileState.CONNECTED,
             campaign=campaign,
-        ).select_related("lead")
+        ).select_related("lead").order_by("update_date", "id")
 
-        for deal in connected_deals:
+        created = 0
+        rescheduled = 0
+        base_time = timezone.now()
+
+        for index, deal in enumerate(connected_deals):
             public_id = url_to_public_id(deal.lead.linkedin_url) if deal.lead.linkedin_url else None
             if not public_id:
                 continue
-            enqueue_follow_up(
-                campaign.pk,
-                public_id,
-                delay_seconds=recommended_action_delay(
-                    session.linkedin_profile, ActionLog.ActionType.FOLLOW_UP,
-                ),
+            target_time = base_time + timedelta(seconds=index * 30)
+            was_created, was_rescheduled = _bring_task_forward(
+                Task.TaskType.FOLLOW_UP,
+                {
+                    "campaign_id": campaign.pk,
+                    "public_id": public_id,
+                },
+                target_time,
+            )
+            created += int(was_created)
+            rescheduled += int(was_rescheduled)
+        if created or rescheduled:
+            logger.info(
+                "[%s] follow-up catch-up queued: %d created, %d rescheduled",
+                campaign,
+                created,
+                rescheduled,
             )
 
     pending_count = Task.objects.pending().count()

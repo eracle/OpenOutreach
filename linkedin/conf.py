@@ -108,7 +108,7 @@ POST_ACCEPT_MESSAGE_TEMPLATE = os.getenv(
 )
 
 CAMPAIGN_CONFIG = {
-    "check_pending_recheck_after_hours": 24,
+    "check_pending_recheck_after_hours": 1,
     "enrich_min_interval": 1,
     "min_action_interval": 120,
     "qualification_n_mc_samples": 100,
