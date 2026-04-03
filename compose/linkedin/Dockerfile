@@ -15,7 +15,8 @@ FROM python:3.12-slim-bookworm AS runtime
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 
-# Install Playwright Chromium and its OS-level dependencies
+# Install Playwright Chromium to a shared path accessible by any user
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 RUN playwright install --with-deps chromium
 
 # VNC stack (started conditionally via ENABLE_VNC=true at runtime)
