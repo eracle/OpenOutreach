@@ -11,6 +11,8 @@ services:
     stdin_open: true
     tty: true
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    environment:
+      - ENABLE_VNC=true
     volumes:
       - .:/app
     ports:

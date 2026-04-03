@@ -5,23 +5,15 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-# Clean up any leftover X server lock files
-rm -f /tmp/.X99-lock
-
-# Start Xvfb on display :99 with a reasonable resolution
-Xvfb :99 -screen 0 1920x1080x24 &
-
-# Wait a second for Xvfb to start
-sleep 1
-
-# Set the DISPLAY environment variable
-export DISPLAY=:99
-
-# Start x11vnc attached to the Xvfb display (localhost-only, no password needed for local dev)
-x11vnc -display :99 -forever -shared -nopw &
-
-# Start noVNC web client (browser access on port 6080)
-websockify --web /opt/noVNC 6080 localhost:5900 &
+# Virtual display + VNC (only for open-source local use)
+if [ "${ENABLE_VNC:-false}" = "true" ]; then
+    rm -f /tmp/.X99-lock
+    Xvfb :99 -screen 0 1920x1080x24 &
+    sleep 1
+    export DISPLAY=:99
+    x11vnc -display :99 -forever -shared -nopw &
+    websockify --web /opt/noVNC 6080 localhost:5900 &
+fi
 
 # Run Django migrations and bootstrap CRM data
 python manage.py migrate --no-input

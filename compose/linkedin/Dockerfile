@@ -1,44 +1,46 @@
-# Use the official Playwright Python Docker image as base (pre-includes browsers and deps)
-FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
+# ── Stage 1: build dependencies ─────────────────────────────────
+FROM python:3.12-slim-bookworm AS deps
 
-# Install Xvfb, x11vnc, websockify for virtual display and VNC access
-# noVNC from GitHub (apt package has broken JS modules)
-RUN apt-get update && apt-get install -y xvfb x11vnc python3-websockify && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz | tar -xz -C /opt \
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN pip install uv
+
+COPY ./requirements /requirements
+ARG BUILD_ENV=production
+RUN uv pip install --system -r /requirements/${BUILD_ENV}.txt
+
+# ── Stage 2: runtime ────────────────────────────────────────────
+FROM python:3.12-slim-bookworm AS runtime
+
+# Copy installed Python packages from the build stage
+COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=deps /usr/local/bin /usr/local/bin
+
+# Install Playwright Chromium and its OS-level dependencies
+RUN playwright install --with-deps chromium
+
+# VNC stack (started conditionally via ENABLE_VNC=true at runtime)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        xvfb x11vnc python3-websockify curl \
+    && curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz \
+        | tar -xz -C /opt \
     && mv /opt/noVNC-1.6.0 /opt/noVNC \
-    && cp /opt/noVNC/vnc.html /opt/noVNC/index.html
+    && cp /opt/noVNC/vnc.html /opt/noVNC/index.html \
+    && rm -rf /var/lib/apt/lists/*
 
-# Define the application directory
+# Create non-root user (slim image doesn't ship one)
+RUN useradd -m -u 1000 ubuntu
+
 ARG APP_HOME=/app
 WORKDIR ${APP_HOME}
 
-# Define a build argument to determine which environment to use
-ARG BUILD_ENV=production
-
-# Install uv using pip (since the base has pip)
-RUN pip install uv
-
-# Copy requirements folder and install the dependencies based on BUILD_ENV using uv
-COPY ./requirements /requirements
-RUN uv pip install --system -r /requirements/${BUILD_ENV}.txt
-
-RUN apt-get update && playwright install --with-deps chromium && rm -rf /var/lib/apt/lists/*
-
-# Copy necessary startup scripts
 COPY ./compose/linkedin/start /start
 RUN sed -i 's/\r$//g' /start && chmod +x /start
 
-# Copy the entire application code to the app directory (owned by non-root user)
 COPY --chown=ubuntu:ubuntu . ${APP_HOME}
-
-# Ensure /app itself is owned by ubuntu (WORKDIR creates it as root)
 RUN chown ubuntu:ubuntu ${APP_HOME}
 
-# Run as non-root user to avoid creating root-owned files on bind mounts
-# Base image already has 'ubuntu' user with UID 1000
 USER ubuntu
-
-# Set the working directory
 WORKDIR ${APP_HOME}
 
 CMD ["/start"]
