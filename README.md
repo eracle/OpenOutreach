@@ -40,6 +40,9 @@ The system gets smarter with every decision. It starts by exploring broadly, the
 - 💾 **Self-hosted + full data ownership** — Everything runs locally, browse your CRM in a web UI
 - 🐳 **One-command setup** — Dockerized deployment, interactive onboarding
 - ✨ **AI-powered messaging** — LLM-generated personalized outreach (bring your own model)
+- 🔌 **Multi-provider LLM** — Supports Google Gemini (default) and OpenAI, switchable from the UI
+- 🖥️ **Professional CRM Dashboard** — Full web UI with lead/deal/campaign management, no terminal needed
+- 👥 **Multi-account support** — Run multiple LinkedIn profiles simultaneously, each with independent automation
 
 Perfect for founders, sales teams, and agencies who want powerful automation **without account bans or subscription lock-in**.
 
@@ -50,7 +53,7 @@ Perfect for founders, sales teams, and agencies who want powerful automation **w
 | # | What | Example |
 |---|------|---------|
 | 1 | **A LinkedIn account** | Your email + password |
-| 2 | **An LLM API key** | OpenAI, Anthropic, or any OpenAI-compatible endpoint |
+| 2 | **An LLM API key** | Google Gemini (default), OpenAI, or any OpenAI-compatible endpoint |
 | 3 | **A product description + target market** | "We sell cloud cost optimization for DevOps teams at mid-market SaaS companies" |
 
 That's it. No spreadsheets, no lead databases, no scraping setup.
@@ -100,18 +103,25 @@ make run
 ```
 The interactive onboarding will prompt for LinkedIn credentials, LLM API key, and campaign details on first run. Fully resumable — stop/restart anytime without losing progress.
 
-### 3. View Your Data (CRM Admin)
+### 3. CRM Web Interface
 
-OpenOutreach includes a full CRM web interface powered by DjangoCRM:
+OpenOutreach includes a full professional CRM web interface:
 ```bash
-# Create an admin account (first time only)
-python manage.py createsuperuser
-
-# Start the web server
 make admin
 ```
-Then open:
-- **Django Admin:** http://localhost:8000/admin/
+Then open **http://localhost:8000/** in your browser.
+
+**First-time setup:** On first visit, you'll be prompted to create an admin account. After that, you'll land on the CRM dashboard.
+
+**What you can do from the CRM:**
+- 📊 **Dashboard** — overview of leads, deals, pipeline, and activity
+- 👥 **Leads & Deals** — search, filter, and manage your pipeline
+- 🎯 **Campaigns** — create and configure outreach campaigns
+- 🔑 **Accounts** — add LinkedIn profiles, start/stop automation per account (no terminal needed)
+- ⚙️ **Settings** — configure LLM provider (Gemini/OpenAI), API keys, and model selection
+- 📋 **Tasks & Activity** — monitor task queue and action history
+
+> **Tip:** You can also manage everything via Django Admin at http://localhost:8000/admin/
 
 ---
 ## ✨ Features
@@ -124,7 +134,11 @@ Then open:
 | 🛡️ **Voyager API Scraping**       | Uses LinkedIn's internal API for accurate, structured profile data (no fragile HTML parsing).                        |
 | 🔄 **Stateful Pipeline**          | Tracks profile states (`QUALIFIED` → `READY_TO_CONNECT` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB — fully resumable. |
 | ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically.                      |
-| 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI — browse Leads, Contacts, Companies, and Deals.              |
+| �️ **Professional CRM UI**       | Full web dashboard with leads, deals, campaigns, tasks, activity log — built with Tailwind CSS, HTMX, and Chart.js. |
+| 🔌 **Multi-Provider LLM**         | Supports Google Gemini (default) and OpenAI. Switch provider and model from the Settings page — no code changes.     |
+| 👥 **Multi-Account Support**       | Run multiple LinkedIn profiles simultaneously, each with its own browser and daemon thread.                          |
+| 🎛️ **Web-Based Controls**         | Start/stop automation per account from the CRM — no terminal access needed.                                          |
+| 🚀 **First-Time Setup Wizard**    | Guided admin account creation on first launch. No CLI setup required.                                                |
 | 🐳 **One-Command Deployment**      | Dockerized setup with interactive onboarding and VNC browser view (`localhost:5900`).                                |
 | ✍️ **AI-Powered Messaging**        | Agentic multi-turn follow-up conversations — the AI agent reads history, sends messages, and schedules future follow-ups. |
 
@@ -166,23 +180,45 @@ Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign 
 │   └── testing.md                   # Testing strategy
 ├── linkedin/
 │   ├── actions/                     # Browser actions (connect, message, status, search)
-│   ├── agents/                      # ReAct follow-up agent (multi-turn conversations)
+│   ├── agents/                      # Follow-up agent (multi-turn conversations)
 │   ├── api/                         # Voyager API client + parser + messaging package
 │   ├── browser/                     # Session management, login, navigation
-│   ├── conf.py                      # Configuration loading (.env + defaults)
-│   ├── daemon.py                    # Task queue worker loop
+│   ├── conf.py                      # Configuration + LLM factory (Gemini/OpenAI)
+│   ├── daemon.py                    # Task queue worker loop (supports stop_event)
+│   ├── daemon_manager.py            # Thread-based daemon lifecycle per profile
 │   ├── db/                          # CRM-backed CRUD (leads, deals, enrichment, chat)
-│   ├── django_settings.py           # Django/CRM settings (SQLite at db.sqlite3)
-│   ├── management/setup_crm.py      # Idempotent CRM bootstrap (Dept, Stages, Closing Reasons)
+│   ├── django_settings.py           # Django settings (SQLite at data/db.sqlite3)
+│   ├── management/                  # Management commands (rundaemon, setup_crm, etc.)
 │   ├── ml/                          # Bayesian qualifier (GPR), embeddings, profile text
-│   ├── models.py                    # Django models (Campaign, LinkedInProfile, Task, etc.)
-│   ├── onboarding.py                # Interactive onboarding (campaign, credentials, LLM config)
+│   ├── models.py                    # Django models (SiteConfig, Campaign, LinkedInProfile, Task)
+│   ├── onboarding.py                # Interactive onboarding wizard
 │   ├── pipeline/                    # Candidate sourcing, qualification, pool management
 │   ├── setup/                       # GDPR, self-profile, freemium campaign setup
-│   └── tasks/                       # Task handlers (connect, check_pending, follow_up)
+│   ├── tasks/                       # Task handlers (connect, check_pending, follow_up)
+│   └── urls.py                      # Root URL config (CRM, admin, setup, auth)
+├── crm/
+│   ├── models/                      # Lead + Deal models
+│   ├── views.py                     # CRM web UI views (15+ pages)
+│   ├── urls.py                      # CRM URL routing (20 patterns)
+│   ├── middleware.py                # First-time setup redirect middleware
+│   ├── setup_views.py               # One-time admin account creation
+│   └── setup_urls.py                # Setup URL routing
+├── chat/
+│   └── models.py                    # ChatMessage model
+├── templates/crm/                   # Tailwind CSS + HTMX templates (17 templates)
+│   ├── base.html                    # Sidebar layout
+│   ├── setup.html                   # First-time admin setup
+│   ├── login.html                   # Login page
+│   ├── dashboard.html               # Dashboard with charts
+│   ├── accounts.html                # Accounts with daemon controls
+│   ├── campaigns.html, campaign_create.html  # Campaign management
+│   ├── leads.html, deals.html       # Lead/Deal lists
+│   ├── settings.html                # LLM + profile settings
+│   └── partials/                    # HTMX partial templates
 ├── manage.py                         # Django management (no args defaults to rundaemon)
 ├── local.yml                        # Docker Compose
-└── Makefile                         # Shortcuts (setup, run, admin, test)
+├── Makefile                         # Shortcuts (setup, run, admin, test)
+└── CHANGELOG.md                     # Version history
 ```
 
 ---

@@ -1,0 +1,81 @@
+{% extends "crm/base.html" %}
+{% block title %}Add Account — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <a href="{% url 'crm:accounts' %}" class="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+    Back to Accounts
+  </a>
+  <h1 class="text-2xl font-bold text-gray-900">Add LinkedIn Account</h1>
+  <p class="text-sm text-gray-500 mt-1">Add a new LinkedIn profile for automation</p>
+</div>
+
+<div class="card max-w-2xl">
+  <form method="post" class="p-6 space-y-5">
+    {% csrf_token %}
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Django Username *</label>
+      <input type="text" name="username" required class="input-field" placeholder="e.g. john_doe">
+      <p class="text-xs text-gray-400 mt-1">Internal username for the Django user account</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Email *</label>
+        <input type="text" name="linkedin_username" required class="input-field" placeholder="email@example.com">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Password *</label>
+        <input type="password" name="linkedin_password" required class="input-field" placeholder="Your LinkedIn password">
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Daily Connect Limit</label>
+        <input type="number" name="connect_daily_limit" value="20" min="1" class="input-field">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Weekly Connect Limit</label>
+        <input type="number" name="connect_weekly_limit" value="100" min="1" class="input-field">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Daily Follow-up Limit</label>
+        <input type="number" name="follow_up_daily_limit" value="30" min="1" class="input-field">
+      </div>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="legal_accepted" class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+        <span class="text-sm text-gray-700">Accept legal terms</span>
+      </label>
+    </div>
+
+    <!-- Assign campaigns -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Assign to Campaigns</label>
+      <div class="space-y-2 bg-gray-50 rounded-lg p-4">
+        {% for campaign in campaigns %}
+        <label class="flex items-center gap-3 cursor-pointer hover:bg-white p-2 rounded-lg transition-colors">
+          <input type="checkbox" name="campaigns" value="{{ campaign.pk }}"
+            class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+          <div>
+            <p class="text-sm font-medium text-gray-900">{{ campaign.name }}</p>
+            {% if campaign.is_freemium %}<span class="badge bg-purple-100 text-purple-700">Freemium</span>{% endif %}
+          </div>
+        </label>
+        {% empty %}
+        <p class="text-sm text-gray-400 text-center py-2">No campaigns yet. You can assign later.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="flex gap-3 pt-2">
+      <button type="submit" class="btn btn-primary">Add Account</button>
+      <a href="{% url 'crm:accounts' %}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -17,11 +17,20 @@ _RATE_LIMIT_FIELDS = {
 }
 
 
+LLM_PROVIDER_CHOICES = [
+    ("openai", "OpenAI"),
+    ("gemini", "Google Gemini"),
+]
+
+
 class SiteConfig(models.Model):
     """Singleton model for global site configuration (LLM keys, etc.)."""
 
+    llm_provider = models.CharField(
+        max_length=50, choices=LLM_PROVIDER_CHOICES, default="gemini",
+    )
     llm_api_key = models.CharField(max_length=500, blank=True, default="")
-    ai_model = models.CharField(max_length=200, blank=True, default="")
+    ai_model = models.CharField(max_length=200, blank=True, default="gemini-2.5-flash-lite")
     llm_api_base = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:

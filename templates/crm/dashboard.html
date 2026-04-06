@@ -1,0 +1,200 @@
+{% extends "crm/base.html" %}
+{% block title %}Dashboard — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+  <p class="text-sm text-gray-500 mt-1">Overview of your outreach pipeline</p>
+</div>
+
+<!-- Stats Grid -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+  <div class="stat-card">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-sm font-medium text-gray-500">Total Leads</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1">{{ total_leads }}</p>
+      </div>
+      <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+        <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+      </div>
+    </div>
+    <p class="text-xs text-gray-400 mt-2">{{ active_leads }} active</p>
+  </div>
+  <div class="stat-card">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-sm font-medium text-gray-500">Total Deals</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1">{{ total_deals }}</p>
+      </div>
+      <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+        <svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+      </div>
+    </div>
+    <p class="text-xs text-gray-400 mt-2">{{ pipeline.connected }} connected</p>
+  </div>
+  <div class="stat-card">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-sm font-medium text-gray-500">Actions Today</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1">{{ actions_today }}</p>
+      </div>
+      <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+        <svg class="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+      </div>
+    </div>
+    <p class="text-xs text-gray-400 mt-2">{{ actions_week }} this week</p>
+  </div>
+  <div class="stat-card">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-sm font-medium text-gray-500">Campaigns</p>
+        <p class="text-2xl font-bold text-gray-900 mt-1">{{ total_campaigns }}</p>
+      </div>
+      <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+        <svg class="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/></svg>
+      </div>
+    </div>
+    <p class="text-xs text-gray-400 mt-2">{{ pending_tasks }} pending tasks</p>
+  </div>
+</div>
+
+<!-- Pipeline + Chart Row -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+  <!-- Pipeline Funnel -->
+  <div class="card p-5">
+    <h3 class="text-sm font-semibold text-gray-900 mb-4">Pipeline Funnel</h3>
+    <div class="space-y-3">
+      {% with max_val=total_deals %}
+      <div>
+        <div class="flex justify-between text-xs mb-1"><span class="text-gray-600">Qualified</span><span class="font-medium">{{ pipeline.qualified }}</span></div>
+        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-blue-400 h-2 rounded-full" style="width:{% widthratio pipeline.qualified total_deals 100 %}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between text-xs mb-1"><span class="text-gray-600">Ready to Connect</span><span class="font-medium">{{ pipeline.ready }}</span></div>
+        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-indigo-400 h-2 rounded-full" style="width:{% widthratio pipeline.ready total_deals 100 %}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between text-xs mb-1"><span class="text-gray-600">Pending</span><span class="font-medium">{{ pipeline.pending }}</span></div>
+        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-yellow-400 h-2 rounded-full" style="width:{% widthratio pipeline.pending total_deals 100 %}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between text-xs mb-1"><span class="text-gray-600">Connected</span><span class="font-medium">{{ pipeline.connected }}</span></div>
+        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-green-400 h-2 rounded-full" style="width:{% widthratio pipeline.connected total_deals 100 %}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between text-xs mb-1"><span class="text-gray-600">Completed</span><span class="font-medium">{{ pipeline.completed }}</span></div>
+        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-emerald-500 h-2 rounded-full" style="width:{% widthratio pipeline.completed total_deals 100 %}%"></div></div>
+      </div>
+      <div>
+        <div class="flex justify-between text-xs mb-1"><span class="text-gray-600">Failed</span><span class="font-medium">{{ pipeline.failed }}</span></div>
+        <div class="w-full bg-gray-100 rounded-full h-2"><div class="bg-red-400 h-2 rounded-full" style="width:{% widthratio pipeline.failed total_deals 100 %}%"></div></div>
+      </div>
+      {% endwith %}
+    </div>
+  </div>
+
+  <!-- Activity Chart -->
+  <div class="card p-5 lg:col-span-2">
+    <h3 class="text-sm font-semibold text-gray-900 mb-4">Activity (14 days)</h3>
+    <canvas id="activityChart" height="160"></canvas>
+  </div>
+</div>
+
+<!-- Task Status -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+  <div class="stat-card flex items-center gap-4">
+    <div class="w-3 h-3 bg-yellow-400 rounded-full"></div>
+    <div><p class="text-sm text-gray-500">Pending Tasks</p><p class="text-xl font-bold">{{ pending_tasks }}</p></div>
+  </div>
+  <div class="stat-card flex items-center gap-4">
+    <div class="w-3 h-3 bg-blue-400 rounded-full animate-pulse"></div>
+    <div><p class="text-sm text-gray-500">Running Tasks</p><p class="text-xl font-bold">{{ running_tasks }}</p></div>
+  </div>
+  <div class="stat-card flex items-center gap-4">
+    <div class="w-3 h-3 bg-red-400 rounded-full"></div>
+    <div><p class="text-sm text-gray-500">Failed Tasks</p><p class="text-xl font-bold">{{ failed_tasks }}</p></div>
+  </div>
+</div>
+
+<!-- Recent Activity Tables -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- Recent Leads -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+      <h3 class="text-sm font-semibold text-gray-900">Recent Leads</h3>
+      <a href="{% url 'crm:leads' %}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">View all →</a>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead><tr><th>Name</th><th>Company</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for lead in recent_leads %}
+          <tr>
+            <td><a href="{% url 'crm:lead_detail' lead.pk %}" class="text-brand-600 hover:underline font-medium">{{ lead.first_name }} {{ lead.last_name }}</a></td>
+            <td>{{ lead.company_name|truncatechars:25 }}</td>
+            <td>
+              {% if lead.disqualified %}
+              <span class="badge bg-red-100 text-red-700">Disqualified</span>
+              {% else %}
+              <span class="badge bg-green-100 text-green-700">Active</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="text-center text-gray-400 py-6">No leads yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent Deals -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+      <h3 class="text-sm font-semibold text-gray-900">Recent Deals</h3>
+      <a href="{% url 'crm:deals' %}" class="text-xs text-brand-600 hover:text-brand-700 font-medium">View all →</a>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="table-base">
+        <thead><tr><th>Lead</th><th>Campaign</th><th>State</th></tr></thead>
+        <tbody>
+          {% for deal in recent_deals %}
+          <tr>
+            <td><a href="{% url 'crm:deal_detail' deal.pk %}" class="text-brand-600 hover:underline font-medium">{{ deal.lead.first_name }} {{ deal.lead.last_name }}</a></td>
+            <td>{{ deal.campaign.name|truncatechars:20 }}</td>
+            <td>
+              <span class="badge
+                {% if deal.state == 'Connected' %}bg-green-100 text-green-700
+                {% elif deal.state == 'Pending' %}bg-yellow-100 text-yellow-700
+                {% elif deal.state == 'Completed' %}bg-emerald-100 text-emerald-700
+                {% elif deal.state == 'Failed' %}bg-red-100 text-red-700
+                {% else %}bg-blue-100 text-blue-700{% endif %}">{{ deal.state }}</span>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3" class="text-center text-gray-400 py-6">No deals yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+fetch("{% url 'crm:chart_data' %}")
+  .then(r => r.json())
+  .then(data => {
+    new Chart(document.getElementById('activityChart'), {
+      type: 'line',
+      data: {
+        labels: data.labels,
+        datasets: [
+          { label: 'Actions', data: data.actions, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.4 },
+          { label: 'New Leads', data: data.leads, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.4 },
+        ]
+      },
+      options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, pointStyle: 'circle' } } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } }, x: { grid: { display: false } } } }
+    });
+  });
+</script>
+{% endblock %}

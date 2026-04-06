@@ -5,6 +5,7 @@ jsonpath-ng
 pandas
 langchain
 langchain-openai
+langchain-google-genai
 jinja2
 termcolor
 Django>=5.2,<7.0

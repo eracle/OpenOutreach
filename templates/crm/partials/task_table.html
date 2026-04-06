@@ -1,0 +1,35 @@
+<div class="overflow-x-auto">
+  <table class="table-base">
+    <thead>
+      <tr><th>Type</th><th>Status</th><th>Scheduled</th><th>Started</th><th>Completed</th><th>Error</th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for task in tasks %}
+      <tr>
+        <td>
+          <span class="badge
+            {% if task.task_type == 'connect' %}bg-blue-100 text-blue-700
+            {% elif task.task_type == 'check_pending' %}bg-yellow-100 text-yellow-700
+            {% else %}bg-purple-100 text-purple-700{% endif %}">{{ task.task_type }}</span>
+        </td>
+        <td>
+          <span class="inline-flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full
+              {% if task.status == 'pending' %}bg-yellow-400
+              {% elif task.status == 'running' %}bg-blue-400 animate-pulse
+              {% elif task.status == 'completed' %}bg-green-400
+              {% else %}bg-red-400{% endif %}"></span>
+            <span class="text-sm font-medium text-gray-700">{{ task.status|title }}</span>
+          </span>
+        </td>
+        <td class="text-xs text-gray-500">{{ task.scheduled_at|date:"M d, H:i" }}</td>
+        <td class="text-xs text-gray-500">{% if task.started_at %}{{ task.started_at|date:"H:i:s" }}{% else %}—{% endif %}</td>
+        <td class="text-xs text-gray-500">{% if task.completed_at %}{{ task.completed_at|date:"H:i:s" }}{% else %}—{% endif %}</td>
+        <td class="text-xs text-red-500 max-w-[300px] truncate">{{ task.error|truncatechars:60 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="text-center text-gray-400 py-10">No tasks found</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

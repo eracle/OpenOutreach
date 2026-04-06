@@ -1,0 +1,97 @@
+{% extends "crm/base.html" %}
+{% block title %}Edit Profile — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <a href="{% url 'crm:accounts' %}" class="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+    Back to Accounts
+  </a>
+  <h1 class="text-2xl font-bold text-gray-900">Edit Profile — {{ profile.user.username }}</h1>
+  <p class="text-sm text-gray-500 mt-1">{{ profile.linkedin_username }}</p>
+</div>
+
+<div class="card max-w-2xl">
+  <form method="post" class="p-6 space-y-5">
+    {% csrf_token %}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Email</label>
+        <input type="text" name="linkedin_username" value="{{ profile.linkedin_username }}" class="input-field">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">LinkedIn Password</label>
+        <input type="password" name="linkedin_password" value="{{ profile.linkedin_password }}" class="input-field">
+      </div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Daily Connect Limit</label>
+        <input type="number" name="connect_daily_limit" value="{{ profile.connect_daily_limit }}" min="1" class="input-field">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Weekly Connect Limit</label>
+        <input type="number" name="connect_weekly_limit" value="{{ profile.connect_weekly_limit }}" min="1" class="input-field">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Daily Follow-up Limit</label>
+        <input type="number" name="follow_up_daily_limit" value="{{ profile.follow_up_daily_limit }}" min="1" class="input-field">
+      </div>
+    </div>
+
+    <div class="flex items-center gap-6">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="active" {% if profile.active %}checked{% endif %}
+          class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+        <span class="text-sm text-gray-700">Active</span>
+      </label>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" name="legal_accepted" {% if profile.legal_accepted %}checked{% endif %}
+          class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+        <span class="text-sm text-gray-700">Legal Accepted</span>
+      </label>
+    </div>
+
+    <!-- Assign campaigns -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Campaign Assignments</label>
+      <div class="space-y-2 bg-gray-50 rounded-lg p-4">
+        {% for campaign in campaigns %}
+        <label class="flex items-center gap-3 cursor-pointer hover:bg-white p-2 rounded-lg transition-colors">
+          <input type="checkbox" name="campaigns" value="{{ campaign.pk }}"
+            {% if campaign.pk in assigned_ids %}checked{% endif %}
+            class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+          <div>
+            <p class="text-sm font-medium text-gray-900">{{ campaign.name }}</p>
+            {% if campaign.is_freemium %}<span class="badge bg-purple-100 text-purple-700">Freemium</span>{% endif %}
+          </div>
+        </label>
+        {% empty %}
+        <p class="text-sm text-gray-400 text-center py-2">No campaigns yet.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Session info -->
+    <div class="bg-gray-50 rounded-lg p-4">
+      <p class="text-sm font-medium text-gray-700 mb-2">Session Info</p>
+      <div class="flex items-center gap-4 text-sm">
+        {% if profile.cookie_data %}
+        <span class="badge bg-green-100 text-green-700">Browser session saved</span>
+        {% else %}
+        <span class="badge bg-gray-100 text-gray-500">No saved session — will require login</span>
+        {% endif %}
+        {% if profile.newsletter_processed %}
+        <span class="badge bg-blue-100 text-blue-700">Newsletter processed</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="flex gap-3 pt-2">
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+      <a href="{% url 'crm:accounts' %}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

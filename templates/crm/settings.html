@@ -1,0 +1,126 @@
+{% extends "crm/base.html" %}
+{% block title %}Settings — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Settings</h1>
+  <p class="text-sm text-gray-500 mt-1">Configure LLM provider and LinkedIn profiles</p>
+</div>
+
+{% if saved %}
+<div class="rounded-lg p-4 bg-green-50 text-green-800 border border-green-200 mb-6 flex items-center gap-2">
+  <svg class="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+  Settings saved successfully.
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- LLM Configuration -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-900">LLM Configuration</h3>
+      <p class="text-xs text-gray-500 mt-0.5">AI model used for qualification and follow-up</p>
+    </div>
+    <form method="post" class="p-5 space-y-4">
+      {% csrf_token %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+        <select name="llm_provider" class="input-field" id="llm-provider">
+          <option value="gemini" {% if cfg.llm_provider == "gemini" %}selected{% endif %}>Google Gemini</option>
+          <option value="openai" {% if cfg.llm_provider == "openai" %}selected{% endif %}>OpenAI</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+        <input type="text" name="ai_model" value="{{ cfg.ai_model }}" class="input-field" placeholder="e.g. gemini-2.5-flash-lite or gpt-4o-mini">
+        <p class="text-xs text-gray-400 mt-1">
+          <span id="model-hint">
+            {% if cfg.llm_provider == "gemini" %}
+            Popular: gemini-2.5-flash-lite, gemini-2.0-flash, gemini-2.5-pro
+            {% else %}
+            Popular: gpt-4o-mini, gpt-4o, gpt-4-turbo
+            {% endif %}
+          </span>
+        </p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+        <input type="password" name="llm_api_key" value="{{ cfg.llm_api_key }}" class="input-field" placeholder="Enter API key">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">API Base URL <span class="text-gray-400">(optional)</span></label>
+        <input type="url" name="llm_api_base" value="{{ cfg.llm_api_base }}" class="input-field" placeholder="Custom endpoint (OpenAI-compatible only)">
+        <p class="text-xs text-gray-400 mt-1">Leave blank for default endpoints. Only used with OpenAI provider.</p>
+      </div>
+      <button type="submit" class="btn-primary w-full">Save Configuration</button>
+    </form>
+  </div>
+
+  <!-- LinkedIn Profiles -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-900">LinkedIn Profiles</h3>
+      <p class="text-xs text-gray-500 mt-0.5">Accounts used for automation</p>
+    </div>
+    <div class="divide-y divide-gray-100">
+      {% for profile in profiles %}
+      <div class="p-5">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold
+              {% if profile.active %}bg-green-100 text-green-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+              {{ profile.user.username|first|upper }}
+            </div>
+            <div>
+              <p class="font-medium text-gray-900">{{ profile.user.username }}</p>
+              <p class="text-xs text-gray-500">{{ profile.linkedin_username }}</p>
+            </div>
+          </div>
+          <div class="text-right">
+            {% if profile.active %}
+            <span class="badge bg-green-100 text-green-700">Active</span>
+            {% else %}
+            <span class="badge bg-gray-100 text-gray-500">Inactive</span>
+            {% endif %}
+          </div>
+        </div>
+        <div class="mt-3 grid grid-cols-3 gap-2 text-xs">
+          <div class="bg-gray-50 rounded-lg p-2 text-center">
+            <p class="text-gray-500">Daily Connect</p>
+            <p class="font-semibold text-gray-700">{{ profile.connect_daily_limit }}</p>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-2 text-center">
+            <p class="text-gray-500">Weekly Connect</p>
+            <p class="font-semibold text-gray-700">{{ profile.connect_weekly_limit }}</p>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-2 text-center">
+            <p class="text-gray-500">Daily Follow-up</p>
+            <p class="font-semibold text-gray-700">{{ profile.follow_up_daily_limit }}</p>
+          </div>
+        </div>
+        <div class="mt-2 flex gap-2 text-xs">
+          {% if profile.legal_accepted %}
+          <span class="badge bg-green-100 text-green-700">Legal Accepted</span>
+          {% endif %}
+          {% if profile.cookie_data %}
+          <span class="badge bg-blue-100 text-blue-700">Session Saved</span>
+          {% endif %}
+        </div>
+      </div>
+      {% empty %}
+      <div class="p-10 text-center text-gray-400">No LinkedIn profiles configured</div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('llm-provider').addEventListener('change', function() {
+  const hint = document.getElementById('model-hint');
+  if (this.value === 'gemini') {
+    hint.textContent = 'Popular: gemini-2.5-flash-lite, gemini-2.0-flash, gemini-2.5-pro';
+  } else {
+    hint.textContent = 'Popular: gpt-4o-mini, gpt-4o, gpt-4-turbo';
+  }
+});
+</script>
+{% endblock %}

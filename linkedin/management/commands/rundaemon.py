@@ -75,7 +75,7 @@ class Command(BaseCommand):
         from linkedin.browser.registry import get_first_active_profile, get_or_create_session
         from linkedin.conf import get_llm_config
 
-        llm_api_key, _, _ = get_llm_config()
+        llm_api_key = get_llm_config()[1]
         if not llm_api_key:
             logger.error("LLM_API_KEY is required. Set it in Site Configuration (Django Admin).")
             sys.exit(1)
@@ -90,10 +90,7 @@ class Command(BaseCommand):
         if not session.campaigns:
             logger.error("No campaigns found for this user.")
             sys.exit(1)
-        campaign = next(
-            (c for c in session.campaigns if not c.is_freemium), None,
-        ) or session.campaigns[0]
-        session.campaign = campaign
+        session.campaign = session.campaigns[0]
 
         return session
 

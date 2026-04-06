@@ -1,0 +1,46 @@
+<div class="overflow-x-auto">
+  <table class="table-base">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Company</th>
+        <th>LinkedIn</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for lead in leads %}
+      <tr>
+        <td>
+          <a href="{% url 'crm:lead_detail' lead.pk %}" class="text-brand-600 hover:underline font-medium">
+            {{ lead.first_name }} {{ lead.last_name }}
+          </a>
+        </td>
+        <td>{{ lead.company_name|truncatechars:30 }}</td>
+        <td>
+          <a href="{{ lead.linkedin_url }}" target="_blank" class="text-gray-500 hover:text-brand-600 text-xs">
+            {{ lead.public_identifier }}
+          </a>
+        </td>
+        <td>
+          {% if lead.disqualified %}
+          <span class="badge bg-red-100 text-red-700">Disqualified</span>
+          {% else %}
+          <span class="badge bg-green-100 text-green-700">Active</span>
+          {% endif %}
+        </td>
+        <td class="text-xs text-gray-400">{{ lead.creation_date|date:"M d, Y" }}</td>
+        <td>
+          <a href="{% url 'crm:lead_detail' lead.pk %}" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="text-center text-gray-400 py-10">No leads found</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

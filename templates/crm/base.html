@@ -1,0 +1,153 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}OpenOutreach CRM{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .sidebar-link { display:flex; align-items:center; gap:0.75rem; padding:0.625rem 0.75rem; border-radius:0.5rem; font-size:0.875rem; font-weight:500; transition:color 0.15s,background 0.15s; color:#374151; text-decoration:none; }
+    .sidebar-link:hover { background:#eff6ff; color:#1d4ed8; }
+    .sidebar-link.active { background:#dbeafe; color:#1d4ed8; font-weight:600; }
+    .stat-card { background:#fff; border-radius:0.75rem; border:1px solid #e5e7eb; padding:1.25rem; box-shadow:0 1px 2px rgba(0,0,0,.05); }
+    .badge { display:inline-flex; align-items:center; padding:0.125rem 0.625rem; border-radius:9999px; font-size:0.75rem; font-weight:500; line-height:1.25rem; }
+    .btn { display:inline-flex; align-items:center; justify-content:center; padding:0.5rem 1rem; border-radius:0.5rem; font-size:0.875rem; font-weight:500; transition:all 0.15s; cursor:pointer; text-decoration:none; }
+    .btn:focus { outline:none; box-shadow:0 0 0 2px #fff,0 0 0 4px #3b82f6; }
+    .btn-primary { background:#2563eb; color:#fff; border:none; }
+    .btn-primary:hover { background:#1d4ed8; }
+    .btn-secondary { background:#fff; color:#374151; border:1px solid #d1d5db; }
+    .btn-secondary:hover { background:#f9fafb; }
+    .btn-danger { background:#dc2626; color:#fff; border:none; }
+    .btn-danger:hover { background:#b91c1c; }
+    .table-base { min-width:100%; border-collapse:collapse; }
+    .table-base thead { background:#f9fafb; }
+    .table-base th { padding:0.75rem 1rem; text-align:left; font-size:0.75rem; font-weight:600; color:#6b7280; text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid #e5e7eb; }
+    .table-base td { padding:0.75rem 1rem; font-size:0.875rem; color:#374151; white-space:nowrap; border-bottom:1px solid #f3f4f6; }
+    .table-base tbody tr:hover { background:#f9fafb; }
+    .input-field { display:block; width:100%; border-radius:0.5rem; border:1px solid #d1d5db; box-shadow:0 1px 2px rgba(0,0,0,.05); font-size:0.875rem; padding:0.5rem 0.75rem; outline:none; }
+    .input-field:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,.15); }
+    .card { background:#fff; border-radius:0.75rem; box-shadow:0 1px 2px rgba(0,0,0,.05); border:1px solid #e5e7eb; }
+  </style>
+</head>
+<body class="h-full">
+  <div class="flex h-full">
+    <!-- Sidebar -->
+    <aside class="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-white border-r border-gray-200">
+      <div class="flex items-center gap-2 px-5 py-5 border-b border-gray-100">
+        <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <span class="text-lg font-bold text-gray-900">OpenOutreach</span>
+      </div>
+      <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <a href="{% url 'crm:dashboard' %}" class="sidebar-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0a1 1 0 01-1-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1h-2z"/></svg>
+          Dashboard
+        </a>
+        <a href="{% url 'crm:leads' %}" class="sidebar-link {% if 'lead' in request.resolver_match.url_name %}active{% endif %}">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Leads
+        </a>
+        <a href="{% url 'crm:deals' %}" class="sidebar-link {% if 'deal' in request.resolver_match.url_name %}active{% endif %}">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+          Deals
+        </a>
+        <a href="{% url 'crm:campaigns' %}" class="sidebar-link {% if 'campaign' in request.resolver_match.url_name %}active{% endif %}">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z"/></svg>
+          Campaigns
+        </a>
+        <a href="{% url 'crm:accounts' %}" class="sidebar-link {% if 'account' in request.resolver_match.url_name or 'profile' in request.resolver_match.url_name or 'daemon' in request.resolver_match.url_name %}active{% endif %}">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Accounts
+        </a>
+        <a href="{% url 'crm:tasks' %}" class="sidebar-link {% if request.resolver_match.url_name == 'tasks' %}active{% endif %}">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Tasks
+        </a>
+        <a href="{% url 'crm:activity' %}" class="sidebar-link {% if request.resolver_match.url_name == 'activity' %}active{% endif %}">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Activity Log
+        </a>
+        <div class="pt-4 mt-4 border-t border-gray-200">
+          <a href="{% url 'crm:settings' %}" class="sidebar-link {% if request.resolver_match.url_name == 'settings' %}active{% endif %}">
+            <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            Settings
+          </a>
+          <a href="{% url 'admin:index' %}" class="sidebar-link" target="_blank">
+            <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+            Django Admin
+          </a>
+        </div>
+      </nav>
+      <div class="px-4 py-3 border-t border-gray-200">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center text-sm font-semibold">
+            {{ request.user.username|first|upper }}
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-gray-900 truncate">{{ request.user.username }}</p>
+          </div>
+          <a href="{% url 'logout' %}" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+          </a>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Mobile sidebar toggle -->
+    <div class="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 bg-brand-600 rounded-lg flex items-center justify-center">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <span class="font-bold text-gray-900">OpenOutreach</span>
+      </div>
+      <button onclick="document.getElementById('mobile-menu').classList.toggle('hidden')" class="p-2 rounded-md text-gray-400 hover:text-gray-600">
+        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+    </div>
+    <div id="mobile-menu" class="hidden lg:hidden fixed inset-0 z-50 bg-gray-900/50" onclick="this.classList.add('hidden')">
+      <div class="w-64 bg-white h-full p-4 space-y-1" onclick="event.stopPropagation()">
+        <a href="{% url 'crm:dashboard' %}" class="sidebar-link">Dashboard</a>
+        <a href="{% url 'crm:leads' %}" class="sidebar-link">Leads</a>
+        <a href="{% url 'crm:deals' %}" class="sidebar-link">Deals</a>
+        <a href="{% url 'crm:campaigns' %}" class="sidebar-link">Campaigns</a>
+        <a href="{% url 'crm:accounts' %}" class="sidebar-link">Accounts</a>
+        <a href="{% url 'crm:tasks' %}" class="sidebar-link">Tasks</a>
+        <a href="{% url 'crm:activity' %}" class="sidebar-link">Activity</a>
+        <a href="{% url 'crm:settings' %}" class="sidebar-link">Settings</a>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <main class="lg:pl-64 flex-1 min-h-screen">
+      <div class="px-4 sm:px-6 lg:px-8 py-6 lg:py-8 mt-14 lg:mt-0">
+        {% if messages %}
+        <div class="mb-4 space-y-2">
+          {% for message in messages %}
+          <div class="rounded-lg p-4 {% if message.tags == 'success' %}bg-green-50 text-green-800 border border-green-200{% elif message.tags == 'error' %}bg-red-50 text-red-800 border border-red-200{% else %}bg-blue-50 text-blue-800 border border-blue-200{% endif %}">
+            {{ message }}
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% block content %}{% endblock %}
+      </div>
+    </main>
+  </div>
+</body>
+</html>

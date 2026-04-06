@@ -52,7 +52,7 @@ def load_kit_config(kit_dir: Path) -> Optional[dict]:
     """Parse config.json from kit directory. Returns dict or None."""
     try:
         config_path = kit_dir / "config.json"
-        data = json.loads(config_path.read_text())
+        data = json.loads(config_path.read_text(encoding="utf-8"))
 
         required = ("action_fraction", "product_docs", "campaign_objective",
                      "booking_link")

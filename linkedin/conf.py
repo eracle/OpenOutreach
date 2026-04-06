@@ -66,12 +66,43 @@ CAMPAIGN_CONFIG = {
 }
 
 # ----------------------------------------------------------------------
-# Global OpenAI / LLM config (stored in DB via SiteConfig)
+# Global LLM config (stored in DB via SiteConfig)
 # ----------------------------------------------------------------------
 
 def get_llm_config():
-    """Return (llm_api_key, ai_model, llm_api_base) from the DB."""
+    """Return (llm_provider, llm_api_key, ai_model, llm_api_base) from the DB."""
     from linkedin.models import SiteConfig
     cfg = SiteConfig.load()
-    return cfg.llm_api_key, cfg.ai_model, cfg.llm_api_base or None
+    return cfg.llm_provider, cfg.llm_api_key, cfg.ai_model, cfg.llm_api_base or None
+
+
+def get_llm(temperature: float = 0.7, timeout: int = 60, max_retries: int = 3):
+    """Return a LangChain chat model based on the configured provider.
+
+    Includes automatic retry with exponential backoff for rate-limit (429)
+    and transient server errors (5xx).
+    """
+    provider, api_key, model, api_base = get_llm_config()
+    if not api_key:
+        raise ValueError("LLM_API_KEY is not set in Site Configuration.")
+
+    if provider == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=temperature,
+            google_api_key=api_key,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+    else:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model,
+            temperature=temperature,
+            api_key=api_key,
+            base_url=api_base,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
 

@@ -1,0 +1,38 @@
+{% extends "crm/base.html" %}
+{% block title %}Tasks — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Tasks</h1>
+  <p class="text-sm text-gray-500 mt-1">Monitor automation task queue</p>
+</div>
+
+<!-- Filters -->
+<div class="card p-4 mb-6">
+  <form method="get" class="flex flex-wrap gap-3 items-end">
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
+      <select name="status" class="input-field" onchange="this.form.submit()">
+        <option value="">All</option>
+        <option value="pending" {% if status == "pending" %}selected{% endif %}>Pending</option>
+        <option value="running" {% if status == "running" %}selected{% endif %}>Running</option>
+        <option value="completed" {% if status == "completed" %}selected{% endif %}>Completed</option>
+        <option value="failed" {% if status == "failed" %}selected{% endif %}>Failed</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Type</label>
+      <select name="type" class="input-field" onchange="this.form.submit()">
+        <option value="">All</option>
+        <option value="connect" {% if task_type == "connect" %}selected{% endif %}>Connect</option>
+        <option value="check_pending" {% if task_type == "check_pending" %}selected{% endif %}>Check Pending</option>
+        <option value="follow_up" {% if task_type == "follow_up" %}selected{% endif %}>Follow Up</option>
+      </select>
+    </div>
+    <button type="submit" class="btn-primary">Filter</button>
+  </form>
+</div>
+
+<div class="card overflow-hidden" id="task-table">
+  {% include "crm/partials/task_table.html" %}
+</div>
+{% endblock %}

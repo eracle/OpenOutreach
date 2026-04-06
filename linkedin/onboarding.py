@@ -44,6 +44,7 @@ class OnboardConfig:
     llm_api_key: str = ""
     ai_model: str = ""
     llm_api_base: str = ""
+    llm_provider: str = ""
     newsletter: bool = True
     connect_daily_limit: int = DEFAULT_CONNECT_DAILY_LIMIT
     connect_weekly_limit: int = DEFAULT_CONNECT_WEEKLY_LIMIT
@@ -71,7 +72,7 @@ _ACCOUNT_KEYS = {
     "connect_daily_limit", "connect_weekly_limit", "follow_up_daily_limit",
     "legal_acceptance",
 }
-_LLM_KEYS = {"llm_api_key", "ai_model", "llm_api_base"}
+_LLM_KEYS = {"llm_api_key", "ai_model", "llm_api_base", "llm_provider"}
 _ALL_KEYS = _CAMPAIGN_KEYS | _ACCOUNT_KEYS | _LLM_KEYS
 
 
@@ -244,6 +245,7 @@ def apply(config: OnboardConfig) -> None:
         ("llm_api_key", config.llm_api_key),
         ("ai_model", config.ai_model),
         ("llm_api_base", config.llm_api_base),
+        ("llm_provider", config.llm_provider),
     ]:
         if val:
             setattr(cfg, field, val)
