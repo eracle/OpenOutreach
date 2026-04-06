@@ -1,0 +1,47 @@
+<div class="overflow-x-auto">
+  <table class="table-base">
+    <thead>
+      <tr><th>Lead</th><th>Campaign</th><th>State</th><th>Closing</th><th>Reason</th><th>Attempts</th><th>Updated</th><th></th></tr>
+    </thead>
+    <tbody class="divide-y divide-gray-100">
+      {% for deal in deals %}
+      <tr>
+        <td>
+          <a href="{% url 'crm:lead_detail' deal.lead.pk %}" class="text-brand-600 hover:underline font-medium">
+            {{ deal.lead.first_name }} {{ deal.lead.last_name }}
+          </a>
+          <div class="text-xs text-gray-400">{{ deal.lead.company_name|truncatechars:25 }}</div>
+        </td>
+        <td>{{ deal.campaign.name|truncatechars:20 }}</td>
+        <td>
+          <span class="badge
+            {% if deal.state == 'Connected' %}bg-green-100 text-green-700
+            {% elif deal.state == 'Pending' %}bg-yellow-100 text-yellow-700
+            {% elif deal.state == 'Completed' %}bg-emerald-100 text-emerald-700
+            {% elif deal.state == 'Failed' %}bg-red-100 text-red-700
+            {% elif deal.state == 'Ready to Connect' %}bg-indigo-100 text-indigo-700
+            {% else %}bg-blue-100 text-blue-700{% endif %}">{{ deal.state }}</span>
+        </td>
+        <td>
+          {% if deal.closing_reason %}
+          <span class="badge
+            {% if deal.closing_reason == 'Completed' %}bg-emerald-100 text-emerald-700
+            {% elif deal.closing_reason == 'Disqualified' %}bg-orange-100 text-orange-700
+            {% else %}bg-red-100 text-red-700{% endif %}">{{ deal.closing_reason }}</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-xs max-w-[200px] truncate">{{ deal.reason|truncatechars:40 }}</td>
+        <td>{{ deal.connect_attempts }}</td>
+        <td class="text-xs text-gray-400">{{ deal.update_date|date:"M d, H:i" }}</td>
+        <td>
+          <a href="{% url 'crm:deal_detail' deal.pk %}" class="text-gray-400 hover:text-gray-600">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" class="text-center text-gray-400 py-10">No deals found</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

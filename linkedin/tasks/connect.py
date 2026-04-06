@@ -41,21 +41,23 @@ class ConnectStrategy:
 
 
 def strategy_for(campaign, qualifiers):
-    """Build the right ConnectStrategy based on campaign type."""
+    """Build the ConnectStrategy for a campaign."""
     qualifier = qualifiers.get(campaign.pk)
+    if qualifier is None:
+        # Build qualifier on demand for campaigns added after daemon start
+        from crm.models import Lead
+        from linkedin.conf import CAMPAIGN_CONFIG as _cfg
+        from linkedin.ml.qualifier import BayesianQualifier
 
-    if campaign.is_freemium:
-        from linkedin.db.deals import create_freemium_deal
-        from linkedin.pipeline.freemium_pool import find_freemium_candidate
-
-        fraction = campaign.action_fraction
-        return ConnectStrategy(
-            find_candidate=lambda s: find_freemium_candidate(s, qualifier),
-            pre_connect=lambda s, pid: create_freemium_deal(s, pid),
-            delay=CAMPAIGN_CONFIG["connect_delay_seconds"],
-            action_fraction=fraction,
-            qualifier=qualifier,
+        qualifier = BayesianQualifier(
+            seed=42,
+            n_mc_samples=_cfg["qualification_n_mc_samples"],
+            campaign=campaign,
         )
+        X, y = Lead.get_labeled_arrays(campaign)
+        if len(X) > 0:
+            qualifier.warm_start(X, y)
+        qualifiers[campaign.pk] = qualifier
 
     from linkedin.pipeline.pools import find_candidate
 

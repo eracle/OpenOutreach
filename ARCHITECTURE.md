@@ -19,6 +19,27 @@ Startup sequence:
 
 Docker `start` script handles only Xvfb/VNC setup, then `exec python manage.py rundaemon "$@"`.
 
+### Web-based startup (CRM UI)
+
+Alternative to terminal-based `rundaemon`. The CRM web UI can start/stop daemons per-profile:
+
+1. User clicks "Start Daemon" on `/crm/accounts/` page.
+2. `daemon_manager.start_daemon(profile_pk)` creates a `DaemonInfo` entry and spawns a background `threading.Thread`.
+3. Thread creates an `AccountSession` via `get_or_create_session()`, validates LLM key + campaigns.
+4. Thread calls `run_daemon(session, stop_event=info.stop_event)`.
+5. `run_daemon()` checks `stop_event.is_set()` between tasks. When queue is empty, web-started daemons sleep 30s and re-check instead of exiting.
+6. User clicks "Stop Daemon" → sets `stop_event` → daemon exits after current task.
+
+Multiple profiles can run simultaneously, each in its own thread with its own browser.
+
+### First-time setup flow
+
+When no superuser exists in the database:
+1. `FirstTimeSetupMiddleware` intercepts all requests and redirects to `/setup/`.
+2. User creates admin account (username + password with confirmation).
+3. User is auto-logged in and redirected to `/crm/`.
+4. Middleware caches the check — never redirects again after a superuser exists.
+
 ### Other management commands
 
 - `onboard` — standalone onboarding (interactive or `--non-interactive` with `--config-file` / individual flags).
@@ -35,7 +56,7 @@ Single write path: `apply(config)` — idempotent, creates missing Campaign, Lin
 
 1. **Campaign** — name, product docs, objective, booking link, seed URLs. Creates `Campaign` with M2M user membership.
 2. **LinkedInProfile** — email, password, newsletter, rate limits. Django username from email slug.
-3. **LLM config** — `LLM_API_KEY`, `AI_MODEL`, `LLM_API_BASE` → writes to `SiteConfig` singleton in DB.
+3. **LLM config** — `LLM_PROVIDER`, `LLM_API_KEY`, `AI_MODEL`, `LLM_API_BASE` → writes to `SiteConfig` singleton in DB.
 4. **Legal notice** — per-account acceptance stored as `LinkedInProfile.legal_accepted`.
 
 ## Profile State Machine
@@ -47,6 +68,8 @@ Single write path: `apply(config)` — idempotent, creates missing Campaign, Lin
 ## Task Queue
 
 Persistent queue backed by `Task` model. Worker loop in `daemon.py`: `seconds_until_active()` guard pauses outside active hours/rest days → pop oldest due task → set campaign on session → RUNNING → dispatch via `_HANDLERS` dict → COMPLETED/FAILED. Failures captured by `failure_diagnostics()` context manager. `heal_tasks()` reconciles on startup.
+
+When started via web UI with a `stop_event`, the loop checks `stop_event.is_set()` before each iteration and uses `stop_event.wait(seconds)` instead of `time.sleep()` for interruptible waiting. On empty queue, web-started daemons sleep 30s and re-check rather than exiting.
 
 Three task types (handlers in `linkedin/tasks/`, signature: `handle_*(task, session, qualifiers)`):
 
@@ -62,19 +85,60 @@ GPR (sklearn, ConstantKernel * RBF) inside Pipeline(StandardScaler, GPR) with BA
 2. **LLM decision** — All decisions via LLM (`qualify_lead.j2`). GP only for candidate selection and confidence gate.
 3. **READY_TO_CONNECT gate** — P(f > 0.5) above `min_ready_to_connect_prob` (0.9) promotes QUALIFIED → READY_TO_CONNECT.
 
-384-dim FastEmbed embeddings stored directly on Lead model, per-campaign GP models at ``Campaign.model_blob` (BinaryField)`. Cold start returns None until >=2 labels of both classes.
+384-dim FastEmbed embeddings stored directly on Lead model, per-campaign GP models at `Campaign.model_blob` (BinaryField). Cold start returns None until >=2 labels of both classes.
 
 ## Django Apps
 
 Three apps in `INSTALLED_APPS`:
 
-- **`linkedin`** — Main app: Campaign (with users M2M), LinkedInProfile, SearchKeyword, ActionLog, Task models. All automation logic.
-- **`crm`** — Lead (with embedding) and Deal models (in `crm/models/lead.py` and `crm/models/deal.py`). Also defines `ClosingReason` enum.
+- **`linkedin`** — Main app: Campaign (with users M2M), LinkedInProfile, SiteConfig, SearchKeyword, ActionLog, Task models. All automation logic.
+- **`crm`** — Lead (with embedding) and Deal models (in `crm/models/lead.py` and `crm/models/deal.py`). Also defines `ClosingReason` enum. Custom CRM views, middleware, setup views.
 - **`chat`** — `ChatMessage` model (GenericForeignKey to any object, content, owner, answer_to threading, topic).
+
+## CRM Web UI
+
+Professional web interface replacing Django Admin, built with Tailwind CSS CDN + HTMX + Chart.js. No build step required.
+
+### Pages & Views (`crm/views.py`)
+
+| Page | URL | Description |
+|------|-----|-------------|
+| Dashboard | `/crm/` | Stats cards, pipeline funnel, Chart.js activity chart, recent leads/deals, task status |
+| Leads | `/crm/leads/` | Searchable lead list with status/campaign filters, HTMX live search |
+| Lead Detail | `/crm/leads/<pk>/` | Profile card, enriched data, deals table, conversation view, disqualify toggle |
+| Deals | `/crm/deals/` | Deal list with state/campaign filters |
+| Deal Detail | `/crm/deals/<pk>/` | Deal info card, conversation thread |
+| Campaigns | `/crm/campaigns/` | Campaign cards grid with deal/user counts |
+| Campaign Detail | `/crm/campaigns/<pk>/` | Pipeline stats, campaign info, search keywords, deals table |
+| Campaign Edit | `/crm/campaigns/<pk>/edit/` | Campaign settings form |
+| Campaign Create | `/crm/campaigns/new/` | New campaign with profile assignment |
+| Accounts | `/crm/accounts/` | LinkedIn profiles with daemon start/stop controls |
+| Add Account | `/crm/accounts/add/` | New LinkedIn profile with credentials, limits, campaign assignment |
+| Edit Profile | `/crm/accounts/<pk>/edit/` | Edit credentials, limits, active status, campaigns |
+| Tasks | `/crm/tasks/` | Task list with status/type filters |
+| Activity Log | `/crm/activity/` | Chronological action log |
+| Settings | `/crm/settings/` | LLM provider/model/key config, LinkedIn profile overview |
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/crm/api/chart-data/` | GET | JSON data for dashboard Chart.js graphs |
+| `/crm/api/daemon-status/` | GET | JSON daemon status for all profiles (polled by accounts page) |
+| `/crm/accounts/<pk>/start/` | POST | Start daemon for a LinkedIn profile |
+| `/crm/accounts/<pk>/stop/` | POST | Stop daemon for a LinkedIn profile |
+
+### Middleware (`crm/middleware.py`)
+
+- **`FirstTimeSetupMiddleware`** — redirects to `/setup/` if no superuser exists. Caches the check after first superuser is created. Exempt paths: `/setup/`, `/static/`, `/admin/`.
+
+### Templates (`templates/crm/`)
+
+Base layout (`base.html`) with responsive sidebar navigation. All pages extend base. HTMX partials in `partials/` subfolder for live search (leads, deals, tasks).
 
 ## CRM Data Model
 
-- **SiteConfig** (`linkedin/models.py`) — Singleton (pk=1). `llm_api_key`, `ai_model`, `llm_api_base`. Accessed via `SiteConfig.load()` / `conf.get_llm_config()`.
+- **SiteConfig** (`linkedin/models.py`) — Singleton (pk=1). `llm_provider` (openai/gemini), `llm_api_key`, `ai_model` (default: `gemini-2.5-flash-lite`), `llm_api_base`. Accessed via `SiteConfig.load()` / `conf.get_llm_config()`. Factory `conf.get_llm()` returns provider-appropriate LangChain chat model (`ChatGoogleGenerativeAI` for Gemini, `ChatOpenAI` for OpenAI).
 - **Campaign** (`linkedin/models.py`) — `name` (unique), `users` (M2M to User), `product_docs`, `campaign_objective`, `booking_link`, `is_freemium`, `action_fraction`, `seed_public_ids` (JSONField).
 - **LinkedInProfile** (`linkedin/models.py`) — 1:1 with User. `self_lead` FK to Lead (nullable, set on first self-profile discovery). Credentials, rate limits (`connect_daily_limit`, `connect_weekly_limit`, `follow_up_daily_limit`). Methods: `can_execute`/`record_action`/`mark_exhausted`. In-memory `_exhausted` dict for daily rate limit caching.
 - **SearchKeyword** (`linkedin/models.py`) — FK to Campaign. `keyword`, `used`, `used_at`. Unique on `(campaign, keyword)`.
@@ -84,9 +148,20 @@ Three apps in `INSTALLED_APPS`:
 - **Task** (`linkedin/models.py`) — `task_type` (connect/check_pending/follow_up), `status` (pending/running/completed/failed), `scheduled_at`, `payload` (JSONField), `error`, `started_at`, `completed_at`. Composite index on `(status, scheduled_at)`.
 - **ChatMessage** (`chat/models.py`) — GenericForeignKey to any object. `content`, `owner`, `answer_to` (self FK), `topic` (self FK), `recipients`, `to` (M2M to User).
 
+## LLM Integration
+
+Multi-provider support via `conf.py:get_llm()` factory:
+
+- **`SiteConfig.llm_provider`** — `"openai"` or `"gemini"` (default: `"gemini"`).
+- **Gemini** — uses `langchain-google-genai`'s `ChatGoogleGenerativeAI`. Default model: `gemini-2.5-flash-lite`.
+- **OpenAI** — uses `langchain-openai`'s `ChatOpenAI`. Supports custom `llm_api_base` for compatible endpoints.
+- **`get_llm_config()`** — returns 4-tuple: `(provider, key, model, base)` from DB singleton.
+- **Call sites** — `ml/qualifier.py` (qualification), `agents/follow_up.py` (follow-up decisions), `pipeline/search_keywords.py` (keyword generation). All use `get_llm()` with Pydantic structured output.
+
 ## Key Modules
 
-- **`daemon.py`** — Worker loop with active-hours guard (`ENABLE_ACTIVE_HOURS` flag, `seconds_until_active()`), `_build_qualifiers()`, `heal_tasks()`, freemium import, `_FreemiumRotator`.
+- **`daemon.py`** — Worker loop with active-hours guard (`ENABLE_ACTIVE_HOURS` flag, `seconds_until_active()`), `_build_qualifiers()`, `heal_tasks()`, freemium import, `_FreemiumRotator`. Supports optional `stop_event` for graceful web-triggered shutdown.
+- **`daemon_manager.py`** — Thread-based daemon lifecycle per LinkedInProfile. `DaemonInfo` dataclass tracks state (stopped/starting/running/stopping/error), thread, stop event, started_at, error. Module-level `_daemons` registry. Functions: `start_daemon()`, `stop_daemon()`, `get_all_daemons()`, `is_running()`.
 - **`diagnostics.py`** — `failure_diagnostics()` context manager, `capture_failure()` saves page HTML/screenshot/traceback to `/tmp/openoutreach-diagnostics/`.
 - **`tasks/connect.py`** — `handle_connect`, `ConnectStrategy`, `enqueue_connect`/`enqueue_check_pending`/`enqueue_follow_up`.
 - **`tasks/check_pending.py`** — `handle_check_pending`, exponential backoff.
@@ -109,7 +184,7 @@ Three apps in `INSTALLED_APPS`:
 - **`db/deals.py`** — Deal/state ops, `set_profile_state()`, `increment_connect_attempts()`, `create_freemium_deal()`.
 - **`db/chat.py`** — `save_chat_message()`.
 - **`url_utils.py`** — `url_to_public_id()`, `public_id_to_url()` — LinkedIn URL ↔ public identifier conversion. Pure utility, no DB dependency.
-- **`conf.py`** — Config constants, `CAMPAIGN_CONFIG`, `get_llm_config()` (reads from `SiteConfig` in DB).
+- **`conf.py`** — Config constants, `CAMPAIGN_CONFIG`, `get_llm_config()` (reads from `SiteConfig` in DB, returns 4-tuple), `get_llm()` (factory returning provider-specific LangChain chat model).
 - **`exceptions.py`** — `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 - **`onboarding.py`** — Interactive setup.
 - **`agents/follow_up.py`** — Follow-up agent. Single LLM call with structured output (`FollowUpDecision`). Conversation is read in Python and injected into the prompt. No tool-calling loop.
@@ -126,16 +201,16 @@ Three apps in `INSTALLED_APPS`:
 - **`setup/seeds.py`** — User-provided seed profiles: parse URLs, create Leads + QUALIFIED Deals.
 - **`management/setup_crm.py`** — Idempotent CRM bootstrap (Site creation).
 - **`admin.py`** — Django Admin: SiteConfig, Campaign, LinkedInProfile, SearchKeyword, ActionLog, Task, ChatMessage.
-- **`django_settings.py`** — Django settings (SQLite at `data/db.sqlite3`). Apps: crm, chat, linkedin.
+- **`django_settings.py`** — Django settings (SQLite at `data/db.sqlite3`). Apps: crm, chat, linkedin. Includes `FirstTimeSetupMiddleware`.
 - **`premigrations/`** — Pre-Django filesystem migrations. Numbered `NNNN_*.py` files with `forward(root_dir)` functions. Runner in `__init__.py` discovers and applies unapplied migrations, tracked via `data/.premigrations` JSON file.
 
 ## Configuration
 
-- **`SiteConfig`** (DB singleton) — `llm_api_key` (required), `ai_model` (required), `llm_api_base` (optional). Editable via Django Admin.
+- **`SiteConfig`** (DB singleton) — `llm_provider` (openai/gemini, default: gemini), `llm_api_key` (required), `ai_model` (default: `gemini-2.5-flash-lite`), `llm_api_base` (optional). Editable via Django Admin or CRM Settings page.
 - **`conf.py` schedule** — `ACTIVE_START_HOUR` (9), `ACTIVE_END_HOUR` (17), `ACTIVE_TIMEZONE` ("UTC"), `REST_DAYS` ((5, 6) = Sat+Sun). Daemon sleeps outside this window.
 - **`conf.py:CAMPAIGN_CONFIG`** — `min_ready_to_connect_prob` (0.9), `min_positive_pool_prob` (0.20), `connect_delay_seconds` (10), `connect_no_candidate_delay_seconds` (300), `check_pending_recheck_after_hours` (24), `check_pending_jitter_factor` (0.2), `qualification_n_mc_samples` (100), `enrich_min_interval` (1), `min_action_interval` (120), `embedding_model` ("BAAI/bge-small-en-v1.5").
 - **Prompt templates** (at `linkedin/templates/prompts/`) — `qualify_lead.j2` (temp 0.7), `search_keywords.j2` (temp 0.9), `follow_up_agent.j2`.
-- **`requirements/`** — `base.txt`, `local.txt`, `production.txt`, `crm.txt` (empty — DjangoCRM installed via `--no-deps`).
+- **`requirements/`** — `base.txt` (includes `langchain-google-genai`), `local.txt`, `production.txt`, `crm.txt`.
 
 ## Docker
 

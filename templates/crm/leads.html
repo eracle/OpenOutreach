@@ -1,0 +1,44 @@
+{% extends "crm/base.html" %}
+{% block title %}Leads — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Leads</h1>
+    <p class="text-sm text-gray-500 mt-1">Manage your LinkedIn prospects</p>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card p-4 mb-6">
+  <form method="get" class="flex flex-wrap gap-3 items-end">
+    <div class="flex-1 min-w-[200px]">
+      <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="Name, company, or public ID..."
+        class="input-field" hx-get="{% url 'crm:leads' %}" hx-trigger="keyup changed delay:300ms" hx-target="#lead-table" hx-include="[name='status'],[name='campaign']">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Status</label>
+      <select name="status" class="input-field" onchange="this.form.submit()">
+        <option value="">All</option>
+        <option value="active" {% if status == "active" %}selected{% endif %}>Active</option>
+        <option value="disqualified" {% if status == "disqualified" %}selected{% endif %}>Disqualified</option>
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Campaign</label>
+      <select name="campaign" class="input-field" onchange="this.form.submit()">
+        <option value="">All Campaigns</option>
+        {% for c in campaigns %}
+        <option value="{{ c.pk }}" {% if campaign_id == c.pk|stringformat:"d" %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-primary">Filter</button>
+  </form>
+</div>
+
+<!-- Table -->
+<div class="card overflow-hidden" id="lead-table">
+  {% include "crm/partials/lead_table.html" %}
+</div>
+{% endblock %}

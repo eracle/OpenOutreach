@@ -1,0 +1,72 @@
+{% extends "crm/base.html" %}
+{% block title %}New Campaign — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <a href="{% url 'crm:campaigns' %}" class="text-sm text-brand-600 hover:text-brand-700 flex items-center gap-1 mb-2">
+    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+    Back to Campaigns
+  </a>
+  <h1 class="text-2xl font-bold text-gray-900">Create Campaign</h1>
+  <p class="text-sm text-gray-500 mt-1">Set up a new outreach campaign</p>
+</div>
+
+<div class="card max-w-2xl">
+  <form method="post" class="p-6 space-y-5">
+    {% csrf_token %}
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Campaign Name *</label>
+      <input type="text" name="name" required class="input-field" placeholder="e.g. SaaS Decision Makers Q1">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Campaign Objective</label>
+      <textarea name="campaign_objective" rows="3" class="input-field" placeholder="Describe what this campaign aims to achieve..."></textarea>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Product Documentation</label>
+      <textarea name="product_docs" rows="4" class="input-field" placeholder="Describe your product/service for the AI to use in conversations..."></textarea>
+      <p class="text-xs text-gray-400 mt-1">This will be used by the AI for qualification and follow-up messaging.</p>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Booking Link</label>
+      <input type="url" name="booking_link" class="input-field" placeholder="https://calendly.com/your-link">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Action Fraction</label>
+      <input type="number" name="action_fraction" value="0.2" step="0.05" min="0" max="1" class="input-field">
+      <p class="text-xs text-gray-400 mt-1">Fraction of actions allocated (0.0 - 1.0)</p>
+    </div>
+
+    <!-- Assign profiles -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Assign LinkedIn Profiles</label>
+      <div class="space-y-2 bg-gray-50 rounded-lg p-4">
+        {% for profile in profiles %}
+        <label class="flex items-center gap-3 cursor-pointer hover:bg-white p-2 rounded-lg transition-colors">
+          <input type="checkbox" name="profiles" value="{{ profile.pk }}" checked
+            class="w-4 h-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+          <div class="w-8 h-8 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center text-sm font-semibold">
+            {{ profile.user.username|first|upper }}
+          </div>
+          <div>
+            <p class="text-sm font-medium text-gray-900">{{ profile.user.username }}</p>
+            <p class="text-xs text-gray-500">{{ profile.linkedin_username }}</p>
+          </div>
+        </label>
+        {% empty %}
+        <p class="text-sm text-gray-400 text-center py-2">No active profiles. <a href="{% url 'crm:profile_create' %}" class="text-brand-600 hover:underline">Add one first</a>.</p>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="flex gap-3 pt-2">
+      <button type="submit" class="btn btn-primary">Create Campaign</button>
+      <a href="{% url 'crm:campaigns' %}" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

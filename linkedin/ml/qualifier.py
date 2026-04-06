@@ -49,13 +49,7 @@ def qualify_with_llm(profile_text: str, product_docs: str, campaign_objective: s
 
     label: 1 = accept, 0 = reject.
     """
-    from langchain_openai import ChatOpenAI
-
-    from linkedin.conf import get_llm_config
-
-    llm_api_key, ai_model, llm_api_base = get_llm_config()
-    if not llm_api_key:
-        raise ValueError("LLM_API_KEY is not set in Site Configuration.")
+    from linkedin.conf import get_llm
 
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(PROMPTS_DIR)))
     template = env.get_template("qualify_lead.j2")
@@ -66,7 +60,7 @@ def qualify_with_llm(profile_text: str, product_docs: str, campaign_objective: s
         profile_text=profile_text,
     )
 
-    llm = ChatOpenAI(model=ai_model, temperature=0.7, api_key=llm_api_key, base_url=llm_api_base, timeout=60)
+    llm = get_llm(temperature=0.7, timeout=60)
     structured_llm = llm.with_structured_output(QualificationDecision)
     decision = structured_llm.invoke(prompt)
 

@@ -1,0 +1,44 @@
+{% extends "crm/base.html" %}
+{% block title %}Deals — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">Deals</h1>
+    <p class="text-sm text-gray-500 mt-1">Track your outreach pipeline</p>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="card p-4 mb-6">
+  <form method="get" class="flex flex-wrap gap-3 items-end">
+    <div class="flex-1 min-w-[200px]">
+      <label class="block text-xs font-medium text-gray-500 mb-1">Search</label>
+      <input type="text" name="q" value="{{ q }}" placeholder="Lead name or company..."
+        class="input-field" hx-get="{% url 'crm:deals' %}" hx-trigger="keyup changed delay:300ms" hx-target="#deal-table" hx-include="[name='state'],[name='campaign']">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">State</label>
+      <select name="state" class="input-field" onchange="this.form.submit()">
+        <option value="">All States</option>
+        {% for val, label in states %}
+        <option value="{{ val }}" {% if state == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-500 mb-1">Campaign</label>
+      <select name="campaign" class="input-field" onchange="this.form.submit()">
+        <option value="">All Campaigns</option>
+        {% for c in campaigns %}
+        <option value="{{ c.pk }}" {% if campaign_id == c.pk|stringformat:"d" %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-primary">Filter</button>
+  </form>
+</div>
+
+<div class="card overflow-hidden" id="deal-table">
+  {% include "crm/partials/deal_table.html" %}
+</div>
+{% endblock %}

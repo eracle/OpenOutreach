@@ -1,0 +1,145 @@
+{% extends "crm/base.html" %}
+{% block title %}{{ lead.first_name }} {{ lead.last_name }} — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <a href="{% url 'crm:leads' %}" class="text-sm text-gray-500 hover:text-brand-600">← Back to Leads</a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <!-- Profile Card -->
+  <div class="card p-6">
+    <div class="flex items-center gap-4 mb-4">
+      <div class="w-14 h-14 bg-brand-100 text-brand-700 rounded-full flex items-center justify-center text-xl font-bold">
+        {{ lead.first_name|first|upper }}{{ lead.last_name|first|upper }}
+      </div>
+      <div>
+        <h1 class="text-lg font-bold text-gray-900">{{ lead.first_name }} {{ lead.last_name }}</h1>
+        <p class="text-sm text-gray-500">{{ lead.company_name }}</p>
+      </div>
+    </div>
+
+    <div class="space-y-3 text-sm">
+      <div class="flex justify-between">
+        <span class="text-gray-500">LinkedIn</span>
+        <a href="{{ lead.linkedin_url }}" target="_blank" class="text-brand-600 hover:underline truncate ml-2">{{ lead.public_identifier }}</a>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-500">Status</span>
+        {% if lead.disqualified %}
+        <span class="badge bg-red-100 text-red-700">Disqualified</span>
+        {% else %}
+        <span class="badge bg-green-100 text-green-700">Active</span>
+        {% endif %}
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-500">Created</span>
+        <span class="text-gray-700">{{ lead.creation_date|date:"M d, Y H:i" }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-500">Updated</span>
+        <span class="text-gray-700">{{ lead.update_date|date:"M d, Y H:i" }}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-500">Has Profile Data</span>
+        <span class="text-gray-700">{% if lead.profile_data %}Yes{% else %}No{% endif %}</span>
+      </div>
+      <div class="flex justify-between">
+        <span class="text-gray-500">Has Embedding</span>
+        <span class="text-gray-700">{% if lead.embedding %}Yes{% else %}No{% endif %}</span>
+      </div>
+    </div>
+
+    <div class="mt-5 pt-4 border-t border-gray-100">
+      <form method="post" action="{% url 'crm:lead_toggle_disqualify' lead.pk %}">
+        {% csrf_token %}
+        {% if lead.disqualified %}
+        <button type="submit" class="btn-primary w-full">Reactivate Lead</button>
+        {% else %}
+        <button type="submit" class="btn-danger w-full">Disqualify Lead</button>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  <!-- Profile Data + Deals -->
+  <div class="lg:col-span-2 space-y-6">
+    <!-- Enriched Profile -->
+    {% if profile %}
+    <div class="card p-5">
+      <h3 class="text-sm font-semibold text-gray-900 mb-3">Enriched Profile</h3>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        {% if profile.headline %}
+        <div class="sm:col-span-2">
+          <span class="text-gray-500">Headline:</span>
+          <p class="text-gray-800 mt-0.5">{{ profile.headline }}</p>
+        </div>
+        {% endif %}
+        {% if profile.location %}
+        <div><span class="text-gray-500">Location:</span><p class="text-gray-800">{{ profile.location }}</p></div>
+        {% endif %}
+        {% if profile.current_company %}
+        <div><span class="text-gray-500">Company:</span><p class="text-gray-800">{{ profile.current_company }}</p></div>
+        {% endif %}
+        {% if profile.country_code %}
+        <div><span class="text-gray-500">Country:</span><p class="text-gray-800">{{ profile.country_code }}</p></div>
+        {% endif %}
+        {% if profile.connection_degree %}
+        <div><span class="text-gray-500">Connection:</span><p class="text-gray-800">{{ profile.connection_degree }}° degree</p></div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Deals -->
+    <div class="card">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <h3 class="text-sm font-semibold text-gray-900">Deals ({{ deals|length }})</h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="table-base">
+          <thead><tr><th>Campaign</th><th>State</th><th>Reason</th><th>Attempts</th><th>Updated</th></tr></thead>
+          <tbody>
+            {% for deal in deals %}
+            <tr>
+              <td><a href="{% url 'crm:deal_detail' deal.pk %}" class="text-brand-600 hover:underline">{{ deal.campaign.name }}</a></td>
+              <td>
+                <span class="badge
+                  {% if deal.state == 'Connected' %}bg-green-100 text-green-700
+                  {% elif deal.state == 'Pending' %}bg-yellow-100 text-yellow-700
+                  {% elif deal.state == 'Completed' %}bg-emerald-100 text-emerald-700
+                  {% elif deal.state == 'Failed' %}bg-red-100 text-red-700
+                  {% else %}bg-blue-100 text-blue-700{% endif %}">{{ deal.state }}</span>
+              </td>
+              <td class="text-xs">{{ deal.reason|truncatechars:50 }}</td>
+              <td>{{ deal.connect_attempts }}</td>
+              <td class="text-xs text-gray-400">{{ deal.update_date|date:"M d" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-center text-gray-400 py-6">No deals</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Conversation -->
+    {% if messages %}
+    <div class="card">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <h3 class="text-sm font-semibold text-gray-900">Conversation</h3>
+      </div>
+      <div class="p-5 space-y-3 max-h-96 overflow-y-auto">
+        {% for msg in messages %}
+        <div class="flex {% if msg.is_outgoing %}justify-end{% else %}justify-start{% endif %}">
+          <div class="max-w-[75%] rounded-xl px-4 py-2.5 text-sm {% if msg.is_outgoing %}bg-brand-600 text-white{% else %}bg-gray-100 text-gray-800{% endif %}">
+            {{ msg.content }}
+            <div class="text-xs mt-1 {% if msg.is_outgoing %}text-brand-200{% else %}text-gray-400{% endif %}">{{ msg.creation_date|date:"M d, H:i" }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,205 @@
+{% extends "crm/base.html" %}
+{% block title %}Accounts — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6 flex items-center justify-between">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-900">LinkedIn Accounts</h1>
+    <p class="text-sm text-gray-500 mt-1">Manage profiles, start/stop automation sessions</p>
+  </div>
+  <a href="{% url 'crm:profile_create' %}" class="btn btn-primary">
+    <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+    Add Account
+  </a>
+</div>
+
+{% if not accounts %}
+<div class="card p-12 text-center">
+  <svg class="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+  <p class="text-gray-500 mb-4">No LinkedIn accounts configured yet</p>
+  <a href="{% url 'crm:profile_create' %}" class="btn btn-primary">Add Your First Account</a>
+</div>
+{% endif %}
+
+<div class="space-y-5">
+  {% for acct in accounts %}
+  <div class="card overflow-hidden" data-profile-pk="{{ acct.profile.pk }}" data-state="{{ acct.daemon_state }}">
+    <div class="p-5">
+      <!-- Header row -->
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-4">
+          <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold
+            {% if acct.daemon_state == 'running' %}bg-green-100 text-green-700
+            {% elif acct.daemon_state == 'starting' %}bg-yellow-100 text-yellow-700
+            {% elif acct.daemon_state == 'error' %}bg-red-100 text-red-700
+            {% else %}bg-gray-100 text-gray-500{% endif %}">
+            {{ acct.profile.user.username|first|upper }}
+          </div>
+          <div>
+            <h3 class="font-semibold text-gray-900 text-lg">{{ acct.profile.user.username }}</h3>
+            <p class="text-sm text-gray-500">{{ acct.profile.linkedin_username }}</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <!-- Status badge -->
+          {% if acct.daemon_state == 'running' %}
+          <span class="badge bg-green-100 text-green-700">
+            <span class="w-2 h-2 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
+            Running
+          </span>
+          {% elif acct.daemon_state == 'starting' %}
+          <span class="badge bg-yellow-100 text-yellow-700">
+            <span class="w-2 h-2 bg-yellow-500 rounded-full mr-1.5 animate-pulse"></span>
+            Starting
+          </span>
+          {% elif acct.daemon_state == 'stopping' %}
+          <span class="badge bg-orange-100 text-orange-700">
+            <span class="w-2 h-2 bg-orange-500 rounded-full mr-1.5"></span>
+            Stopping
+          </span>
+          {% elif acct.daemon_state == 'error' %}
+          <span class="badge bg-red-100 text-red-700">
+            <span class="w-2 h-2 bg-red-500 rounded-full mr-1.5"></span>
+            Error
+          </span>
+          {% else %}
+          <span class="badge bg-gray-100 text-gray-500">
+            <span class="w-2 h-2 bg-gray-400 rounded-full mr-1.5"></span>
+            Stopped
+          </span>
+          {% endif %}
+
+          <!-- Active/Inactive -->
+          {% if acct.profile.active %}
+          <span class="badge bg-blue-100 text-blue-700">Active</span>
+          {% else %}
+          <span class="badge bg-gray-100 text-gray-500">Inactive</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Info grid -->
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500">Daily Connects</p>
+          <p class="text-lg font-semibold text-gray-700">{{ acct.daily_connects }}/{{ acct.profile.connect_daily_limit }}</p>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500">Weekly Limit</p>
+          <p class="text-lg font-semibold text-gray-700">{{ acct.profile.connect_weekly_limit }}</p>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500">Daily Follow-ups</p>
+          <p class="text-lg font-semibold text-gray-700">{{ acct.daily_followups }}/{{ acct.profile.follow_up_daily_limit }}</p>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500">Session</p>
+          <p class="text-lg font-semibold {% if acct.has_session %}text-green-600{% else %}text-gray-400{% endif %}">
+            {% if acct.has_session %}Saved{% else %}None{% endif %}
+          </p>
+        </div>
+        <div class="bg-gray-50 rounded-lg p-3 text-center">
+          <p class="text-xs text-gray-500">Legal</p>
+          <p class="text-lg font-semibold {% if acct.profile.legal_accepted %}text-green-600{% else %}text-red-500{% endif %}">
+            {% if acct.profile.legal_accepted %}Accepted{% else %}Pending{% endif %}
+          </p>
+        </div>
+      </div>
+
+      <!-- Campaigns -->
+      <div class="mb-4">
+        <p class="text-xs font-medium text-gray-500 mb-2">Assigned Campaigns</p>
+        <div class="flex flex-wrap gap-2">
+          {% for c in acct.campaigns %}
+          <a href="{% url 'crm:campaign_detail' c.pk %}" class="badge bg-brand-50 text-brand-700 hover:bg-brand-100">{{ c.name }}</a>
+          {% empty %}
+          <span class="text-sm text-gray-400">No campaigns assigned</span>
+          {% endfor %}
+        </div>
+      </div>
+
+      {% if acct.daemon_state == 'running' and acct.daemon_started_at %}
+      <p class="text-xs text-gray-400 mb-3">
+        Started at {{ acct.daemon_started_at|date:"M d, H:i" }}
+        {% if acct.daemon_campaigns %} — processing: {{ acct.daemon_campaigns|join:", " }}{% endif %}
+      </p>
+      {% endif %}
+
+      {% if acct.daemon_state == 'error' and acct.daemon_error %}
+      <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+        <p class="text-sm font-medium text-red-700 mb-1">&#9888; Error</p>
+        <p class="text-sm text-red-600">{{ acct.daemon_error }}</p>
+      </div>
+      {% endif %}
+
+      <!-- Action buttons -->
+      <div class="flex items-center gap-2 pt-3 border-t border-gray-100">
+        {% if acct.daemon_state == 'running' or acct.daemon_state == 'starting' or acct.daemon_state == 'stopping' %}
+        <form method="post" action="{% url 'crm:daemon_stop' acct.profile.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger text-sm"
+            {% if acct.daemon_state == 'stopping' %}disabled style="opacity:0.5;cursor:not-allowed"{% endif %}>
+            <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"/></svg>
+            {% if acct.daemon_state == 'stopping' %}Stopping…{% else %}Stop Daemon{% endif %}
+          </button>
+        </form>
+        {% else %}
+        <form method="post" action="{% url 'crm:daemon_start' acct.profile.pk %}" id="start-form-{{ acct.profile.pk }}">
+          {% csrf_token %}
+          {% if not acct.profile.active or not acct.campaigns %}
+          <button type="button" disabled class="btn text-sm text-white border-none" style="opacity:0.5;cursor:not-allowed;background:#9ca3af;">
+            <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Start Daemon
+          </button>
+          {% else %}
+          <button type="submit" class="btn text-sm text-white border-none" style="background:#059669;" onmouseover="this.style.background='#047857'" onmouseout="this.style.background='#059669'"
+            onclick="this.disabled=true;this.innerText='Starting…';this.style.background='#9ca3af';this.form.submit();">
+            <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Start Daemon
+          </button>
+          {% endif %}
+        </form>
+        {% endif %}
+
+        <a href="{% url 'crm:profile_edit' acct.profile.pk %}" class="btn btn-secondary text-sm">
+          <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+          Edit Profile
+        </a>
+
+        {% if not acct.profile.active or not acct.campaigns %}
+        <p class="text-xs text-gray-400 ml-2">
+          {% if not acct.profile.active %}Profile is inactive.{% endif %}
+          {% if not acct.campaigns %}No campaigns assigned.{% endif %}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Auto-refresh status every 10 seconds -->
+<script>
+  // Track daemon states for change detection
+  let knownStates = {};
+  document.querySelectorAll('[data-profile-pk]').forEach(el => {
+    knownStates[el.dataset.profilePk] = el.dataset.state;
+  });
+  setInterval(function() {
+    fetch("{% url 'crm:daemon_status_api' %}")
+      .then(r => r.json())
+      .then(data => {
+        let changed = false;
+        for (const [pk, info] of Object.entries(data)) {
+          if (knownStates[pk] !== info.state) { changed = true; break; }
+        }
+        // Also detect daemons that stopped (were in data before but disappeared)
+        for (const pk of Object.keys(knownStates)) {
+          if (knownStates[pk] !== 'stopped' && !data[pk]) { changed = true; break; }
+        }
+        if (changed) location.reload();
+      })
+      .catch(() => {});
+  }, 5000);
+</script>
+{% endblock %}

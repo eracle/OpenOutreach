@@ -1,0 +1,34 @@
+{% extends "crm/base.html" %}
+{% block title %}Activity Log — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-900">Activity Log</h1>
+  <p class="text-sm text-gray-500 mt-1">Recent actions performed by the automation</p>
+</div>
+
+<div class="card overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="table-base">
+      <thead>
+        <tr><th>Action</th><th>Profile</th><th>Campaign</th><th>Time</th></tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for log in logs %}
+        <tr>
+          <td>
+            <span class="badge
+              {% if log.action_type == 'connect' %}bg-blue-100 text-blue-700
+              {% else %}bg-purple-100 text-purple-700{% endif %}">{{ log.action_type }}</span>
+          </td>
+          <td class="text-sm text-gray-700">{{ log.linkedin_profile.user.username }}</td>
+          <td class="text-sm text-gray-700">{{ log.campaign.name }}</td>
+          <td class="text-xs text-gray-400">{{ log.created_at|date:"M d, Y H:i:s" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="text-center text-gray-400 py-10">No activity yet</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

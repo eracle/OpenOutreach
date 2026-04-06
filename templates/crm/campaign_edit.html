@@ -1,0 +1,38 @@
+{% extends "crm/base.html" %}
+{% block title %}Edit {{ campaign.name }} — OpenOutreach CRM{% endblock %}
+{% block content %}
+<div class="mb-6">
+  <a href="{% url 'crm:campaign_detail' campaign.pk %}" class="text-sm text-gray-500 hover:text-brand-600">← Back to {{ campaign.name }}</a>
+  <h1 class="text-2xl font-bold text-gray-900 mt-1">Edit Campaign</h1>
+</div>
+
+<div class="card max-w-2xl">
+  <form method="post" class="p-6 space-y-5">
+    {% csrf_token %}
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Campaign Name</label>
+      <input type="text" name="name" value="{{ campaign.name }}" class="input-field" required>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Product Documentation</label>
+      <textarea name="product_docs" rows="6" class="input-field">{{ campaign.product_docs }}</textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Campaign Objective</label>
+      <textarea name="campaign_objective" rows="4" class="input-field">{{ campaign.campaign_objective }}</textarea>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Booking Link</label>
+      <input type="url" name="booking_link" value="{{ campaign.booking_link }}" class="input-field" placeholder="https://...">
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Action Fraction</label>
+      <input type="number" name="action_fraction" value="{{ campaign.action_fraction }}" step="0.01" min="0" max="1" class="input-field">
+    </div>
+    <div class="flex gap-3 pt-2">
+      <button type="submit" class="btn-primary">Save Changes</button>
+      <a href="{% url 'crm:campaign_detail' campaign.pk %}" class="btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
