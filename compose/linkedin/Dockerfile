@@ -45,7 +45,6 @@ ENV GIT_SHA=${GIT_SHA}
 COPY --chown=ubuntu:ubuntu . ${APP_HOME}
 RUN chown ubuntu:ubuntu ${APP_HOME}
 RUN mkdir -p ${APP_HOME}/data && chown ubuntu:ubuntu ${APP_HOME}/data
-VOLUME ${APP_HOME}/data
 
 USER ubuntu
 WORKDIR ${APP_HOME}
