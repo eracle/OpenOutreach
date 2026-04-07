@@ -71,7 +71,10 @@ def _handle_post_accept_video_flow(session, public_id: str, profile: dict, campa
         return None
 
     connection_note = build_connection_note(deal.lead_id)
-    messages = get_conversation(session, public_id) or []
+    target_urn = deal.lead.get_urn(session)
+    mailbox_urn = session.self_profile["urn"]
+    messages = get_conversation(session, target_urn, mailbox_urn) if target_urn else []
+    messages = messages or []
     matched_note_messages = [
         msg for msg in messages if _matches_campaign_note(msg.get("text", ""), connection_note)
     ]

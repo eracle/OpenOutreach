@@ -310,19 +310,21 @@ def send_media_message(session, profile: Dict[str, Any], message: str, media_pat
     from linkedin.db.chat import save_chat_message
     from linkedin.actions.conversations import find_conversation_urn, find_conversation_urn_via_navigation
     from linkedin.api.client import PlaywrightLinkedinAPI
-    from linkedin.db.leads import resolve_urn
+    from crm.models import Lead
 
     public_identifier = profile.get("public_identifier")
     page = session.page
 
     # Find conversation thread URL
-    target_urn = resolve_urn(public_identifier, session=session)
+    lead = Lead.objects.filter(public_identifier=public_identifier).first()
+    target_urn = lead.get_urn(session) if lead else None
     if not target_urn:
         logger.error("Cannot resolve URN for %s — media send failed", public_identifier)
         return False
 
     api = PlaywrightLinkedinAPI(session=session)
-    conv_urn = find_conversation_urn(api, target_urn)
+    mailbox_urn = session.self_profile["urn"]
+    conv_urn = find_conversation_urn(api, target_urn, mailbox_urn)
     if not conv_urn:
         conv_urn = find_conversation_urn_via_navigation(session, target_urn)
     if not conv_urn:
@@ -357,17 +359,12 @@ def send_media_message(session, profile: Dict[str, Any], message: str, media_pat
 
         # Type message if provided
         if message:
-            msg_input = page.locator(SELECTORS["message_input"])
-            if msg_input.count() > 0:
-                msg_input.first.fill(message)
-                session.wait()
+            msg_input = _find(page, "message_input")
+            msg_input.first.fill(message)
+            session.wait()
 
         # Click send
-        send_btn = page.locator(SELECTORS["send_button"])
-        if send_btn.count() == 0:
-            logger.error("Send button not found after attaching media for %s", public_identifier)
-            return False
-
+        send_btn = _find(page, "send_button")
         send_btn.first.click(force=True)
         session.wait(3, 4)
 

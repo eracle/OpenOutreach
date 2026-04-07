@@ -80,6 +80,21 @@ def _sync_from_api(session, public_identifier: str, lead, ct):
     logger.debug("sync: processed %d messages for %s", len(elements), public_identifier)
 
 
+def save_chat_message(session, public_identifier: str, text: str):
+    """Save an outgoing message to ChatMessage (local record of what we sent)."""
+    from chat.models import ChatMessage
+
+    lead, ct = _get_lead_and_ct(public_identifier)
+    ChatMessage.objects.create(
+        content_type=ct,
+        object_id=lead.pk,
+        content=text,
+        is_outgoing=True,
+        owner=session.django_user,
+    )
+    logger.debug("Saved outgoing message for %s", public_identifier)
+
+
 def _read_from_db(public_identifier: str) -> list[dict]:
     """Read all ChatMessages for a lead, sorted chronologically."""
     from chat.models import ChatMessage
