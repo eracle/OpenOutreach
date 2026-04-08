@@ -39,9 +39,6 @@ WORKDIR ${APP_HOME}
 COPY ./compose/linkedin/start /start
 RUN sed -i 's/\r$//g' /start && chmod +x /start
 
-ARG GIT_SHA=dev
-ENV GIT_SHA=${GIT_SHA}
-
 COPY --chown=ubuntu:ubuntu . ${APP_HOME}
 RUN chown ubuntu:ubuntu ${APP_HOME}
 RUN mkdir -p ${APP_HOME}/data && chown ubuntu:ubuntu ${APP_HOME}/data
