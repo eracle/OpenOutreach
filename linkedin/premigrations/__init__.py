@@ -19,7 +19,6 @@ def _applied():
 
 
 def _save(applied):
-    _DATA_DIR.mkdir(exist_ok=True)
     _RECORD.write_text(json.dumps(sorted(applied)))
 
 
