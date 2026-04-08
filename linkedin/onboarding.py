@@ -50,13 +50,6 @@ class OnboardConfig:
     follow_up_daily_limit: int = DEFAULT_FOLLOW_UP_DAILY_LIMIT
     legal_acceptance: bool = False
 
-    @classmethod
-    def from_json(cls, path: str) -> OnboardConfig:
-        import json
-        with open(path) as f:
-            data = json.load(f)
-        return cls(**{k: data[k] for k in cls.__dataclass_fields__ if k in data})
-
 
 # ---------------------------------------------------------------------------
 # State inspection

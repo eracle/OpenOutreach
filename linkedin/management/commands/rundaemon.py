@@ -11,18 +11,11 @@ logger = logging.getLogger(__name__)
 class Command(BaseCommand):
     help = "Run the OpenOutreach daemon (onboard, validate, start task queue)."
 
-    def add_arguments(self, parser):
-        parser.add_argument(
-            "--onboard",
-            metavar="CONFIG_JSON",
-            help="Path to onboard config JSON (non-interactive mode).",
-        )
-
     def handle(self, *args, **options):
         self._configure_logging()
         self._print_version()
         self._ensure_db()
-        self._ensure_onboarded(options["onboard"])
+        self._ensure_onboarded()
         session = self._create_session()
         self._ensure_newsletter(session)
 
@@ -50,24 +43,20 @@ class Command(BaseCommand):
         from linkedin.management.setup_crm import setup_crm
         setup_crm()
 
-    def _ensure_onboarded(self, onboard_file):
-        from linkedin.onboarding import (
-            OnboardConfig, apply, collect_from_wizard, missing_keys,
-        )
+    def _ensure_onboarded(self):
+        from linkedin.onboarding import apply, collect_from_wizard, missing_keys
 
         if not missing_keys():
             return
 
-        if onboard_file:
-            apply(OnboardConfig.from_json(onboard_file))
-        elif sys.stdin.isatty():
+        if sys.stdin.isatty():
             apply(collect_from_wizard())
         else:
             missing = missing_keys()
             self.stderr.write(
                 f"Onboarding incomplete and no TTY available.\n"
                 f"Missing: {', '.join(sorted(missing))}\n"
-                f"Pass --onboard <config.json> or run with an interactive terminal."
+                f"Run with an interactive terminal to complete onboarding."
             )
             sys.exit(1)
 
