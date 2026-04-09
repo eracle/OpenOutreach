@@ -8,6 +8,7 @@ import traceback
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
+import openai
 from django.utils import timezone
 
 from termcolor import colored
@@ -267,6 +268,13 @@ def run_daemon(session):
                 continue
             task.reset_to_pending()
             continue
+        except (openai.BadRequestError, openai.AuthenticationError) as e:
+            task.mark_failed(str(e))
+            logger.error(
+                colored("Daemon stopped — OpenAI API error", "red", attrs=["bold"])
+                + "\n%s\nCheck ai_model, llm_api_key, and llm_api_base in Admin → Site Configuration.", e,
+            )
+            return
         except Exception:
             task.mark_failed(traceback.format_exc())
             logger.exception("Task %s failed", task)

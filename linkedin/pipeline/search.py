@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import logging
 
-import openai
-
 from django.utils import timezone
 from termcolor import colored
 
@@ -25,15 +23,11 @@ def run_search(session) -> str | None:
             SearchKeyword.objects.filter(campaign=campaign, used=True)
             .values_list("keyword", flat=True)
         )
-        try:
-            fresh = generate_search_keywords(
-                product_docs=campaign.product_docs,
-                campaign_objective=campaign.campaign_objective,
-                exclude_keywords=used if used else None,
-            )
-        except (IOError, ValueError, openai.OpenAIError):
-            logger.exception("Failed to generate search keywords")
-            return None
+        fresh = generate_search_keywords(
+            product_docs=campaign.product_docs,
+            campaign_objective=campaign.campaign_objective,
+            exclude_keywords=used if used else None,
+        )
 
         if not fresh:
             return None
