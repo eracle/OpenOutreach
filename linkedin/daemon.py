@@ -268,7 +268,7 @@ def run_daemon(session):
                 continue
             task.reset_to_pending()
             continue
-        except (openai.BadRequestError, openai.AuthenticationError) as e:
+        except (openai.BadRequestError, openai.AuthenticationError, openai.NotFoundError) as e:
             task.mark_failed(str(e))
             logger.error(
                 colored("Daemon stopped — OpenAI API error", "red", attrs=["bold"])
