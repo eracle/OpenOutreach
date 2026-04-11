@@ -37,9 +37,9 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any]) -> Optional
         if Lead.objects.filter(public_identifier=public_id).exists():
             return None
         lead = Lead.objects.create(linkedin_url=clean_url, public_identifier=public_id)
-        _update_lead_fields(lead, profile)
+        _cache_urn_from_profile(lead, profile)
 
-    lead.get_embedding(session)
+    lead.embed_from_profile(profile)
 
     logger.debug("Created enriched lead for %s (pk=%d)", public_id, lead.pk)
     return lead.pk
@@ -56,9 +56,6 @@ def promote_lead_to_deal(session, public_id: str, reason: str = ""):
     lead = Lead.objects.filter(public_identifier=public_id).first()
     if not lead:
         raise ValueError(f"No Lead for {public_id}")
-
-    if not lead.company_name:
-        raise ValueError(f"Lead {public_id} has no company_name — cannot create Deal")
 
     deal = Deal.objects.create(
         lead=lead,
@@ -143,14 +140,13 @@ def discover_and_enrich(session, urls: set):
     logger.info("Enriched %d/%d new profiles", enriched, len(new_urls))
 
 
-def _update_lead_fields(lead, profile: Dict[str, Any]):
-    """Update Lead model fields from parsed LinkedIn profile."""
-    lead.first_name = profile.get("first_name", "") or ""
-    lead.last_name = profile.get("last_name", "") or ""
+def _cache_urn_from_profile(lead, profile: Dict[str, Any]):
+    """Promote ``profile['urn']`` onto the Lead row if not already cached.
 
-    positions = profile.get("positions", [])
-    if positions:
-        lead.company_name = positions[0].get("company_name", "") or ""
-
-    lead.profile_data = profile
-    lead.save()
+    The only durable field we extract from a fresh scrape — everything
+    else lives in memory for the lifetime of the caller's dict.
+    """
+    urn = profile.get("urn") or None
+    if urn and lead.urn != urn:
+        lead.urn = urn
+        lead.save(update_fields=["urn"])

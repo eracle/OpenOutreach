@@ -34,12 +34,11 @@ def discover_self_profile(session) -> dict:
         public_identifier=real_id,
         defaults={
             "linkedin_url": real_url,
-            "first_name": profile.get("first_name", ""),
-            "last_name": profile.get("last_name", ""),
             "disqualified": True,
-            "profile_data": profile,
         },
     )
+    from linkedin.db.leads import _cache_urn_from_profile
+    _cache_urn_from_profile(lead, profile)
     logger.info("Self-profile discovered: %s", real_url)
 
     session.linkedin_profile.self_lead = lead

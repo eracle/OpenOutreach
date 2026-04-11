@@ -6,16 +6,32 @@ import logging
 
 from termcolor import colored
 
-from linkedin.db.deals import get_profile_dict_for_public_id
 from linkedin.models import ActionLog
 
 logger = logging.getLogger(__name__)
 
 
+def _build_send_profile(deal) -> dict:
+    """Minimal profile dict for ``send_raw_message`` and its fallbacks.
+
+    Populated from the Lead row — no profile_data or name columns to read.
+    ``full_name`` is deliberately omitted: the direct-thread send fallback
+    needs a real human name and the Lead row no longer carries one, so
+    that strategy now fails fast and the API fallback takes over.
+    """
+    lead = deal.lead
+    return {
+        "public_identifier": lead.public_identifier,
+        "urn": lead.urn or "",
+    }
+
+
 def handle_follow_up(task, session, qualifiers):
+    from crm.models import Deal
     from linkedin.actions.message import send_raw_message
     from linkedin.agents.follow_up import run_follow_up_agent
     from linkedin.db.deals import set_profile_state
+    from linkedin.db.summaries import materialize_profile_summary_if_missing
     from linkedin.enums import ProfileState
     from linkedin.tasks.connect import enqueue_follow_up
 
@@ -33,14 +49,19 @@ def handle_follow_up(task, session, qualifiers):
         enqueue_follow_up(campaign_id, public_id, delay_seconds=3600)
         return
 
-    profile_dict = get_profile_dict_for_public_id(session, public_id)
-    if profile_dict is None:
+    deal = (
+        Deal.objects.filter(lead__public_identifier=public_id, campaign=session.campaign)
+        .select_related("lead", "campaign")
+        .first()
+    )
+    if deal is None:
         logger.warning("follow_up: no Deal for %s — skipping", public_id)
         return
 
-    profile = profile_dict.get("profile") or profile_dict
+    materialize_profile_summary_if_missing(deal, session)
+    decision = run_follow_up_agent(session, deal)
 
-    decision = run_follow_up_agent(session, public_id, profile)
+    profile = _build_send_profile(deal)
 
     if decision.action == "send_message":
         logger.info("[%s] follow_up message for %s: %s", session.campaign, public_id, decision.message)

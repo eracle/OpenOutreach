@@ -22,15 +22,19 @@ SELECTORS = {
 def _fetch_degree(session, public_identifier: str, profile: Dict[str, Any]) -> Optional[int]:
     """Return connection degree from API, trying two decorations.
 
-    1. Refresh via FullProfileWithEntities (main profile endpoint).
-    2. If that returns None, try TopCardSupplementary (lightweight,
-       reliably includes MemberRelationship entities).
+    1. Full profile scrape (FullProfileWithEntities) — mutates ``profile``
+       in place with the fresh fields and reads ``connection_degree``
+       from the response.
+    2. If that returns None, fall back to the lightweight
+       TopCardSupplementary endpoint.
     """
     from crm.models import Lead
     from linkedin.api.client import PlaywrightLinkedinAPI
 
     lead = Lead.objects.get(public_identifier=public_identifier)
-    lead.refresh_profile(session, profile_dict=profile)
+    fresh = lead.get_profile(session)
+    if fresh:
+        profile.update(fresh)
     degree = profile.get("connection_degree")
 
     if degree is None:

@@ -64,6 +64,7 @@ SAMPLE_PROFILE = {
     "last_name": "Smith",
     "headline": "Engineer",
     "positions": [{"company_name": "Acme"}],
+    "urn": "urn:li:fsd_profile:ABC123",
 }
 
 
@@ -86,7 +87,7 @@ class TestLeadExists:
 
 @pytest.mark.django_db
 class TestCreateEnrichedLead:
-    def test_creates_lead_with_profile(self, fake_session):
+    def test_creates_lead_and_caches_urn(self, fake_session):
         from crm.models import Lead
         pk = create_enriched_lead(
             fake_session,
@@ -95,9 +96,10 @@ class TestCreateEnrichedLead:
         )
         assert pk is not None
         lead = Lead.objects.get(linkedin_url="https://www.linkedin.com/in/alice/")
-        assert lead.first_name == "Alice"
+        assert lead.public_identifier == "alice"
+        assert lead.urn == "urn:li:fsd_profile:ABC123"
 
-    def test_sets_company_name(self, fake_session):
+    def test_persists_embedding(self, fake_session):
         from crm.models import Lead
         create_enriched_lead(
             fake_session,
@@ -105,7 +107,7 @@ class TestCreateEnrichedLead:
             SAMPLE_PROFILE,
         )
         lead = Lead.objects.get(linkedin_url="https://www.linkedin.com/in/alice/")
-        assert lead.company_name == "Acme"
+        assert lead.embedding is not None
 
     def test_returns_none_for_duplicate(self, fake_session):
         create_enriched_lead(
@@ -129,17 +131,6 @@ class TestCreateEnrichedLead:
         )
         assert Deal.objects.count() == 0
 
-    def test_no_company_name_when_no_positions(self, fake_session):
-        from crm.models import Lead
-        profile = {"first_name": "Bob", "headline": "Freelancer", "positions": []}
-        create_enriched_lead(
-            fake_session,
-            "https://www.linkedin.com/in/bob/",
-            profile,
-        )
-        lead = Lead.objects.get(linkedin_url="https://www.linkedin.com/in/bob/")
-        assert lead.company_name == ""
-
 
 @pytest.mark.django_db
 class TestPromoteLeadToDeal:
@@ -154,17 +145,6 @@ class TestPromoteLeadToDeal:
         assert deal is not None
         assert deal.state == ProfileState.QUALIFIED
         assert Deal.objects.count() == 1
-
-    def test_raises_without_company_name(self, fake_session):
-        profile = {"first_name": "Bob", "headline": "Freelancer", "positions": []}
-        create_enriched_lead(
-            fake_session,
-            "https://www.linkedin.com/in/bob/",
-            profile,
-        )
-        with pytest.raises(ValueError, match="no company_name"):
-            promote_lead_to_deal(fake_session, "bob")
-
 
 @pytest.mark.django_db
 class TestGetLeadsForQualification:
@@ -210,7 +190,7 @@ class TestGetLeadsForQualification:
         create_enriched_lead(
             fake_session,
             "https://www.linkedin.com/in/bob/",
-            {**SAMPLE_PROFILE, "first_name": "Bob"},
+            {**SAMPLE_PROFILE, "urn": "urn:li:fsd_profile:BOB456"},
         )
         assert len(get_leads_for_qualification(fake_session)) == 2
 

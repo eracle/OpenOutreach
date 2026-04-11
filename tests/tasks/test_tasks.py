@@ -299,9 +299,10 @@ class TestHandleCheckPending:
 
 @pytest.mark.django_db
 class TestHandleFollowUp:
+    @patch("linkedin.db.summaries.materialize_profile_summary_if_missing")
     @patch("linkedin.actions.message.send_raw_message", return_value=True)
     @patch("linkedin.agents.follow_up.run_follow_up_agent")
-    def test_send_message_records_action_and_enqueues(self, mock_agent, mock_send, fake_session):
+    def test_send_message_records_action_and_enqueues(self, mock_agent, mock_send, mock_materialize, fake_session):
         mock_agent.return_value = FollowUpDecision(
             action="send_message", message="Hello Alice!", follow_up_hours=72,
         )
@@ -314,14 +315,25 @@ class TestHandleFollowUp:
         qualifiers = _build_context(fake_session)
         handle_follow_up(task, fake_session, qualifiers)
 
+        # Lazy profile_summary materialization runs once with the right Deal.
+        mock_materialize.assert_called_once()
+        materialized_deal = mock_materialize.call_args[0][0]
+        assert materialized_deal.lead.public_identifier == "alice"
+        assert materialized_deal.campaign_id == fake_session.campaign.pk
+
+        # Agent is called with the Deal (new signature), not a profile dict.
         mock_agent.assert_called_once()
+        agent_deal = mock_agent.call_args[0][1]
+        assert agent_deal.lead.public_identifier == "alice"
+
         mock_send.assert_called_once()
         assert ActionLog.objects.filter(action_type=ActionLog.ActionType.FOLLOW_UP).count() == 1
         assert Task.objects.filter(task_type=Task.TaskType.FOLLOW_UP, status=Task.Status.PENDING).exists()
 
+    @patch("linkedin.db.summaries.materialize_profile_summary_if_missing")
     @patch("linkedin.actions.message.send_raw_message", return_value=False)
     @patch("linkedin.agents.follow_up.run_follow_up_agent")
-    def test_send_failure_resets_to_connected_and_reenqueues(self, mock_agent, mock_send, fake_session):
+    def test_send_failure_resets_to_connected_and_reenqueues(self, mock_agent, mock_send, mock_materialize, fake_session):
         mock_agent.return_value = FollowUpDecision(
             action="send_message", message="Hi!",
         )
@@ -338,8 +350,9 @@ class TestHandleFollowUp:
         deal = Deal.objects.get(lead__public_identifier="alice", campaign=fake_session.campaign)
         assert deal.state == ProfileState.QUALIFIED
 
+    @patch("linkedin.db.summaries.materialize_profile_summary_if_missing")
     @patch("linkedin.agents.follow_up.run_follow_up_agent")
-    def test_mark_completed_sets_state(self, mock_agent, fake_session):
+    def test_mark_completed_sets_state(self, mock_agent, mock_materialize, fake_session):
         mock_agent.return_value = FollowUpDecision(
             action="mark_completed", reason="Lead went cold",
         )
@@ -357,8 +370,9 @@ class TestHandleFollowUp:
         assert deal.state == ProfileState.COMPLETED
         assert not Task.objects.filter(task_type=Task.TaskType.FOLLOW_UP, status=Task.Status.PENDING).exists()
 
+    @patch("linkedin.db.summaries.materialize_profile_summary_if_missing")
     @patch("linkedin.agents.follow_up.run_follow_up_agent")
-    def test_wait_enqueues_follow_up(self, mock_agent, fake_session):
+    def test_wait_enqueues_follow_up(self, mock_agent, mock_materialize, fake_session):
         mock_agent.return_value = FollowUpDecision(
             action="wait", follow_up_hours=48,
         )

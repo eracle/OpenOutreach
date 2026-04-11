@@ -13,104 +13,92 @@ class Lead(models.Model):
         verbose_name = _("Lead")
         verbose_name_plural = _("Leads")
 
-    first_name = models.CharField(max_length=100, blank=True, default="")
-    last_name = models.CharField(max_length=100, blank=True, default="")
-    company_name = models.CharField(max_length=200, blank=True, default="")
     linkedin_url = models.URLField(max_length=200, unique=True)
     public_identifier = models.CharField(max_length=200, unique=True)
-    profile_data = models.JSONField(null=True, blank=True, default=None)
+    urn = models.CharField(max_length=200, null=True, blank=True, unique=True, db_index=True)
     embedding = models.BinaryField(null=True, blank=True)
     disqualified = models.BooleanField(default=False)
     creation_date = models.DateTimeField(default=timezone.now)
     update_date = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        name = f"{self.first_name} {self.last_name}".strip()
+        label = self.public_identifier or self.linkedin_url or f"Lead#{self.pk}"
         if self.disqualified:
-            name = f"({_('Disqualified')}) {name}"
-        if self.company_name:
-            return f"{name}, {self.company_name}"
-        return name or self.public_identifier or self.linkedin_url
-
-    @property
-    def full_name(self):
-        name = f"{self.first_name} {self.last_name}".strip()
-        if self.disqualified:
-            name = f"({_('Disqualified')}) {name}"
-        return name
+            return f"({_('Disqualified')}) {label}"
+        return label
 
     # ------------------------------------------------------------------
-    # Lazy accessors — fetch / compute on first access, cache in DB
+    # Lazy accessors — re-scrape live on demand, persist only the
+    # derived caches we still keep (urn, embedding).
     # ------------------------------------------------------------------
 
     def get_profile(self, session) -> dict | None:
-        """Parsed profile dict. Fetches from Voyager API if not yet enriched."""
-        if self.profile_data is None:
-            from linkedin.api.client import PlaywrightLinkedinAPI
+        """Live Voyager scrape of the parsed profile dict.
 
-            session.ensure_browser()
-            api = PlaywrightLinkedinAPI(session=session)
-            profile, _raw = api.get_profile(public_identifier=self.public_identifier)
-            if not profile:
-                return None
-
-            self.first_name = profile.get("first_name", "") or ""
-            self.last_name = profile.get("last_name", "") or ""
-            positions = profile.get("positions", [])
-            if positions:
-                self.company_name = positions[0].get("company_name", "") or ""
-            self.profile_data = profile
-            self.save(update_fields=["first_name", "last_name", "company_name", "profile_data"])
-
-        return self.profile_data
-
-    def refresh_profile(self, session, profile_dict: dict | None = None) -> dict | None:
-        """Force re-fetch profile from Voyager API (invalidates cache).
-
-        If profile_dict is passed, updates it in place with the fresh data.
+        No DB caching: the heavy fields (raw JSON, names, company) live
+        only in memory for as long as the caller holds the dict. We do
+        opportunistically populate ``self.urn`` if it's still null and
+        the scrape returns one.
         """
-        self.profile_data = None
-        self.save(update_fields=["profile_data"])
-        fresh = self.get_profile(session)
-        if fresh and profile_dict is not None:
-            profile_dict.update(fresh)
-        return fresh
+        from linkedin.api.client import PlaywrightLinkedinAPI
+
+        session.ensure_browser()
+        api = PlaywrightLinkedinAPI(session=session)
+        profile, _raw = api.get_profile(public_identifier=self.public_identifier)
+        if not profile:
+            return None
+
+        urn = profile.get("urn") or None
+        if urn and self.urn != urn:
+            self.urn = urn
+            self.save(update_fields=["urn"])
+
+        return profile
 
     def get_urn(self, session) -> str:
-        """LinkedIn URN. Chains through get_profile; re-fetches if missing."""
+        """LinkedIn URN. Reads cached column; falls back to a live scrape."""
+        if self.urn:
+            return self.urn
         profile = self.get_profile(session)
-        if not profile or "urn" not in profile:
-            self.profile_data = None
-            self.save(update_fields=["profile_data"])
-            profile = self.get_profile(session)
-        if not profile or "urn" not in profile:
-            raise ValueError(f"Lead {self.pk}: could not resolve URN after re-fetch")
-        return profile["urn"]
+        if profile and profile.get("urn"):
+            self.urn = profile["urn"]
+            self.save(update_fields=["urn"])
+            return self.urn
+        raise ValueError(f"Lead {self.pk}: could not resolve URN after re-fetch")
 
     def get_embedding(self, session) -> np.ndarray | None:
-        """384-dim embedding. Chains through get_profile → embed."""
+        """384-dim embedding. Lazy: scrapes + embeds on first access."""
         if self.embedding is None:
             profile = self.get_profile(session)
             if profile:
-                from linkedin.ml.embeddings import embed_text
-                from linkedin.ml.profile_text import build_profile_text
-
-                text = build_profile_text({"profile": profile})
-                emb = embed_text(text)
-                self.embedding = emb.tobytes()
-                self.save(update_fields=["embedding"])
+                self.embed_from_profile(profile)
         return self.embedding_array
+
+    def embed_from_profile(self, profile: dict) -> None:
+        """Compute and persist the 384-dim embedding from an in-hand profile.
+
+        Used by callers that already have a freshly parsed profile dict,
+        so they can skip the scrape that ``get_embedding`` would trigger.
+        """
+        from linkedin.ml.embeddings import embed_text
+        from linkedin.ml.profile_text import build_profile_text
+
+        text = build_profile_text({"profile": profile})
+        emb = embed_text(text)
+        self.embedding = emb.tobytes()
+        self.save(update_fields=["embedding"])
 
     def to_profile_dict(self) -> dict:
         """Standard profile dict shape used by qualifiers and pools.
 
-        Reads existing data only — does not trigger enrichment.
+        The ``profile`` key is intentionally absent — callers that need
+        the full Voyager-parsed dict must call ``get_profile(session)``
+        themselves (live scrape).
         """
         return {
             "lead_id": self.pk,
             "public_identifier": self.public_identifier,
             "url": self.linkedin_url or "",
-            "profile": self.profile_data or {},
             "meta": {},
         }
 

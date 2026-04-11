@@ -52,16 +52,12 @@ class AccountSession:
 
     @cached_property
     def self_profile(self) -> dict:
-        """Lazy accessor: return the authenticated user's profile dict (cached).
+        """Authenticated user's profile dict, fetched once per session.
 
-        Reads from ``self_lead.profile_data`` if available, otherwise
-        discovers via Voyager API and persists.
+        The dict isn't persisted to DB (we dropped ``Lead.profile_data``),
+        so the first access per session triggers a Voyager call; the
+        ``cached_property`` keeps it warm for the rest of the session.
         """
-        self.linkedin_profile.refresh_from_db(fields=["self_lead"])
-        lead = self.linkedin_profile.self_lead
-        if lead and lead.profile_data and "urn" in lead.profile_data:
-            return lead.profile_data
-
         from linkedin.setup.self_profile import discover_self_profile
 
         self.ensure_browser()

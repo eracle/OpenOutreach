@@ -18,16 +18,35 @@ def sync_conversation(session, public_identifier: str) -> list[dict]:
     """Fetch messages from Voyager API and upsert into ChatMessage.
 
     Returns messages as a list of {sender, text, timestamp, is_outgoing} dicts
-    from the DB (always the source of truth after sync).
+    from the DB (always the source of truth after sync). Newly-synced messages
+    are also folded into the campaign Deal's `chat_summary` (mem0-style facts).
     """
     lead, ct = _get_lead_and_ct(public_identifier)
-    _sync_from_api(session, public_identifier, lead, ct)
+    new_messages = _sync_from_api(session, public_identifier, lead, ct)
+    _update_deal_chat_summary(session, lead, new_messages)
 
     return _read_from_db(public_identifier)
 
 
-def _sync_from_api(session, public_identifier: str, lead, ct):
-    """Fetch messages from Voyager API and upsert into DB."""
+def _update_deal_chat_summary(session, lead, new_messages):
+    """Fold newly-synced ChatMessages into the campaign Deal's chat_summary."""
+    if not new_messages:
+        return
+    from crm.models import Deal
+    from linkedin.db.summaries import update_chat_summary
+
+    deal = Deal.objects.filter(lead=lead, campaign=session.campaign).first()
+    if not deal:
+        return
+    update_chat_summary(deal, new_messages)
+
+
+def _sync_from_api(session, public_identifier: str, lead, ct) -> list:
+    """Fetch messages from Voyager API and upsert into DB.
+
+    Returns the list of newly-created ``ChatMessage`` rows (in arrival order),
+    so callers can incrementally update derived caches like ``chat_summary``.
+    """
     from chat.models import ChatMessage
     from linkedin.actions.conversations import (
         find_conversation_urn, find_conversation_urn_via_navigation, parse_message_element,
@@ -47,13 +66,14 @@ def _sync_from_api(session, public_identifier: str, lead, ct):
         conversation_urn = find_conversation_urn_via_navigation(session, target_urn)
     if not conversation_urn:
         logger.debug("sync: no conversation found for %s", public_identifier)
-        return
+        return []
 
     # Fetch messages
     raw = fetch_messages(api, conversation_urn)
     elements = raw.get("data", {}).get("messengerMessagesBySyncToken", {}).get("elements", [])
 
     self_urn = session.self_profile["urn"]
+    new_messages: list = []
 
     for msg in elements:
         parsed = parse_message_element(msg)
@@ -63,7 +83,7 @@ def _sync_from_api(session, public_identifier: str, lead, ct):
         is_outgoing = parsed["sender_host_urn"] == self_urn
 
         # Upsert by linkedin_urn
-        _, created = ChatMessage.objects.update_or_create(
+        obj, created = ChatMessage.objects.update_or_create(
             linkedin_urn=parsed["entityUrn"],
             defaults={
                 "content_type": ct,
@@ -75,9 +95,14 @@ def _sync_from_api(session, public_identifier: str, lead, ct):
             },
         )
         if created:
+            new_messages.append(obj)
             logger.debug("sync: new message from %s for %s", parsed["sender_name"], public_identifier)
 
-    logger.debug("sync: processed %d messages for %s", len(elements), public_identifier)
+    # Sort new messages chronologically so the LLM sees them in order.
+    new_messages.sort(key=lambda m: m.creation_date or m.pk)
+    logger.debug("sync: processed %d messages for %s (%d new)",
+                 len(elements), public_identifier, len(new_messages))
+    return new_messages
 
 
 def _read_from_db(public_identifier: str) -> list[dict]:
@@ -85,7 +110,7 @@ def _read_from_db(public_identifier: str) -> list[dict]:
     from chat.models import ChatMessage
 
     lead, ct = _get_lead_and_ct(public_identifier)
-    lead_name = f"{lead.first_name or ''} {lead.last_name or ''}".strip() or "them"
+    lead_name = lead.public_identifier or "them"
 
     messages = ChatMessage.objects.filter(
         content_type=ct, object_id=lead.pk,
