@@ -108,6 +108,16 @@ def _format_facts(summary: dict | None) -> str:
     return "\n".join(f"- {f}" for f in facts)
 
 
+def _log_chat_facts(public_id: str, deal) -> None:
+    """Log the mem0 chat facts the agent is working with."""
+    chat_facts = (deal.chat_summary or {}).get("facts", [])
+    if not chat_facts:
+        return
+    lines = [f"chat facts for {public_id}:"]
+    lines.extend(f"  • {f}" for f in chat_facts)
+    logger.info("\n".join(lines))
+
+
 def _load_recent_messages(deal, limit: int = RECENT_MESSAGES_WINDOW) -> list:
     """Last `limit` ChatMessages for `deal.lead`, in chronological order."""
     from chat.models import ChatMessage
@@ -160,6 +170,7 @@ def run_follow_up_agent(session, deal) -> FollowUpDecision:
     public_id = deal.lead.public_identifier
     sync_conversation(session, public_id)
     deal.refresh_from_db(fields=["chat_summary", "profile_summary"])
+    _log_chat_facts(public_id, deal)
 
     recent = _load_recent_messages(deal)
     system_prompt = _render_system_prompt(session, deal, recent)
@@ -221,6 +232,7 @@ if __name__ == "__main__":
     materialize_profile_summary_if_missing(deal, session)
     decision = run_follow_up_agent(session, deal)
 
+    print(f"Chat facts: {_format_facts(deal.chat_summary)}")
     print(f"Action: {decision.action}")
     if decision.message:
         print(f"Message: {decision.message}")

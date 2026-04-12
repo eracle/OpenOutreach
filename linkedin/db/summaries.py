@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 _FACT_EXTRACTION_PROMPT = """\
 You are an information-extraction assistant. Your job is to read the input
 text and produce a flat list of atomic, self-contained factual statements
-about the subject.
+about the lead (the person we are talking to).
 
 Rules:
 - Each fact must be a complete sentence that stands on its own.
@@ -37,6 +37,11 @@ Rules:
 - Keep each fact short (under ~25 words).
 - Return between 0 and 30 facts. Empty list is acceptable when there is
   nothing useful to extract.
+- The input may contain messages from both sides of a conversation, tagged
+  [Me] and [Lead]. Extract facts about the LEAD only. Use [Me] messages
+  solely as context to disambiguate the lead's replies (e.g. if the lead
+  says "yes", use the preceding [Me] message to understand what they agreed
+  to). Never extract facts about what [Me] said, offered, or asked.
 
 Output a JSON object matching the schema you have been given.
 """
@@ -146,20 +151,28 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
 # ── Chat summary ──
 
 def _format_messages_for_extraction(messages: Iterable) -> str:
-    """Render incoming ChatMessages as a transcript for fact extraction.
+    """Render ChatMessages as a labeled transcript for fact extraction.
 
-    Outgoing messages are dropped: `chat_summary` holds facts ABOUT the
-    lead, not about our own pitch. A one-sided burst of outgoing messages
-    therefore yields an empty string and short-circuits the LLM call,
-    keeping seller content out of the lead's memory.
+    Both sides are included so the LLM can disambiguate anaphoric lead
+    replies ("yes", "that sounds good") using the preceding outgoing
+    context. The extraction prompt instructs the LLM to extract facts
+    about the lead only.
+
+    Returns an empty string when there are no incoming (lead) messages,
+    so a one-sided outgoing burst still short-circuits the LLM call.
     """
-    lines = []
+    lines: list[str] = []
+    has_incoming = False
     for m in messages:
-        if m.is_outgoing:
-            continue
         content = (m.content or "").strip()
-        if content:
-            lines.append(content)
+        if not content:
+            continue
+        tag = "[Me]" if m.is_outgoing else "[Lead]"
+        if not m.is_outgoing:
+            has_incoming = True
+        lines.append(f"{tag} {content}")
+    if not has_incoming:
+        return ""
     return "\n".join(lines)
 
 

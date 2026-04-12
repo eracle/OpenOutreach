@@ -117,8 +117,8 @@ class TestUpdateChatSummary:
         deal_with_lead.refresh_from_db()
         assert deal_with_lead.chat_summary is None
 
-    def test_first_pass_persists_facts_and_drops_outgoing(self, db, deal_with_lead):
-        """Outgoing messages are filtered before extraction; only lead replies reach the LLM."""
+    def test_first_pass_includes_both_sides_labeled(self, db, deal_with_lead):
+        """Both sides are sent to extraction with [Me]/[Lead] tags for disambiguation."""
         from linkedin.db.summaries import update_chat_summary
 
         msgs = [
@@ -133,8 +133,8 @@ class TestUpdateChatSummary:
             update_chat_summary(deal_with_lead, iter(msgs))
 
         sent_text = mock_extract.call_args[0][0]
-        assert sent_text == "Yeah, I founded Acme last year."
-        assert "Hi, are you the founder?" not in sent_text  # outgoing was dropped
+        assert "[Me] Hi, are you the founder?" in sent_text
+        assert "[Lead] Yeah, I founded Acme last year." in sent_text
         # First pass: existing is empty, reconcile sees only new facts.
         mock_reconcile.assert_called_once_with([], new_facts)
         deal_with_lead.refresh_from_db()
