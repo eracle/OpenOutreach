@@ -117,15 +117,22 @@ On acceptance → enqueues `follow_up` task.
 
 **Where:** `tasks/follow_up.py:handle_follow_up()` → `agents/follow_up.py:run_follow_up_agent()`
 
-Runs an **agentic multi-turn conversation** for one CONNECTED profile:
+**Full documentation:** [`docs/follow_up_agent.md`](follow_up_agent.md)
 
-1. The ReAct agent reads conversation history with the lead
-2. Sends one or more short messages (human-like LinkedIn DMs)
-3. Can mark the conversation as completed or schedule the next follow-up
-4. System prompt from `follow_up_agent.j2` with campaign context and lead profile data
+Runs an agentic follow-up conversation as a **self-rescheduling loop**: each
+invocation syncs the conversation, builds context from profile/chat fact
+summaries plus a verbatim message window, and asks the LLM for a structured
+`FollowUpDecision`:
 
-Records `FOLLOW_UP` action if any message was sent. Safety net re-enqueues
-in 72h if the agent didn't schedule or complete.
+| Action | Effect |
+|--------|--------|
+| `send_message` | Send DM (3 fallback strategies), record action, re-enqueue |
+| `wait` | Re-enqueue without sending (check back in `follow_up_hours`) |
+| `mark_completed` | Close the Deal (booked, declined, or gone cold) |
+
+The loop continues until the agent returns `mark_completed`. Default re-check
+interval is 72 hours if the agent doesn't specify one. Rate-limited to
+`follow_up_daily_limit` (default 30) per LinkedIn account.
 
 ## 8. Terminal States
 

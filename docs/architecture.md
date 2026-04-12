@@ -75,9 +75,12 @@ Freemium campaigns use the same `connect` task type; the `ConnectStrategy` datac
 - On acceptance → enqueues `follow_up` task.
 
 ### `follow_up.py` — handle_follow_up
-- Runs the agentic follow-up via `run_follow_up_agent()` from `agents/follow_up.py`.
-- The agent can read conversation history, send messages, mark completed, or schedule future follow-ups.
-- Safety net re-enqueues in 72h if the agent didn't schedule or complete.
+- Runs the agentic follow-up via `run_follow_up_agent()` from `agents/follow_up.py`. Full docs: [`docs/follow_up_agent.md`](docs/follow_up_agent.md).
+- Agent returns a `FollowUpDecision` (structured output: `send_message`/`mark_completed`/`wait`). Handler executes it deterministically.
+- `send_message`: sends via `send_raw_message()` (popup → direct thread → Voyager API fallback chain), records ActionLog, re-enqueues.
+- `mark_completed`: sets Deal state to COMPLETED with reason.
+- `wait`: re-enqueues without sending. Default re-check: 72h.
+- On send failure: reverts Deal to QUALIFIED for re-connection.
 
 ## Pipeline (`linkedin/pipeline/`)
 
@@ -125,11 +128,12 @@ Profile CRUD backed by Django models:
 - **`leads.py`** — Lead CRUD: `lead_exists()`, `create_enriched_lead()`, `promote_lead_to_deal()`, `get_leads_for_qualification()`, `disqualify_lead()`, `lead_profile_by_id()`.
 - **`deals.py`** — Deal/state operations: `set_profile_state()`, `get_qualified_profiles()`, `get_ready_to_connect_profiles()`, `get_profile_dict_for_public_id()`, `increment_connect_attempts()`, `create_disqualified_deal()`, `create_freemium_deal()`.
 - **`enrichment.py`** — Lazy enrichment/embedding: `ensure_lead_enriched()`, `ensure_profile_embedded()`, `load_embedding()`.
-- **`chat.py`** — `save_chat_message()`.
+- **`chat.py`** — `sync_conversation()`: fetches messages from Voyager API, upserts `ChatMessage` rows by `linkedin_urn`, folds new messages into `Deal.chat_summary` via `update_chat_summary()`. `save_chat_message()` for manual inserts.
+- **`summaries.py`** — Lazy mem0-style fact summaries. `materialize_profile_summary_if_missing()`: one-time profile fact extraction. `update_chat_summary()`: incremental chat fact extraction + `reconcile_facts()` (ADD/UPDATE/DELETE/NONE events). See [`docs/follow_up_agent.md`](docs/follow_up_agent.md) for details.
 
 ## Agents (`linkedin/agents/`)
 
-- **`follow_up.py`** — ReAct agent for agentic follow-up conversations. Uses a simple tool-calling loop (not LangGraph). Tools: `read_conversation`, `send_message`, `mark_completed`, `schedule_follow_up`. System prompt from `follow_up_agent.j2`.
+- **`follow_up.py`** — Follow-up agent. Single LLM call with structured output (`FollowUpDecision`: `send_message`/`mark_completed`/`wait`). Conversation is synced and injected into the prompt (profile/chat fact summaries + last 6 verbatim messages); no tool-calling loop. System prompt from `follow_up_agent.j2`. Full docs: [`docs/follow_up_agent.md`](docs/follow_up_agent.md).
 
 ## ML Qualification (`linkedin/ml/`)
 
