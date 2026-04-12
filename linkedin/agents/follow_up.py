@@ -7,6 +7,7 @@ The handler in tasks/follow_up.py executes the decision.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from typing import Literal
 
 import jinja2
@@ -55,17 +56,48 @@ class FollowUpDecision(BaseModel):
 RECENT_MESSAGES_WINDOW = 6
 
 
-def _format_recent_messages(messages: list) -> str:
-    """Render the last few ChatMessage rows as a `Me:`/`Lead:` transcript."""
+def _humanize_age(when: datetime, now: datetime) -> str:
+    """Render `when` as a coarse age relative to `now` (e.g. ``3d ago``)."""
+    delta = now - when
+    if delta < timedelta(hours=1):
+        return f"{max(int(delta.total_seconds() // 60), 1)}m ago"
+    if delta < timedelta(days=1):
+        return f"{int(delta.total_seconds() // 3600)}h ago"
+    return f"{delta.days}d ago"
+
+
+def _format_recent_messages(messages: list, now: datetime) -> str:
+    """Render the last few ChatMessage rows as a timestamped transcript."""
     if not messages:
         return "No recent messages."
     lines = []
     for m in messages:
-        speaker = "Me" if m.is_outgoing else "Lead"
         content = (m.content or "").strip()
-        if content:
-            lines.append(f"{speaker}: {content}")
+        if not content:
+            continue
+        speaker = "Me" if m.is_outgoing else "Lead"
+        prefix = f"{speaker} ({_humanize_age(m.creation_date, now)})" if m.creation_date else speaker
+        lines.append(f"{prefix}: {content}")
     return "\n".join(lines) or "No recent messages."
+
+
+def _days_since_last_outgoing(messages: list, now: datetime) -> int | None:
+    """Whole days since the most recent outgoing message, or None if there are none."""
+    timestamps = [m.creation_date for m in messages if m.is_outgoing and m.creation_date]
+    if not timestamps:
+        return None
+    return max((now - max(timestamps)).days, 0)
+
+
+def _count_unanswered_outgoing(messages: list) -> int:
+    """Trailing run of outgoing messages with no lead reply after them."""
+    count = 0
+    for m in reversed(messages):
+        if m.is_outgoing:
+            count += 1
+        else:
+            break
+    return count
 
 
 def _format_facts(summary: dict | None) -> str:
@@ -92,6 +124,8 @@ def _load_recent_messages(deal, limit: int = RECENT_MESSAGES_WINDOW) -> list:
 
 def _render_system_prompt(session, deal, recent_messages: list) -> str:
     """Render the agent system prompt from the Jinja2 template."""
+    from django.utils import timezone
+
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(PROMPTS_DIR)))
     template = env.get_template("follow_up_agent.j2")
 
@@ -99,6 +133,7 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
     self_prof = session.self_profile
     self_name = f"{self_prof.get('first_name', '')} {self_prof.get('last_name', '')}".strip() or session.django_user.username
 
+    now = timezone.now()
     return template.render(
         self_name=self_name,
         product_docs=campaign.product_docs or "",
@@ -106,7 +141,10 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
         booking_link=campaign.booking_link or "",
         profile_summary=_format_facts(deal.profile_summary),
         chat_summary=_format_facts(deal.chat_summary),
-        recent_messages=_format_recent_messages(recent_messages),
+        recent_messages=_format_recent_messages(recent_messages, now),
+        today=now.strftime("%Y-%m-%d"),
+        days_since_last_outgoing=_days_since_last_outgoing(recent_messages, now),
+        unanswered_outgoing=_count_unanswered_outgoing(recent_messages),
     )
 
 
