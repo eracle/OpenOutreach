@@ -50,8 +50,11 @@ class Lead(models.Model):
 
         urn = profile.get("urn") or None
         if urn and self.urn != urn:
-            self.urn = urn
-            self.save(update_fields=["urn"])
+            if Lead.objects.filter(urn=urn).exclude(pk=self.pk).exists():
+                logger.warning("URN %s already owned by another lead — skipping for %s", urn, self.public_identifier)
+            else:
+                self.urn = urn
+                self.save(update_fields=["urn"])
 
         return profile
 
@@ -59,10 +62,8 @@ class Lead(models.Model):
         """LinkedIn URN. Reads cached column; falls back to a live scrape."""
         if self.urn:
             return self.urn
-        profile = self.get_profile(session)
-        if profile and profile.get("urn"):
-            self.urn = profile["urn"]
-            self.save(update_fields=["urn"])
+        self.get_profile(session)  # sets self.urn as side-effect
+        if self.urn:
             return self.urn
         raise ValueError(f"Lead {self.pk}: could not resolve URN after re-fetch")
 

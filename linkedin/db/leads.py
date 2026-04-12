@@ -33,8 +33,16 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any]) -> Optional
     public_id = canonical_pid or url_to_public_id(url)
     clean_url = public_id_to_url(public_id)
 
+    urn = profile.get("urn") or None
+
     with transaction.atomic():
         if Lead.objects.filter(public_identifier=public_id).exists():
+            return None
+        if urn and Lead.objects.filter(urn=urn).exists():
+            logger.info(
+                "Lead with URN %s already exists — skipping duplicate %s",
+                urn, public_id,
+            )
             return None
         lead = Lead.objects.create(linkedin_url=clean_url, public_identifier=public_id)
         _cache_urn_from_profile(lead, profile)
