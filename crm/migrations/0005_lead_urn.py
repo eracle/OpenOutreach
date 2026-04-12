@@ -4,17 +4,25 @@ from django.db import migrations, models
 
 
 def backfill_urn_from_profile_data(apps, schema_editor):
-    """Promote profile_data['urn'] into the new Lead.urn column."""
+    """Promote profile_data['urn'] into the new Lead.urn column.
+
+    If two leads share the same URN (the same person scraped twice under
+    different public_identifiers — e.g. they changed their vanity URL),
+    the first row encountered wins and the rest keep urn=NULL.
+    """
     Lead = apps.get_model("crm", "Lead")
+    seen_urns = set(Lead.objects.exclude(urn=None).values_list("urn", flat=True))
     updates = []
     for lead in Lead.objects.exclude(profile_data=None).only("pk", "profile_data", "urn").iterator():
         urn = (lead.profile_data or {}).get("urn")
-        if urn and lead.urn != urn:
-            lead.urn = urn
-            updates.append(lead)
-            if len(updates) >= 500:
-                Lead.objects.bulk_update(updates, ["urn"])
-                updates.clear()
+        if not urn or urn in seen_urns:
+            continue
+        seen_urns.add(urn)
+        lead.urn = urn
+        updates.append(lead)
+        if len(updates) >= 500:
+            Lead.objects.bulk_update(updates, ["urn"])
+            updates.clear()
     if updates:
         Lead.objects.bulk_update(updates, ["urn"])
 
