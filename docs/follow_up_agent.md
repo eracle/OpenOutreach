@@ -25,11 +25,11 @@ handle_follow_up()           ← linkedin/tasks/follow_up.py
          │
          ▼
     FollowUpDecision
-    ┌────────────────────────────────────────────────────┐
-    │ send_message   → send DM, record action, re-enqueue│
-    │ wait           → re-enqueue (no message sent)       │
-    │ mark_completed → close Deal (COMPLETED/FAILED)      │
-    └────────────────────────────────────────────────────┘
+    ┌────────────────────────────────────────────────────────┐
+    │ send_message   → send DM, record action, re-enqueue   │
+    │ wait           → re-enqueue (no message sent)          │
+    │ mark_completed → close Deal with structured outcome    │
+    └────────────────────────────────────────────────────────┘
 ```
 
 ## FollowUpDecision
@@ -40,8 +40,11 @@ Structured LLM output defined in `linkedin/agents/follow_up.py`:
 |-------|------|---------------|
 | `action` | `"send_message"` / `"mark_completed"` / `"wait"` | always |
 | `message` | `str` | `send_message` |
-| `reason` | `str` | `mark_completed` |
-| `follow_up_hours` | `float` | `send_message`, `wait` (defaults to 72) |
+| `outcome` | `Outcome` enum | `mark_completed` |
+| `follow_up_hours` | `float` | always (agent decides the pace) |
+
+Outcome values: `converted`, `not_interested`, `wrong_fit`, `no_budget`,
+`has_solution`, `bad_timing`, `unresponsive`.
 
 Validated by a Pydantic `model_validator` — the LLM call fails if required
 fields are missing for the chosen action.
@@ -157,16 +160,17 @@ Called from three places:
 | LLM returns unparseable output | `RuntimeError` raised, daemon stops |
 | 401 / `AuthenticationError` | Daemon re-authenticates, resets task to pending |
 
-## Prompt Heuristics
+## Prompt Strategy (Mom Test)
 
-The system prompt (`follow_up_agent.j2`) instructs the agent to:
+The system prompt (`follow_up_agent.j2`) follows the Mom Test method:
 
+- **Discovery first**: open with questions about the lead's work and problems — no product mention until real signal emerges
+- **Pitching on signal**: transition when the lead describes a concrete problem we solve, expresses frustration with their current approach, or asks what we do
+- **Keep learning while pitching**: weave discovery questions into the conversation even after introducing the product
 - **Language**: infer from profile facts (name origin, location, languages); default to English
 - **Tone**: short, casual, warm — like real LinkedIn DMs (1-3 sentences max)
 - **No boilerplate**: no placeholders, no signatures, no corporate speak
-- **First message**: introduce yourself and the value prop, grounded in profile facts
-- **Replies**: respond contextually to the literal phrasing of the last message
-- **Timing heuristic**: < 5 days since last outgoing → `wait`; 5-14 days → low-pressure bump; 3+ unanswered outgoing → `mark_completed` as cold
+- **Timing**: agent decides — active reply → 2-8h; async → 24h; no reply → 24-48h; 3+ unanswered → consider `mark_completed`
 - **Booking link**: include naturally when suggesting a call, not as a standalone line
 
 ## CLI Debugging

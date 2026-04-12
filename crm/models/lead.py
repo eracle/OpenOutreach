@@ -117,23 +117,23 @@ class Lead(models.Model):
     def get_labeled_arrays(cls, campaign) -> tuple[np.ndarray, np.ndarray]:
         """Labeled embeddings for a campaign as (X, y) numpy arrays for warm start.
 
-        Labels are derived from Deal state and closing_reason:
+        Labels are derived from Deal state and outcome:
         - label=1: Deals at any non-FAILED state (QUALIFIED and beyond)
-        - label=0: FAILED Deals with closing_reason "Disqualified" (LLM rejection)
-        - Skipped: FAILED Deals with other closing reasons (operational failures)
+        - label=0: FAILED Deals with outcome "wrong_fit" (LLM rejection)
+        - Skipped: FAILED Deals with other outcomes (operational failures)
         """
-        from crm.models import ClosingReason
+        from crm.models import Outcome
         from crm.models.deal import Deal
         from linkedin.enums import ProfileState
 
         deals = Deal.objects.filter(
             campaign=campaign, lead_id__isnull=False,
-        ).values_list("lead_id", "state", "closing_reason")
+        ).values_list("lead_id", "state", "outcome")
 
         label_by_lead: dict[int, int] = {}
-        for lid, state, cr in deals:
+        for lid, state, outcome in deals:
             if state == ProfileState.FAILED:
-                if cr == ClosingReason.DISQUALIFIED:
+                if outcome == Outcome.WRONG_FIT:
                     label_by_lead[lid] = 0
             else:
                 label_by_lead[lid] = 1

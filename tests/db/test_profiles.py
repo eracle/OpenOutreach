@@ -246,7 +246,7 @@ class TestGetQualifiedProfiles:
 @pytest.mark.django_db
 class TestCreateDisqualifiedDeal:
     def test_creates_failed_deal(self, fake_session):
-        from crm.models import Deal, ClosingReason
+        from crm.models import Deal, Outcome
         create_enriched_lead(
             fake_session,
             "https://www.linkedin.com/in/alice/",
@@ -255,7 +255,7 @@ class TestCreateDisqualifiedDeal:
         deal = create_disqualified_deal(fake_session, "alice", reason="Bad fit")
         assert deal is not None
         assert deal.state == ProfileState.FAILED
-        assert deal.closing_reason == ClosingReason.DISQUALIFIED
+        assert deal.outcome == Outcome.WRONG_FIT
         assert deal.reason == "Bad fit"
 
     def test_excludes_from_qualification(self, fake_session):

@@ -29,23 +29,23 @@ class FollowUpDecision(BaseModel):
         default=None,
         description="The message to send. Required when action='send_message'.",
     )
-    reason: str | None = Field(
+    outcome: Literal[
+        "converted", "not_interested", "wrong_fit", "no_budget",
+        "has_solution", "bad_timing", "unresponsive",
+    ] | None = Field(
         default=None,
-        description="Why mark completed. Required when action='mark_completed'.",
+        description="Why the conversation ended. Required when action='mark_completed'.",
     )
-    follow_up_hours: float | None = Field(
-        default=None,
-        description="Hours until next follow-up. Required for 'send_message' and 'wait'. Ignored for 'mark_completed'.",
+    follow_up_hours: float = Field(
+        description="Hours until next follow-up. Always required — you decide the pace.",
     )
 
     @model_validator(mode="after")
     def _check_required_fields(self):
         if self.action == "send_message" and not self.message:
             raise ValueError("message is required when action='send_message'")
-        if self.action == "mark_completed" and not self.reason:
-            raise ValueError("reason is required when action='mark_completed'")
-        if self.action in ("send_message", "wait") and self.follow_up_hours is None:
-            self.follow_up_hours = 72
+        if self.action == "mark_completed" and not self.outcome:
+            raise ValueError("outcome is required when action='mark_completed'")
         return self
 
 
@@ -236,6 +236,6 @@ if __name__ == "__main__":
     print(f"Action: {decision.action}")
     if decision.message:
         print(f"Message: {decision.message}")
-    if decision.reason:
-        print(f"Reason: {decision.reason}")
+    if decision.outcome:
+        print(f"Outcome: {decision.outcome}")
     print(f"Follow-up in: {decision.follow_up_hours}h")

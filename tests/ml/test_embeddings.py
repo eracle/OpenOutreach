@@ -77,8 +77,8 @@ class TestLeadEmbeddingFields:
         assert y.shape == (0,)
 
     def test_get_labeled_arrays_from_deals(self, fake_session):
-        """Labels are derived from Deal state + closing_reason."""
-        from crm.models import Deal, Lead, ClosingReason
+        """Labels are derived from Deal state + outcome."""
+        from crm.models import Deal, Lead, Outcome
         from linkedin.enums import ProfileState
 
         campaign = fake_session.campaign
@@ -101,7 +101,7 @@ class TestLeadEmbeddingFields:
         )
         Deal.objects.create(
             lead=lead2, campaign=campaign, state=ProfileState.FAILED,
-            closing_reason=ClosingReason.DISQUALIFIED,
+            outcome=Outcome.WRONG_FIT,
         )
 
         X, y = Lead.get_labeled_arrays(campaign)
@@ -109,8 +109,8 @@ class TestLeadEmbeddingFields:
         assert set(y) == {0, 1}
 
     def test_get_labeled_arrays_skips_operational_failures(self, fake_session):
-        """FAILED deals with non-Disqualified closing reason are not training data."""
-        from crm.models import Deal, Lead, ClosingReason
+        """FAILED deals with non-wrong_fit outcome are not training data."""
+        from crm.models import Deal, Lead, Outcome
         from linkedin.enums import ProfileState
 
         campaign = fake_session.campaign
@@ -122,7 +122,7 @@ class TestLeadEmbeddingFields:
         )
         Deal.objects.create(
             lead=lead, campaign=campaign, state=ProfileState.FAILED,
-            closing_reason=ClosingReason.FAILED,
+            outcome=Outcome.UNKNOWN,
         )
 
         X, y = Lead.get_labeled_arrays(campaign)

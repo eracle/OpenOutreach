@@ -335,7 +335,7 @@ class TestHandleFollowUp:
     @patch("linkedin.agents.follow_up.run_follow_up_agent")
     def test_send_failure_resets_to_connected_and_reenqueues(self, mock_agent, mock_send, mock_materialize, fake_session):
         mock_agent.return_value = FollowUpDecision(
-            action="send_message", message="Hi!",
+            action="send_message", message="Hi!", follow_up_hours=24,
         )
         _make_connected(fake_session)
 
@@ -354,7 +354,7 @@ class TestHandleFollowUp:
     @patch("linkedin.agents.follow_up.run_follow_up_agent")
     def test_mark_completed_sets_state(self, mock_agent, mock_materialize, fake_session):
         mock_agent.return_value = FollowUpDecision(
-            action="mark_completed", reason="Lead went cold",
+            action="mark_completed", outcome="unresponsive", follow_up_hours=0,
         )
         _make_connected(fake_session)
 

@@ -186,7 +186,7 @@ Implement data subject export to satisfy Article 20 (Right to Data Portability).
 1. Create `linkedin/management/commands/export_profile.py` — accepts `public_id` as argument, outputs a JSON file
 2. Collect all data held for that profile:
    - `Lead` fields (linkedin_url, disqualified status, creation date)
-   - `Deal` fields (state, closing_reason, reason, creation/update dates)
+   - `Deal` fields (state, outcome, reason, creation/update dates)
    - `Task` entries referencing the profile (task_type, status, scheduled_at, created_at)
 3. Output as structured JSON to stdout or a file, with a schema that could be provided to the data subject
 4. Also expose as a Django Admin action on the Lead model

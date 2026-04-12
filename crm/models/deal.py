@@ -5,10 +5,15 @@ from django.utils.translation import gettext_lazy as _
 from linkedin.enums import ProfileState
 
 
-class ClosingReason(models.TextChoices):
-    COMPLETED = "Completed"
-    FAILED = "Failed"
-    DISQUALIFIED = "Disqualified"
+class Outcome(models.TextChoices):
+    CONVERTED = "converted"
+    NOT_INTERESTED = "not_interested"
+    WRONG_FIT = "wrong_fit"
+    NO_BUDGET = "no_budget"
+    HAS_SOLUTION = "has_solution"
+    BAD_TIMING = "bad_timing"
+    UNRESPONSIVE = "unresponsive"
+    UNKNOWN = "unknown"
 
 
 class Deal(models.Model):
@@ -28,9 +33,9 @@ class Deal(models.Model):
         choices=[(s.value, s.value) for s in ProfileState],
         default=ProfileState.QUALIFIED,
     )
-    closing_reason = models.CharField(
+    outcome = models.CharField(
         max_length=20,
-        choices=ClosingReason.choices,
+        choices=Outcome.choices,
         blank=True,
         default="",
     )

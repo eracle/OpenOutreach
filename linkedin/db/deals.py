@@ -72,13 +72,13 @@ def _existing_deal_or_lead(public_id: str, campaign):
 # ── State transitions ──
 
 
-def set_profile_state(session, public_identifier: str, new_state: str, reason: str = ""):
+def set_profile_state(session, public_identifier: str, new_state: str, reason: str = "", outcome: str = ""):
     """Move the Deal to the corresponding state.
 
     Campaign-scoped: only finds Deals in the current campaign.
     Raises ValueError if no Deal exists.
     """
-    from crm.models import Deal, ClosingReason
+    from crm.models import Deal
 
     deal = Deal.objects.filter(lead__public_identifier=public_identifier, campaign=session.campaign).first()
     if not deal:
@@ -91,12 +91,8 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
 
     if reason:
         deal.reason = reason
-
-    if ps == ProfileState.FAILED:
-        deal.closing_reason = ClosingReason.FAILED
-
-    if ps == ProfileState.COMPLETED:
-        deal.closing_reason = ClosingReason.COMPLETED
+    if outcome:
+        deal.outcome = outcome
 
     deal.save()
 
@@ -143,7 +139,7 @@ def create_disqualified_deal(session, public_id: str, reason: str = ""):
     LLM qualification rejections are tracked as FAILED Deals (campaign-scoped),
     NOT as Lead.disqualified (which is for permanent account-level exclusion).
     """
-    from crm.models import ClosingReason
+    from crm.models import Outcome
 
     campaign = session.campaign
     lead, existing = _existing_deal_or_lead(public_id, campaign)
@@ -157,7 +153,7 @@ def create_disqualified_deal(session, public_id: str, reason: str = ""):
         lead=lead,
         state=ProfileState.FAILED,
         session=session,
-        closing_reason=ClosingReason.DISQUALIFIED,
+        outcome=Outcome.WRONG_FIT,
         reason=reason,
     )
 
@@ -188,7 +184,7 @@ def create_freemium_deal(session, public_id: str):
 
 def _create_deal(
     *, lead, state, session,
-    closing_reason="", reason="",
+    outcome="", reason="",
 ):
     """Shared Deal creation with common defaults."""
     from crm.models import Deal
@@ -197,6 +193,6 @@ def _create_deal(
         lead=lead,
         campaign=session.campaign,
         state=state,
-        closing_reason=closing_reason,
+        outcome=outcome,
         reason=reason,
     )
