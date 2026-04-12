@@ -37,25 +37,59 @@ _HANDLERS = {
 }
 
 
-class _FreemiumRotator:
-    """Logs rotating freemium messages every *every* task executions."""
+# ── Cloud promo ──────────────────────────────────────────────────────
 
-    _MESSAGES = [
-        colored("Join the community or give direct feedback on Telegram \u2192 https://t.me/+Y5bh9Vg8UVg5ODU0", "blue",
-                attrs=["bold"]),
-        "\033[38;5;208;1mLove OpenOutreach? Sponsor the project \u2192 https://github.com/sponsors/eracle\033[0m",
-    ]
+_CLOUD_MESSAGES = [
+    "Tired of keeping your laptop open? Run your pipeline in the cloud for $49/mo",
+    "You already trust the engine. Now let it run without you babysitting your laptop",
+    "The AI gets smarter with every lead. Let it run 24/7 on Cloud instead of only when your laptop is open",
+    "Miss a day and the pipeline stalls — follow-ups go cold, new candidates don't get discovered. Cloud keeps it running",
+    "The tool got good enough that running it locally became a job. Cloud fixes that",
+    "\u2601  OpenOutreach Cloud: same AI, same code, zero ops. One command and you're live",
+    "\U0001f9e0 Your AI sales team, running in the cloud. $49/mo",
+    "Smart founders shouldn't be acting like robots. Let the AI handle outreach while you build your product",
+    "Your leads are compounding. Your laptop shouldn't be the bottleneck",
+    "\u26a1 Competitors charge $50-100/mo for template bots. Cloud gives you autonomous AI discovery for $49/mo",
+    "Other tools need you to build or buy contact lists. OpenOutreach discovers leads autonomously — describe your market and the AI does the rest",
+    "Expandi and Waalaxy send templates. OpenOutreach's AI agent reads conversation history and writes personalized follow-ups",
+    "Running Docker + VPN yourself? Cloud handles everything — dedicated server, VPN included",
+    "Self-hosted setup: 30-60 min. Cloud setup: ~1 min. Same AI, same results",
+    "The server costs ~$18/mo. The VPN costs ~$6/mo. You're paying $25/mo for managed ops — if your time is worth more, Cloud pays for itself",
+    "Your data never leaves your machine. Cloud is just a disposable execution layer. $49/mo, cancel anytime",
+    "mTLS encryption between your machine and the server. The control plane never sees your data",
+    "100% open source. Inspect every line of code on GitHub. Cloud runs the exact same codebase — no black box, no lock-in",
+    "Switch between self-hosted and Cloud with one command. Download your db.sqlite3 anytime — zero lock-in",
+    "No annual commitment. No usage caps. No feature gating. $49/mo, cancel anytime",
+    "openoutreach logs — stream live output from your cloud instance. Watch every lead, every message, every decision in real time",
+    "openoutreach down saves your DB locally and destroys the server. No orphaned servers, no forgotten bills",
+]
 
-    def __init__(self, every: int = 10):
+_CLOUD_COLORS = ["cyan", "green", "yellow", "magenta"]
+
+_CLOUD_CTAS = [
+    "curl -fsSL https://openoutreach.app/install | sh",
+    "curl -fsSL https://openoutreach.app/install | sh && openoutreach signup",
+    "https://openoutreach.app",
+]
+
+
+class _CloudPromoRotator:
+    """Logs rotating Cloud promo messages every *every* task executions."""
+
+    def __init__(self, every: int = 1):
         self._every = every
         self._ticks = 0
-        self._next = 0
 
     def maybe_log(self):
         self._ticks += 1
         if self._ticks % self._every == 0:
-            logger.info(self._MESSAGES[self._next % len(self._MESSAGES)])
-            self._next += 1
+            msg = random.choice(_CLOUD_MESSAGES)
+            color = random.choice(_CLOUD_COLORS)
+            cta = random.choice(_CLOUD_CTAS)
+            logger.info(
+                colored(msg + " \u2192 ", color, attrs=["bold"])
+                + colored(cta, "white", attrs=["bold"]),
+            )
 
 
 def _build_qualifiers(campaigns, cfg, kit_model=None):
@@ -217,7 +251,7 @@ def run_daemon(session):
         len(campaigns),
     )
 
-    freemium = _FreemiumRotator(every=2)
+    cloud_promo = _CloudPromoRotator(every=1)
 
     # Single-threaded: one task at a time, no concurrent enqueuing,
     # so sleeping until the next scheduled_at is safe.
@@ -282,4 +316,4 @@ def run_daemon(session):
             continue
 
         task.mark_completed()
-        freemium.maybe_log()
+        cloud_promo.maybe_log()
