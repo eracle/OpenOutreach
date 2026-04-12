@@ -209,45 +209,37 @@ def _send_msg_pop_up(session, profile: Dict[str, Any], message: str) -> bool:
 
 
 def _send_message(session, profile: Dict[str, Any], message: str) -> bool:
-    """Navigate to /messaging/thread/new/, search by name, compose, send."""
+    """Navigate to /messaging/thread/new/?recipient=<urn>, compose, send.
+
+    Uses the target URN (promoted to its own Lead column in crm.0005) to
+    skip the search-by-name step entirely. Post-migration 0007 the Lead
+    row no longer carries first_name/last_name, so name-based search is
+    not available anyway.
+    """
+    from linkedin.api.messaging.utils import encode_urn
+
     public_identifier = profile.get("public_identifier")
-    full_name = profile.get("full_name")
-    if not full_name:
-        logger.error("Cannot send via direct thread: no full_name for %s", public_identifier)
+    target_urn = profile.get("urn")
+    if not target_urn:
+        logger.error("Cannot send via direct thread: no URN for %s", public_identifier)
         return False
     try:
+        thread_url = f"{LINKEDIN_MESSAGING_URL}?recipient={encode_urn(target_urn)}"
         goto_page(
             session,
-            action=lambda: session.page.goto(LINKEDIN_MESSAGING_URL),
+            action=lambda: session.page.goto(thread_url),
             expected_url_pattern="/messaging",
             timeout=30_000,
-            error_message="Error opening messaging",
+            error_message="Error opening messaging thread",
         )
-
-        conn_input = _find(session.page, "connections_input").first
-        conn_input.fill("")
-        session.wait(0.5, 1)
-
-        human_type(conn_input, full_name, min_delay=10, max_delay=50)
-        session.wait(2, 3)
-
-        # Verify the first search result matches the target name exactly
-        item = _find(session.page, "search_result_row").first
-        dt = item.locator("dt").first
-        name_in_result = dt.inner_text(timeout=5_000).split("•")[0].strip()
-        if name_in_result.lower() != full_name.lower():
-            logger.error(
-                "Recipient mismatch for %s: expected '%s' but got '%s' — aborting",
-                public_identifier, full_name, name_in_result,
-            )
-            return False
-
-        item.scroll_into_view_if_needed()
-        item.click(delay=200)
         session.wait(1, 2)
 
-        human_type(_find(session.page, "compose_input").first, message, min_delay=10, max_delay=50)
-
+        human_type(
+            _find(session.page, "compose_input").first,
+            message,
+            min_delay=10,
+            max_delay=50,
+        )
         _find(session.page, "compose_send").first.click(delay=200)
         session.wait(0.5, 1)
         logger.info("Message sent to %s (direct thread)", public_identifier)

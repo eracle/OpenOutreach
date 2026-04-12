@@ -14,10 +14,9 @@ logger = logging.getLogger(__name__)
 def _build_send_profile(deal) -> dict:
     """Minimal profile dict for ``send_raw_message`` and its fallbacks.
 
-    Populated from the Lead row — no profile_data or name columns to read.
-    ``full_name`` is deliberately omitted: the direct-thread send fallback
-    needs a real human name and the Lead row no longer carries one, so
-    that strategy now fails fast and the API fallback takes over.
+    Populated from the Lead row — all three send strategies (popup,
+    direct-thread, API) now navigate by URN so no human-readable name
+    is required.
     """
     lead = deal.lead
     return {
