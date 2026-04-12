@@ -74,22 +74,24 @@ _CLOUD_CTAS = [
 
 
 class _CloudPromoRotator:
-    """Logs rotating Cloud promo messages every *every* task executions."""
+    """Logs a Cloud promo message at most once every *interval* seconds."""
 
-    def __init__(self, every: int = 1):
-        self._every = every
-        self._ticks = 0
+    def __init__(self, interval: float = 120):
+        self._interval = interval
+        self._last = 0.0
 
     def maybe_log(self):
-        self._ticks += 1
-        if self._ticks % self._every == 0:
-            msg = random.choice(_CLOUD_MESSAGES)
-            color = random.choice(_CLOUD_COLORS)
-            cta = random.choice(_CLOUD_CTAS)
-            logger.info(
-                colored(msg + " \u2192 ", color, attrs=["bold"])
-                + colored(cta, "white", attrs=["bold"]),
-            )
+        now = time.monotonic()
+        if now - self._last < self._interval:
+            return
+        self._last = now
+        msg = random.choice(_CLOUD_MESSAGES)
+        color = random.choice(_CLOUD_COLORS)
+        cta = random.choice(_CLOUD_CTAS)
+        logger.info(
+            colored(msg + " \u2192 ", color, attrs=["bold"])
+            + colored(cta, "white", attrs=["bold"]),
+        )
 
 
 def _build_qualifiers(campaigns, cfg, kit_model=None):
@@ -251,7 +253,7 @@ def run_daemon(session):
         len(campaigns),
     )
 
-    cloud_promo = _CloudPromoRotator(every=1)
+    cloud_promo = _CloudPromoRotator(interval=60)
 
     # Single-threaded: one task at a time, no concurrent enqueuing,
     # so sleeping until the next scheduled_at is safe.
