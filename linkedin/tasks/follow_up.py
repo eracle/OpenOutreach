@@ -76,6 +76,7 @@ def handle_follow_up(task, session, qualifiers):
 
     elif decision.action == "mark_completed":
         set_profile_state(session, public_id, ProfileState.COMPLETED.value, outcome=decision.outcome)
+        logger.info("[%s] follow_up completed for %s: outcome=%s", session.campaign, public_id, decision.outcome)
 
     elif decision.action == "wait":
         enqueue_follow_up(campaign_id, public_id, delay_seconds=decision.follow_up_hours * 3600)
