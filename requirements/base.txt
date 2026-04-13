@@ -1,6 +1,6 @@
 playwright
 playwright-stealth
-pydantic
+pydantic==2.13.0
 jsonpath-ng
 pandas
 langchain
