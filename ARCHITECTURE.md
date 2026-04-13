@@ -10,7 +10,7 @@ Detailed module documentation for OpenOutreach. See `CLAUDE.md` for rules and qu
 
 Startup sequence:
 1. **Configure logging** — DEBUG level, suppresses noisy third-party loggers (urllib3, httpx, langchain, openai, playwright, etc.).
-2. **Ensure DB** — `run_premigrations()` (filesystem migrations) → `migrate --no-input` + `setup_crm` (idempotent).
+2. **Ensure DB** — `migrate --no-input` + `setup_crm` (idempotent).
 3. **Onboard** — checks `missing_keys()`; if incomplete: uses `--onboard <config.json>` (non-interactive), falls back to interactive wizard (TTY), or exits with clear error (no TTY).
 4. **Validate** — `LLM_API_KEY`, active `LinkedInProfile`, at least one campaign.
 5. **Session** — `get_or_create_session(profile)`, sets default campaign (first non-freemium).
@@ -128,7 +128,7 @@ Three apps in `INSTALLED_APPS`:
 - **`management/setup_crm.py`** — Idempotent CRM bootstrap (Site creation).
 - **`admin.py`** — Django Admin: SiteConfig, Campaign, LinkedInProfile, SearchKeyword, ActionLog, Task, ChatMessage.
 - **`django_settings.py`** — Django settings (SQLite at `data/db.sqlite3`). Apps: crm, chat, linkedin.
-- **`premigrations/`** — Pre-Django filesystem migrations. Numbered `NNNN_*.py` files with `forward(root_dir)` functions. Runner in `__init__.py` discovers and applies unapplied migrations, tracked via `data/.premigrations` JSON file.
+
 
 ## Configuration
 

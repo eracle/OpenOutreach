@@ -21,9 +21,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
 
 if __name__ == "__main__":
     from django.core.management import execute_from_command_line
-    from linkedin.premigrations import run_premigrations
-
-    run_premigrations()
 
     # No subcommand (or first arg is a flag) → default to rundaemon.
     if len(sys.argv) == 1 or sys.argv[1].startswith("-"):
