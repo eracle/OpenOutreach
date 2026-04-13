@@ -8,7 +8,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from linkedin.api.voyager import parse_linkedin_voyager_response, parse_connection_degree
 from linkedin.url_utils import url_to_public_id
-from linkedin.exceptions import AuthenticationError
+from linkedin.exceptions import AuthenticationError, ProfileInaccessibleError
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,20 @@ class PlaywrightLinkedinAPI:
         h = {**self.headers, **(headers or {})}
         return self._fetch("POST", url, h, body=data)
 
+    def _check_profile_response(self, res: _FetchResponse, public_identifier: str) -> None:
+        """Raise on auth/access errors; pass through on success."""
+        if res.status == 401:
+            logger.error("LinkedIn API → 401 Unauthorized (session expired or blocked)")
+            raise AuthenticationError("LinkedIn API returned 401 Unauthorized.")
+        if res.status in (403, 404):
+            logger.info("Profile inaccessible → private / deleted / restricted → %s (HTTP %d)",
+                        public_identifier, res.status)
+            raise ProfileInaccessibleError(f"{public_identifier} (HTTP {res.status})")
+        if not res.ok:
+            body_str = res.text()
+            logger.error("API request failed → %s | Status: %s", public_identifier, res.status)
+            raise IOError(f"LinkedIn API error {res.status}: {body_str[:500]}")
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=2, max=30),
@@ -123,22 +137,7 @@ class PlaywrightLinkedinAPI:
 
         res = self.get(full_url, params=params)
 
-        match res.status:
-            case 401:
-                logger.error("LinkedIn API → 401 Unauthorized (session expired or blocked)")
-                raise AuthenticationError("LinkedIn API returned 401 Unauthorized.")
-
-            case 403 | 404:
-                logger.info("Profile inaccessible → private / deleted / restricted → %s (HTTP %d)",
-                            public_identifier, res.status)
-                logger.debug(f"Body: {json.dumps(res.json(), indent=2)}")
-                return None, None
-
-        if not res.ok:
-            body_str = res.text()
-            logger.error("API request failed → %s | Status: %s", public_identifier, res.status)
-            # IOError so tenacity retries on transient server errors
-            raise IOError(f"LinkedIn API error {res.status}: {body_str[:500]}")
+        self._check_profile_response(res, public_identifier)
 
         data = res.json()
         extracted_info = parse_linkedin_voyager_response(data, public_identifier=public_identifier)
@@ -170,9 +169,6 @@ class PlaywrightLinkedinAPI:
             },
         )
 
-        if res.status == 401:
-            raise AuthenticationError("LinkedIn API returned 401 Unauthorized.")
-        if not res.ok:
-            raise IOError(f"LinkedIn API error {res.status}")
+        self._check_profile_response(res, public_identifier)
 
         return parse_connection_degree(res.json())

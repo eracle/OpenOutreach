@@ -13,6 +13,11 @@ class SkipProfile(Exception):
     pass
 
 
+class ProfileInaccessibleError(Exception):
+    """Profile is private, deleted, or restricted (HTTP 403/404)."""
+    pass
+
+
 class ReachedConnectionLimit(Exception):
     """ Weekly connection limit reached. """
     pass

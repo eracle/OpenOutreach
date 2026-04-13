@@ -41,10 +41,14 @@ class Lead(models.Model):
         the scrape returns one.
         """
         from linkedin.api.client import PlaywrightLinkedinAPI
+        from linkedin.exceptions import ProfileInaccessibleError
 
         session.ensure_browser()
         api = PlaywrightLinkedinAPI(session=session)
-        profile, _raw = api.get_profile(public_identifier=self.public_identifier)
+        try:
+            profile, _raw = api.get_profile(public_identifier=self.public_identifier)
+        except ProfileInaccessibleError:
+            return None
         if not profile:
             return None
 

@@ -18,7 +18,7 @@ from linkedin.db.deals import increment_connect_attempts, set_profile_state
 from linkedin.db.leads import disqualify_lead
 from linkedin.models import ActionLog, Task
 from linkedin.enums import ProfileState
-from linkedin.exceptions import ReachedConnectionLimit, SkipProfile
+from linkedin.exceptions import ProfileInaccessibleError, ReachedConnectionLimit, SkipProfile
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +173,10 @@ def handle_connect(task, session, qualifiers):
         session.linkedin_profile.mark_exhausted(ActionLog.ActionType.CONNECT)
         enqueue_connect(campaign_id, delay_seconds=_seconds_until_tomorrow())
         return
+    except ProfileInaccessibleError as e:
+        logger.warning("Profile inaccessible — marking FAILED: %s", e)
+        set_profile_state(session, public_id, ProfileState.FAILED.value,
+                          reason=f"Profile inaccessible: {e}")
     except SkipProfile as e:
         logger.warning("Skipping %s: %s", public_id, e)
         set_profile_state(session, public_id, ProfileState.FAILED.value)

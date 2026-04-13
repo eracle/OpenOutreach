@@ -28,17 +28,15 @@ def _fetch_degree(session, public_identifier: str, profile: Dict[str, Any]) -> O
     2. If that returns None, fall back to the lightweight
        TopCardSupplementary endpoint.
     """
-    from crm.models import Lead
     from linkedin.api.client import PlaywrightLinkedinAPI
 
-    lead = Lead.objects.get(public_identifier=public_identifier)
-    fresh = lead.get_profile(session)
+    api = PlaywrightLinkedinAPI(session=session)
+    fresh, _raw = api.get_profile(public_identifier=public_identifier)
     if fresh:
         profile.update(fresh)
     degree = profile.get("connection_degree")
 
     if degree is None:
-        api = PlaywrightLinkedinAPI(session=session)
         degree = api.get_connection_degree(public_identifier)
         logger.debug("TopCard degree lookup → %s", degree)
 
