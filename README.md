@@ -8,6 +8,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/network/members)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 [![Open Issues](https://img.shields.io/github/issues/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/issues)
+[![Cloud](https://img.shields.io/badge/Cloud-$49%2Fmo-28A745?style=flat-square)](https://openoutreach.app)
 
 <br/>
 
@@ -72,6 +73,40 @@ The interactive onboarding walks you through the three inputs above on first run
 Once the container is running, open **http://localhost:6080/vnc.html** in your browser to watch the browser live (noVNC). Alternatively, connect a native VNC client to `localhost:5900`.
 
 For Docker Compose, build-from-source, and more options see the **[Docker Guide](./docs/docker.md)**.
+
+> Don't want to manage Docker and VPNs? See [OpenOutreach Cloud](#%EF%B8%8F-openoutreach-cloud--zero-ops-same-ai) below.
+
+---
+
+## ☁️ OpenOutreach Cloud — Zero Ops, Same AI
+
+Once you've set up locally and your campaigns are running, **OpenOutreach Cloud** lets you move everything to a managed, VPN-protected server with a single command. Same open-source code, same database — we just handle the infrastructure.
+
+```bash
+curl -fsSL https://openoutreach.app/install | sh   # install the CLI
+openoutreach signup                                  # $49/mo via Stripe
+openoutreach up ./data                               # upload your DB, provision a server
+openoutreach logs                                    # watch leads roll in
+openoutreach down                                    # download your updated DB, destroy the server
+```
+
+| | Self-Hosted (Free) | Cloud ($49/mo) |
+|---|---|---|
+| AI lead discovery + Bayesian ML | Yes | Yes |
+| AI follow-up agent | Yes | Yes |
+| Data ownership | Full (your DB) | Full (your DB) |
+| Docker + VPN setup | You manage | We manage |
+| Setup time | 30-60 min | ~1 min |
+
+**Your data stays yours.** `openoutreach up` uploads your local `db.sqlite3` to a dedicated droplet; `openoutreach down` brings it back with every new lead, message, and campaign update before the server is destroyed. Switch between self-hosted and Cloud anytime without losing anything.
+
+No feature gating, no lock-in. Cloud is a convenience layer — the code running on the server is the exact same open-source image you run locally.
+
+<div align="center">
+
+[![Get Started with Cloud](https://img.shields.io/badge/Get%20Started%20with%20Cloud-49%24%2Fmo-28A745?style=for-the-badge)](https://openoutreach.app)
+
+</div>
 
 ---
 
