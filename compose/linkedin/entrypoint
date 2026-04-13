@@ -1,0 +1,18 @@
+#!/bin/bash
+set -euo pipefail
+
+# Remap ubuntu's UID/GID to match the host user when set (local dev).
+HOST_UID="${HOST_UID:-1000}"
+HOST_GID="${HOST_GID:-1000}"
+if [ "$HOST_GID" != "1000" ]; then
+    groupmod -g "$HOST_GID" ubuntu
+fi
+if [ "$HOST_UID" != "1000" ] || [ "$HOST_GID" != "1000" ]; then
+    usermod -u "$HOST_UID" -g "$HOST_GID" ubuntu
+fi
+
+# Ensure /app/data exists and is owned by the runtime user.
+mkdir -p /app/data
+chown ubuntu:ubuntu /app/data
+
+exec gosu ubuntu "$@"

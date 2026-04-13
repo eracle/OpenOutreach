@@ -23,7 +23,7 @@ RUN playwright install --with-deps chromium
 # VNC stack (started conditionally via ENABLE_VNC=true at runtime)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        xvfb x11vnc python3-websockify curl nano \
+        gosu xvfb x11vnc python3-websockify curl nano \
     && curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz \
         | tar -xz -C /opt \
     && mv /opt/noVNC-1.6.0 /opt/noVNC \
@@ -36,13 +36,12 @@ RUN useradd -m -u 1000 ubuntu
 ARG APP_HOME=/app
 WORKDIR ${APP_HOME}
 
+COPY ./compose/linkedin/entrypoint /entrypoint
 COPY ./compose/linkedin/start /start
-RUN sed -i 's/\r$//g' /start && chmod +x /start
+RUN sed -i 's/\r$//g' /entrypoint /start && chmod +x /entrypoint /start
 
 COPY --chown=ubuntu:ubuntu . ${APP_HOME}
 RUN chown ubuntu:ubuntu ${APP_HOME}
 
-USER ubuntu
-WORKDIR ${APP_HOME}
-
+ENTRYPOINT ["/entrypoint"]
 CMD ["/start"]
