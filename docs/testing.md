@@ -75,7 +75,7 @@ tests/
 ├── test_conf.py             # Configuration loading
 ├── test_emails.py           # Newsletter subscription
 ├── test_gdpr.py             # GDPR location detection
-├── test_heal.py             # Task queue healing on startup
+├── test_reconcile.py        # Task queue reconciliation (scheduler.reconcile)
 ├── test_onboarding.py       # Interactive onboarding
 ├── test_pools.py            # Candidate pool generators
 ├── test_qualify.py          # Qualification pipeline

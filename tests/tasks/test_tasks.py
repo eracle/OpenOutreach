@@ -55,11 +55,15 @@ def _make_qualified(session, public_id="alice"):
 def _make_pending(session, public_id="alice"):
     _make_qualified(session, public_id)
     set_profile_state(session, public_id, ProfileState.PENDING.value)
+    # set_profile_state's scheduler hook auto-enqueues a check_pending task.
+    # Tests construct their own Task rows via _make_task, so wipe the fixture task.
+    Task.objects.all().delete()
 
 
 def _make_connected(session, public_id="alice"):
     _make_qualified(session, public_id)
     set_profile_state(session, public_id, ProfileState.CONNECTED.value)
+    Task.objects.all().delete()
 
 
 def _make_old_deal(session, days):

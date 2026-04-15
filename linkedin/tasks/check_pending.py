@@ -1,12 +1,16 @@
 # linkedin/tasks/check_pending.py
-"""Check pending task — checks one PENDING profile, self-reschedules with backoff."""
+"""Check pending task — re-checks one PENDING profile's connection status.
+
+The next task (follow_up for CONNECTED, check_pending for still-PENDING)
+is enqueued by the scheduler hook fired from set_profile_state. This
+handler is responsible only for domain logic: running the status probe
+and doubling the check_pending backoff when the profile is still pending.
+"""
 from __future__ import annotations
 
 import logging
 
 from termcolor import colored
-
-from django.db import transaction
 
 from linkedin.db.deals import get_profile_dict_for_public_id, set_profile_state
 from linkedin.enums import ProfileState
@@ -15,14 +19,26 @@ from linkedin.exceptions import SkipProfile
 logger = logging.getLogger(__name__)
 
 
-def handle_check_pending(task, session, qualifiers):
+def _bump_backoff(session, public_id: str, current_hours: float) -> float:
+    """Double the check_pending backoff on the Deal; return the new value."""
     from crm.models import Deal
+
+    new_backoff = current_hours * 2
+    deal = Deal.objects.filter(
+        lead__public_identifier=public_id,
+        campaign=session.campaign,
+    ).first()
+    if deal:
+        deal.backoff_hours = new_backoff
+        deal.save(update_fields=["backoff_hours"])
+    return new_backoff
+
+
+def handle_check_pending(task, session, qualifiers):
     from linkedin.actions.status import get_connection_status
-    from linkedin.tasks.connect import enqueue_check_pending, enqueue_follow_up
 
     payload = task.payload
     public_id = payload["public_id"]
-    campaign_id = payload["campaign_id"]
     backoff_hours = payload.get("backoff_hours", 24)
 
     logger.info(
@@ -44,22 +60,14 @@ def handle_check_pending(task, session, qualifiers):
         set_profile_state(session, public_id, ProfileState.FAILED.value)
         return
 
-    set_profile_state(session, public_id, new_state.value)
-
-    if new_state == ProfileState.CONNECTED:
-        enqueue_follow_up(campaign_id, public_id)
-    elif new_state == ProfileState.PENDING:
-        new_backoff = backoff_hours * 2
-        with transaction.atomic():
-            deal = Deal.objects.filter(
-                lead__public_identifier=public_id,
-                campaign=session.campaign,
-            ).first()
-            if deal:
-                deal.backoff_hours = new_backoff
-                deal.save(update_fields=["backoff_hours"])
-        delay_hours = enqueue_check_pending(campaign_id, public_id, backoff_hours=new_backoff)
+    if new_state == ProfileState.PENDING:
+        # Still pending — double the backoff before set_profile_state so the
+        # scheduler hook picks up the bumped value when enqueueing the next
+        # check_pending.
+        new_backoff = _bump_backoff(session, public_id, backoff_hours)
         logger.info(
-            "%s still pending — scheduled in %.1fh (backoff %.1fh → %.1fh)",
-            public_id, delay_hours, backoff_hours, new_backoff,
+            "%s still pending — backoff %.1fh → %.1fh",
+            public_id, backoff_hours, new_backoff,
         )
+
+    set_profile_state(session, public_id, new_state.value)

@@ -45,7 +45,7 @@ The daemon is the central orchestrator. It runs continuously using a **persisten
 
 ### Task Queue Architecture
 
-Tasks are ordered by `scheduled_at` timestamp. The worker loop pops the oldest due task, executes it, and each task handler self-schedules follow-on tasks. On startup, `heal_tasks()` reconciles the queue with CRM state (recovers stale running tasks, seeds missing tasks).
+Tasks are ordered by `scheduled_at` timestamp. The worker loop pops the oldest due task and executes it. Task creation is centralized in `linkedin/tasks/scheduler.py`: state transitions (via `set_profile_state`) fire `on_deal_state_entered(deal)`, which enqueues the task implied by the new state. When the queue has no ready task, the daemon calls `scheduler.reconcile(session)` — it recovers stale RUNNING rows, seeds one `connect` per campaign, and re-creates missing tasks for active Deals. This is the retry mechanism: a crashed handler leaves a FAILED task with no successor, and the next idle cycle re-creates it from CRM state.
 
 Three task types (all handler functions in `linkedin/tasks/`, signature: `handle_*(task, session, qualifiers)`):
 
@@ -65,9 +65,9 @@ Freemium campaigns use the same `connect` task type; the `ConnectStrategy` datac
 - Unified handler for all campaigns via `ConnectStrategy` dataclass.
 - Regular campaigns: `find_candidate()` from `pipeline/pools.py` (composable generators: `ready_source` → `qualify_source` → `search_source`).
 - Freemium campaigns: `find_freemium_candidate()` from `pipeline/freemium_pool.py` with just-in-time Deal creation.
-- Self-reschedules via `strategy.compute_delay(elapsed)`.
+- Self-reschedules the connect loop via `strategy.compute_delay(elapsed)` calling `scheduler.enqueue_connect()`.
 - Rate-limited by `LinkedInProfile.can_execute()` / `record_action()`.
-- Enqueue helpers: `enqueue_connect()`, `enqueue_check_pending()`, `enqueue_follow_up()` — all backed by `_enqueue_task()` generic dedup helper.
+- Next deal-level task (follow_up / check_pending) is enqueued automatically by the scheduler hook when the handler calls `set_profile_state(...)`.
 
 ### `check_pending.py` — handle_check_pending
 - Checks one PENDING profile via `get_connection_status()`.

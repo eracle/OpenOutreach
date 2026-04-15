@@ -197,11 +197,8 @@ class TaskQuerySet(models.QuerySet):
     def pending(self):
         return self.filter(status=Task.Status.PENDING).order_by("scheduled_at")
 
-    def due(self):
-        return self.pending().filter(scheduled_at__lte=timezone.now())
-
     def claim_next(self) -> "Task | None":
-        return self.due().first()
+        return self.pending().filter(scheduled_at__lte=timezone.now()).first()
 
     def seconds_to_next(self) -> float | None:
         """Seconds until the next pending task, or None if queue is empty."""
@@ -255,8 +252,3 @@ class Task(models.Model):
     def mark_failed(self):
         self.status = self.Status.FAILED
         self.save(update_fields=["status"])
-
-    def reset_to_pending(self):
-        self.status = self.Status.PENDING
-        self.started_at = None
-        self.save(update_fields=["status", "started_at"])

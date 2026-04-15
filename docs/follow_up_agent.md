@@ -11,7 +11,10 @@ the deal is closed.
 CONNECTED lead
     │
     ▼
-enqueue_follow_up()          ← called from handle_connect / handle_check_pending
+scheduler.on_deal_state_entered() ← fired from set_profile_state(CONNECTED)
+    │
+    ▼
+enqueue_follow_up()          ← in linkedin/tasks/scheduler.py
     │
     ▼
 daemon picks up Task
@@ -129,7 +132,7 @@ Each strategy uses the lead's URN (stored on `Lead.urn`). If all three fail,
 ## Scheduling & Deduplication
 
 `enqueue_follow_up(campaign_id, public_id, delay_seconds=10)` in
-`linkedin/tasks/connect.py`:
+`linkedin/tasks/scheduler.py`:
 
 - Creates a PENDING `Task` with `scheduled_at = now + delay_seconds`
 - **Dedup**: only one FOLLOW_UP task per `(campaign_id, public_id)` exists at a

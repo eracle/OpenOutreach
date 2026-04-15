@@ -32,7 +32,7 @@ def handle_follow_up(task, session, qualifiers):
     from linkedin.db.deals import set_profile_state
     from linkedin.db.summaries import materialize_profile_summary_if_missing
     from linkedin.enums import ProfileState
-    from linkedin.tasks.connect import enqueue_follow_up
+    from linkedin.tasks.scheduler import enqueue_follow_up
 
     payload = task.payload
     public_id = payload["public_id"]

@@ -6,7 +6,6 @@ Works for both regular and freemium campaigns via ConnectStrategy.
 from __future__ import annotations
 
 import logging
-import random
 from dataclasses import dataclass
 from typing import Callable
 
@@ -16,7 +15,7 @@ from termcolor import colored
 from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.db.deals import increment_connect_attempts, set_profile_state
 from linkedin.db.leads import disqualify_lead
-from linkedin.models import ActionLog, Task
+from linkedin.models import ActionLog
 from linkedin.enums import ProfileState
 from linkedin.exceptions import ProfileInaccessibleError, ReachedConnectionLimit, SkipProfile
 
@@ -68,20 +67,10 @@ def strategy_for(campaign, qualifiers):
     )
 
 
-def _seconds_until_tomorrow() -> float:
-    from django.utils import timezone
-    import datetime
-
-    now = timezone.now()
-    tomorrow = (now + datetime.timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0,
-    )
-    return (tomorrow - now).total_seconds()
-
-
 def handle_connect(task, session, qualifiers):
     from linkedin.actions.connect import send_connection_request
     from linkedin.actions.status import get_connection_status
+    from linkedin.tasks.scheduler import enqueue_connect, seconds_until_tomorrow
 
     cfg = CAMPAIGN_CONFIG
     campaign = session.campaign
@@ -94,7 +83,7 @@ def handle_connect(task, session, qualifiers):
 
     # --- Rate limit check ---
     if not session.linkedin_profile.can_execute(ActionLog.ActionType.CONNECT):
-        enqueue_connect(campaign_id, delay_seconds=_seconds_until_tomorrow())
+        enqueue_connect(campaign_id, delay_seconds=seconds_until_tomorrow())
         return
 
     # --- Get candidate ---
@@ -110,11 +99,10 @@ def handle_connect(task, session, qualifiers):
     if strategy.pre_connect:
         strategy.pre_connect(session, public_id)
 
-    from linkedin.url_utils import public_id_to_url
     from crm.models import Deal
 
     deal = Deal.objects.filter(
-        lead__linkedin_url=public_id_to_url(public_id),
+        lead__public_identifier=public_id,
         campaign=session.campaign,
     ).first()
     reason = deal.reason if deal else ""
@@ -125,18 +113,10 @@ def handle_connect(task, session, qualifiers):
     try:
         status = get_connection_status(session, profile)
 
-        if status == ProfileState.CONNECTED:
+        if status in (ProfileState.CONNECTED, ProfileState.PENDING):
+            # set_profile_state triggers the scheduler hook, which enqueues
+            # follow_up (CONNECTED) or check_pending (PENDING).
             set_profile_state(session, public_id, status.value)
-            enqueue_follow_up(campaign_id, public_id)
-            _reschedule()
-            return
-
-        if status == ProfileState.PENDING:
-            set_profile_state(session, public_id, status.value)
-            enqueue_check_pending(
-                campaign_id, public_id,
-                backoff_hours=cfg["check_pending_recheck_after_hours"],
-            )
             _reschedule()
             return
 
@@ -160,18 +140,10 @@ def handle_connect(task, session, qualifiers):
                 ActionLog.ActionType.CONNECT, session.campaign,
             )
 
-            if new_state == ProfileState.PENDING:
-                enqueue_check_pending(
-                    campaign_id, public_id,
-                    backoff_hours=cfg["check_pending_recheck_after_hours"],
-                )
-            elif new_state == ProfileState.CONNECTED:
-                enqueue_follow_up(campaign_id, public_id)
-
     except ReachedConnectionLimit as e:
         logger.warning("Rate limited: %s", e)
         session.linkedin_profile.mark_exhausted(ActionLog.ActionType.CONNECT)
-        enqueue_connect(campaign_id, delay_seconds=_seconds_until_tomorrow())
+        enqueue_connect(campaign_id, delay_seconds=seconds_until_tomorrow())
         return
     except ProfileInaccessibleError as e:
         logger.warning("Profile inaccessible — marking FAILED: %s", e)
@@ -184,66 +156,3 @@ def handle_connect(task, session, qualifiers):
     _reschedule()
 
 
-# ------------------------------------------------------------------
-# Enqueue helpers (used by all task types)
-# ------------------------------------------------------------------
-
-def _enqueue_task(task_type: "Task.TaskType", payload: dict, delay_seconds: float, dedup_keys: list[str] | None = None):
-    """Create a pending task if no duplicate exists.
-
-    Deduplication: matches on task_type + status=PENDING + dedup_keys payload
-    fields (defaults to all payload keys).
-    """
-    from datetime import timedelta
-
-    filter_kwargs = {
-        "task_type": task_type,
-        "status": Task.Status.PENDING,
-    }
-    for key in (dedup_keys if dedup_keys is not None else payload):
-        filter_kwargs[f"payload__{key}"] = payload[key]
-
-    if not Task.objects.filter(**filter_kwargs).exists():
-        Task.objects.create(
-            task_type=task_type,
-            scheduled_at=timezone.now() + timedelta(seconds=delay_seconds),
-            payload=payload,
-        )
-
-
-def enqueue_connect(campaign_id: int, delay_seconds: float = 10):
-    _enqueue_task(
-        task_type=Task.TaskType.CONNECT,
-        payload={"campaign_id": campaign_id},
-        delay_seconds=delay_seconds,
-    )
-
-
-def enqueue_check_pending(
-    campaign_id: int,
-    public_id: str,
-    backoff_hours: float,
-):
-    # Equal-jitter backoff: uniform spread across [half, backoff]
-    half = backoff_hours / 2
-    delay_hours = half + random.uniform(0, half)
-
-    _enqueue_task(
-        task_type=Task.TaskType.CHECK_PENDING,
-        payload={
-            "campaign_id": campaign_id,
-            "public_id": public_id,
-            "backoff_hours": backoff_hours,
-        },
-        delay_seconds=delay_hours * 3600,
-        dedup_keys=["campaign_id", "public_id"],
-    )
-    return delay_hours
-
-
-def enqueue_follow_up(campaign_id: int, public_id: str, delay_seconds: float = 10):
-    _enqueue_task(
-        task_type=Task.TaskType.FOLLOW_UP,
-        payload={"campaign_id": campaign_id, "public_id": public_id},
-        delay_seconds=delay_seconds,
-    )

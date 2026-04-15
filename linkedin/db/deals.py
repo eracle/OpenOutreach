@@ -73,14 +73,23 @@ def _existing_deal_or_lead(public_id: str, campaign):
 
 
 def set_profile_state(session, public_identifier: str, new_state: str, reason: str = "", outcome: str = ""):
-    """Move the Deal to the corresponding state.
+    """Move the Deal to the corresponding state and enqueue the implied next task.
 
     Campaign-scoped: only finds Deals in the current campaign.
     Raises ValueError if no Deal exists.
+
+    Task creation for state-driven transitions (CONNECTED → follow_up,
+    PENDING → check_pending) happens here via the scheduler hook — callers
+    do not enqueue directly.
     """
     from crm.models import Deal
+    from linkedin.tasks.scheduler import on_deal_state_entered
 
-    deal = Deal.objects.filter(lead__public_identifier=public_identifier, campaign=session.campaign).first()
+    deal = (
+        Deal.objects.filter(lead__public_identifier=public_identifier, campaign=session.campaign)
+        .select_related("lead")
+        .first()
+    )
     if not deal:
         raise ValueError(f"No Deal for {public_identifier} — cannot set state {new_state}")
 
@@ -102,6 +111,8 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
         logger.info("%s %s%s", public_identifier, colored(label, color, attrs=attrs), suffix)
     else:
         logger.debug("%s %s (unchanged)%s", public_identifier, label, suffix)
+
+    on_deal_state_entered(deal)
 
 
 # ── State queries ──

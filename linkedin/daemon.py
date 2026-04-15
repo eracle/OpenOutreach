@@ -25,7 +25,7 @@ from linkedin.exceptions import AuthenticationError
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
 from linkedin.models import Task
 from linkedin.tasks.check_pending import handle_check_pending
-from linkedin.tasks.connect import enqueue_check_pending, enqueue_connect, enqueue_follow_up, handle_connect
+from linkedin.tasks.connect import handle_connect
 from linkedin.tasks.follow_up import handle_follow_up
 
 logger = logging.getLogger(__name__)
@@ -158,65 +158,6 @@ def seconds_until_active() -> float:
 # ------------------------------------------------------------------
 
 
-def heal_tasks(session):
-    """Reconcile task queue with CRM state on daemon startup.
-
-    1. Reset stale 'running' tasks to 'pending' (crashed worker recovery)
-    2. Seed one 'connect' task per campaign if none pending
-    3. Create 'check_pending' tasks for PENDING profiles without tasks
-    4. Create 'follow_up' tasks for CONNECTED profiles without tasks
-    """
-    from crm.models import Deal
-    from linkedin.url_utils import url_to_public_id
-    from linkedin.enums import ProfileState
-
-    cfg = CAMPAIGN_CONFIG
-
-    # 1. Recover stale running tasks
-    stale_count = Task.objects.filter(status=Task.Status.RUNNING).update(
-        status=Task.Status.PENDING,
-    )
-    if stale_count:
-        logger.info("Recovered %d stale running tasks", stale_count)
-
-    # 2. Seed connect tasks per campaign (regular first, freemium deferred)
-    for campaign in session.campaigns:
-        delay = CAMPAIGN_CONFIG["connect_delay_seconds"] if campaign.is_freemium else 0
-        enqueue_connect(campaign.pk, delay_seconds=delay)
-
-    # 3. Check_pending tasks for PENDING profiles
-    for campaign in session.campaigns:
-        session.campaign = campaign
-        pending_deals = Deal.objects.filter(
-            state=ProfileState.PENDING,
-            campaign=campaign,
-        ).select_related("lead")
-
-        for deal in pending_deals:
-            public_id = url_to_public_id(deal.lead.linkedin_url) if deal.lead.linkedin_url else None
-            if not public_id:
-                continue
-            backoff = deal.backoff_hours or cfg["check_pending_recheck_after_hours"]
-            enqueue_check_pending(campaign.pk, public_id, backoff_hours=backoff)
-
-    # 4. Follow_up tasks for CONNECTED profiles
-    for campaign in session.campaigns:
-        session.campaign = campaign
-        connected_deals = Deal.objects.filter(
-            state=ProfileState.CONNECTED,
-            campaign=campaign,
-        ).select_related("lead")
-
-        for deal in connected_deals:
-            public_id = url_to_public_id(deal.lead.linkedin_url) if deal.lead.linkedin_url else None
-            if not public_id:
-                continue
-            enqueue_follow_up(campaign.pk, public_id, delay_seconds=random.uniform(5, 60))
-
-    pending_count = Task.objects.pending().count()
-    logger.info("Task queue healed: %d pending tasks", pending_count)
-
-
 def run_daemon(session):
     from linkedin.ml.hub import fetch_kit
     from linkedin.setup.freemium import import_freemium_campaign
@@ -238,9 +179,6 @@ def run_daemon(session):
     qualifiers = _build_qualifiers(
         session.campaigns, cfg, kit_model=kit["model"] if kit else None,
     )
-
-    # Startup healing
-    heal_tasks(session)
 
     campaigns = session.campaigns
     if not campaigns:
@@ -267,10 +205,17 @@ def run_daemon(session):
 
         task = Task.objects.claim_next()
         if task is None:
+            # Nothing ready — reconcile the queue from CRM state. Any deal
+            # stuck without a pending task (e.g. because a prior handler
+            # crashed) gets a fresh task here; this is the retry mechanism.
+            from linkedin.tasks.scheduler import reconcile
+            reconcile(session)
+
             wait = Task.objects.seconds_to_next()
             if wait is None:
-                logger.info("Queue empty — nothing to do")
-                return
+                logger.info("Queue empty after reconcile — sleeping 1h")
+                time.sleep(3600)
+                continue
             if wait > 0:
                 h, m = int(wait // 3600), int(wait % 3600 // 60)
                 logger.info("Next task in %dh%02dm — sleeping", h, m)
@@ -300,10 +245,10 @@ def run_daemon(session):
             try:
                 session.reauthenticate()
             except Exception:
-                task.mark_failed()
                 logger.exception("Re-authentication failed for %s", task)
-                continue
-            task.reset_to_pending()
+            # Either way, mark this task FAILED; reconcile will re-create a
+            # fresh task for the deal on the next idle cycle.
+            task.mark_failed()
             continue
         except (openai.BadRequestError, openai.AuthenticationError, openai.NotFoundError) as e:
             task.mark_failed()
