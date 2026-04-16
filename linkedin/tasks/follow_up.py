@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
+from django.utils import timezone
 from termcolor import colored
 
 from linkedin.models import ActionLog
 
 logger = logging.getLogger(__name__)
+
+# Required silence between nudges scales with unanswered count:
+# 1 unanswered → 3d, 2 → 6d, 3 → 9d. Skips the LLM call while open.
+MIN_DAYS_PER_UNANSWERED = 3
 
 
 def _build_send_profile(deal) -> dict:
@@ -23,6 +29,27 @@ def _build_send_profile(deal) -> dict:
         "public_identifier": lead.public_identifier,
         "urn": lead.urn or "",
     }
+
+
+def _too_soon_to_nudge(deal) -> bool:
+    """Wait `unanswered_count * MIN_DAYS_PER_UNANSWERED` days between nudges."""
+    from chat.models import ChatMessage
+    from django.contrib.contenttypes.models import ContentType
+
+    ct = ContentType.objects.get_for_model(type(deal.lead))
+    messages = ChatMessage.objects.filter(content_type=ct, object_id=deal.lead_id)
+
+    last = messages.order_by("-creation_date").first()
+    if last is None or not last.is_outgoing:
+        return False
+
+    last_reply = messages.filter(is_outgoing=False).order_by("-creation_date").first()
+    nudges = messages.filter(is_outgoing=True)
+    if last_reply:
+        nudges = nudges.filter(creation_date__gt=last_reply.creation_date)
+
+    required = timedelta(days=nudges.count() * MIN_DAYS_PER_UNANSWERED)
+    return timezone.now() - last.creation_date < required
 
 
 def handle_follow_up(task, session, qualifiers):
@@ -55,6 +82,11 @@ def handle_follow_up(task, session, qualifiers):
     )
     if deal is None:
         logger.warning("follow_up: no Deal for %s — skipping", public_id)
+        return
+
+    if _too_soon_to_nudge(deal):
+        logger.info("[%s] follow_up %s: too soon to nudge — re-enqueuing", session.campaign, public_id)
+        enqueue_follow_up(campaign_id, public_id, delay_seconds=24 * 3600)
         return
 
     materialize_profile_summary_if_missing(deal, session)

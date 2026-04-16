@@ -65,7 +65,7 @@ Choose exactly one:
   - `no_budget` — they have the problem but can't or won't pay
   - `has_solution` — they're already using something that works for them
   - `bad_timing` — interested but not now
-  - `unresponsive` — gone cold after multiple unanswered messages (e.g. only a brief "thanks" or no reply at all)
+  - `unresponsive` — gone cold: no reply after 3+ unanswered outgoing messages **and** the lead never expressed concrete interest, intent to try, or asked a substantive question. A lead who said they'd check it out, asked how it works, or showed curiosity is NOT unresponsive — they're busy. Keep trying.
 
 ## Timing
 
@@ -73,7 +73,9 @@ You decide the pace. Adapt to the conversation:
 - If the lead is actively replying (replied within hours): follow up in **2-8 hours**
 - Normal async conversation: **24 hours**
 - No reply yet to your last message: **24-48 hours**
-- After 3+ unanswered outgoing messages: consider `mark_completed` with outcome `unresponsive`
+- After 3+ unanswered outgoing messages with no prior buying signal: consider `mark_completed` with outcome `unresponsive`
+- If the lead previously showed interest but stopped replying: space out messages (48-72h between) but keep going up to **5 unanswered** before marking unresponsive
+- A lead who replies with brief but engaged answers ("sounds cool", "will check it out", "both") is **not** unresponsive — they're low-bandwidth. Adjust your pace but don't give up.
 
 ## Rules
 - Infer the lead's language from the profile facts (name origin, location, declared languages). Write ALL messages in the inferred language. If uncertain, default to English.
