@@ -42,7 +42,8 @@ def extract_in_urls(page):
     """Extract all /in/ profile URLs from the current page."""
     from linkedin.url_utils import url_to_public_id
 
-    urls = set()
+    seen = set()
+    urls = []
     for link in page.locator('a[href*="/in/"]').all():
         href = link.get_attribute("href")
         if href and "/in/" in href:
@@ -50,7 +51,9 @@ def extract_in_urls(page):
             clean = urlparse(full_url)._replace(query="", fragment="").geturl()
             if not url_to_public_id(clean):
                 continue
-            urls.add(clean)
+            if clean not in seen:
+                seen.add(clean)
+                urls.append(clean)
     logger.debug(f"Extracted {len(urls)} unique /in/ profiles")
     return urls
 

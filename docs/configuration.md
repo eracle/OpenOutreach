@@ -67,7 +67,13 @@ Timing and ML defaults are hardcoded in `linkedin/conf.py`. These are not user-c
 | Key | Value | Description |
 |:----|:------|:------------|
 | `check_pending_recheck_after_hours` | `24` | Base interval (hours) before first pending check. Doubles per profile via exponential backoff. |
-| `enrich_min_interval` | `1` | Floor (seconds) between enrichment API calls during auto-discovery. |
+| `enrich_min_delay_seconds` | `6` | Min pause (seconds) between enrichment API calls during auto-discovery. |
+| `enrich_max_delay_seconds` | `10` | Max pause (seconds) — actual delay is `random.uniform(min, max)`. |
+| `enrich_max_per_page` | `10` | Max profiles enriched per discovered page (DOM order, LinkedIn relevance). |
+| `burst_min_seconds` | `2700` | Min work burst (45 min) before the daemon takes a human-rhythm break. |
+| `burst_max_seconds` | `3900` | Max work burst (65 min). Actual burst is `random.uniform(min, max)`. |
+| `break_min_seconds` | `600` | Min break length (10 min) after each burst. |
+| `break_max_seconds` | `1200` | Max break length (20 min). |
 | `min_action_interval` | `120` | Minimum seconds between major actions. |
 | `qualification_n_mc_samples` | `100` | Monte Carlo samples for BALD computation. |
 | `min_ready_to_connect_prob` | `0.9` | GP probability threshold for promoting QUALIFIED to READY_TO_CONNECT. |

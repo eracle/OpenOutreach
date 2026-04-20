@@ -33,8 +33,9 @@ For each new URL discovered:
 2. **Lead** is created with the full profile JSON in `description`
 3. **Embedding** is computed (384-dim BAAI/bge-small-en-v1.5 via fastembed) and stored directly on the Lead's `embedding` BinaryField
 
-All steps happen atomically at discovery time. Rate-limited by
-`enrich_min_interval` (default 1s per profile).
+All steps happen atomically at discovery time. Rate-limited by a randomized
+`enrich_min_delay_seconds`–`enrich_max_delay_seconds` pause (default 6–10s)
+per profile, capped at `enrich_max_per_page` (default 10) per discovered page.
 
 > **Robustness fallback:** Lazy helpers (`ensure_lead_enriched`,
 > `ensure_profile_embedded`) exist in `db/enrichment.py` for rare edge

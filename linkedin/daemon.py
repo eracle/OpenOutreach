@@ -94,6 +94,42 @@ class _CloudPromoRotator:
         )
 
 
+class _HumanRhythmBreak:
+    """Wall-clock burst timer that injects a random break between bursts.
+
+    Call ``reset()`` after idle sleeps (active-hours pause, waiting for
+    the next scheduled task) so the burst timer tracks real work, not
+    wall-clock. Call ``maybe_break()`` after each successful task —
+    it sleeps a random break duration when the current burst is done.
+    """
+
+    def __init__(self):
+        self._new_burst()
+
+    def _new_burst(self):
+        self._burst_start = time.monotonic()
+        self._burst_duration = random.uniform(
+            CAMPAIGN_CONFIG["burst_min_seconds"],
+            CAMPAIGN_CONFIG["burst_max_seconds"],
+        )
+
+    def reset(self):
+        """Start a fresh burst without taking a break. Use after idle gaps."""
+        self._new_burst()
+
+    def maybe_break(self):
+        """Sleep a random break and start a new burst if the current one is done."""
+        if time.monotonic() - self._burst_start < self._burst_duration:
+            return
+        break_seconds = random.uniform(
+            CAMPAIGN_CONFIG["break_min_seconds"],
+            CAMPAIGN_CONFIG["break_max_seconds"],
+        )
+        logger.info("Taking a %dm break", int(break_seconds // 60))
+        time.sleep(break_seconds)
+        self._new_burst()
+
+
 def _build_qualifiers(campaigns, cfg, kit_model=None):
     """Create a qualifier for every campaign, keyed by campaign PK."""
     from crm.models import Lead
@@ -192,6 +228,7 @@ def run_daemon(session):
     )
 
     cloud_promo = _CloudPromoRotator(interval=60)
+    rhythm = _HumanRhythmBreak()
 
     # Single-threaded: one task at a time, no concurrent enqueuing,
     # so sleeping until the next scheduled_at is safe.
@@ -201,6 +238,7 @@ def run_daemon(session):
             h, m = int(pause // 3600), int(pause % 3600 // 60)
             logger.info("Outside active hours — sleeping %dh%02dm", h, m)
             time.sleep(pause)
+            rhythm.reset()
             continue
 
         task = Task.objects.claim_next()
@@ -215,11 +253,13 @@ def run_daemon(session):
             if wait is None:
                 logger.info("Queue empty after reconcile — sleeping 1h")
                 time.sleep(3600)
+                rhythm.reset()
                 continue
             if wait > 0:
                 h, m = int(wait // 3600), int(wait % 3600 // 60)
                 logger.info("Next task in %dh%02dm — sleeping", h, m)
                 time.sleep(wait)
+                rhythm.reset()
             continue
 
         campaign = Campaign.objects.filter(pk=task.payload.get("campaign_id")).first()
@@ -264,3 +304,4 @@ def run_daemon(session):
 
         task.mark_completed()
         cloud_promo.maybe_log()
+        rhythm.maybe_break()

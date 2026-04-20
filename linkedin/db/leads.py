@@ -1,4 +1,5 @@
 import logging
+import random
 import time
 from typing import Dict, Any, Optional
 
@@ -120,10 +121,12 @@ def disqualify_lead(public_id: str):
     lead.save(update_fields=["disqualified"])
 
 
-def discover_and_enrich(session, urls: set):
+def discover_and_enrich(session, urls):
     """For each new URL, call Voyager API, create enriched Lead (with embedding).
 
-    Skips URLs that already have a Lead. Rate-limits with enrich_min_interval.
+    Skips URLs that already have a Lead, caps at enrich_max_per_page (DOM
+    order — LinkedIn's own relevance), and pauses a human-ish
+    [enrich_min_delay_seconds, enrich_max_delay_seconds] between scrapes.
     """
     from linkedin.api.client import PlaywrightLinkedinAPI
     from linkedin.conf import CAMPAIGN_CONFIG
@@ -132,9 +135,14 @@ def discover_and_enrich(session, urls: set):
     if not new_urls:
         return
 
+    max_per_page = CAMPAIGN_CONFIG["enrich_max_per_page"]
+    if len(new_urls) > max_per_page:
+        new_urls = new_urls[:max_per_page]
+
     logger.info("Discovered %d new profiles (%d total on page)", len(new_urls), len(urls))
 
-    min_interval = CAMPAIGN_CONFIG.get("enrich_min_interval", 1)
+    min_delay = CAMPAIGN_CONFIG["enrich_min_delay_seconds"]
+    max_delay = CAMPAIGN_CONFIG["enrich_max_delay_seconds"]
     session.ensure_browser()
     api = PlaywrightLinkedinAPI(session=session)
     enriched = 0
@@ -157,7 +165,7 @@ def discover_and_enrich(session, urls: set):
         if create_enriched_lead(session, url, profile) is not None:
             enriched += 1
 
-        time.sleep(min_interval)
+        time.sleep(random.uniform(min_delay, max_delay))
 
     logger.info("Enriched %d/%d new profiles", enriched, len(new_urls))
 
