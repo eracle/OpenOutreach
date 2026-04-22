@@ -76,6 +76,7 @@ def launch_browser(storage_state=None):
     browser = playwright.chromium.launch(headless=False, slow_mo=BROWSER_SLOW_MO)
     context = browser.new_context(storage_state=storage_state)
     context.set_default_timeout(BROWSER_DEFAULT_TIMEOUT_MS)
+    context.set_default_navigation_timeout(BROWSER_DEFAULT_TIMEOUT_MS)
     Stealth().apply_stealth_sync(context)
     page = context.new_page()
     return page, context, browser, playwright

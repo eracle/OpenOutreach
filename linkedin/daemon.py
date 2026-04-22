@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import random
+import threading
 import time
 from datetime import timedelta
 from zoneinfo import ZoneInfo
@@ -21,7 +22,7 @@ from linkedin.conf import (
     REST_DAYS,
 )
 from linkedin.diagnostics import failure_diagnostics
-from linkedin.exceptions import AuthenticationError
+from linkedin.exceptions import AuthenticationError, BrowserUnresponsiveError
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
 from linkedin.models import Task
 from linkedin.tasks.check_pending import handle_check_pending
@@ -35,6 +36,18 @@ _HANDLERS = {
     Task.TaskType.CHECK_PENDING: handle_check_pending,
     Task.TaskType.FOLLOW_UP: handle_follow_up,
 }
+
+# Hard ceilings per task type — if a handler doesn't return inside this
+# window the watchdog closes the browser session to unwedge Playwright and
+# the daemon marks the task FAILED.
+TASK_WATCHDOG_SECONDS = {
+    Task.TaskType.CONNECT: 10 * 60,
+    Task.TaskType.CHECK_PENDING: 5 * 60,
+    Task.TaskType.FOLLOW_UP: 10 * 60,
+}
+
+HEARTBEAT_INTERVAL = 300  # 5 minutes
+HEARTBEAT_SLICE = 60      # wake every minute during long sleeps
 
 
 # ── Cloud promo ──────────────────────────────────────────────────────
@@ -94,6 +107,82 @@ class _CloudPromoRotator:
         )
 
 
+# ── Heartbeat + watchdog ─────────────────────────────────────────────
+
+
+class Heartbeat:
+    """Logs an ``alive — <context>`` line at most once every *interval* seconds.
+
+    The first call won't log (``_last`` starts at now) — quiet gaps begin
+    counting from daemon start, not the Unix epoch.
+    """
+
+    def __init__(self, interval: float = HEARTBEAT_INTERVAL):
+        self._interval = interval
+        self._last = time.monotonic()
+
+    def maybe_log(self, context: str) -> None:
+        now = time.monotonic()
+        if now - self._last < self._interval:
+            return
+        self._last = now
+        logger.info(colored("alive", "cyan") + " — %s", context)
+
+
+def sleep_with_heartbeat(seconds: float, heartbeat: Heartbeat, context: str) -> None:
+    """``time.sleep(seconds)`` that wakes every ``HEARTBEAT_SLICE`` seconds to
+    let *heartbeat* fire. Use for any idle sleep longer than the heartbeat
+    interval so the daemon never goes silent for more than 5 minutes.
+    """
+    end = time.monotonic() + seconds
+    while True:
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(HEARTBEAT_SLICE, remaining))
+        heartbeat.maybe_log(context)
+
+
+def run_task_with_watchdog(handler, task, session, qualifiers) -> None:
+    """Execute *handler* under a per-task hard ceiling.
+
+    On timeout, closes the browser session to unwedge Playwright. The
+    handler's next call into the closed session raises (Playwright error),
+    which propagates out and the daemon's generic-except path marks the
+    task FAILED; reconcile re-creates it on the next idle cycle. If the
+    handler somehow returns despite the timer firing, we raise
+    ``BrowserUnresponsiveError`` so the task is still marked failed.
+    """
+    timeout_s = TASK_WATCHDOG_SECONDS.get(task.task_type, 10 * 60)
+    fired = threading.Event()
+
+    def _unwedge():
+        fired.set()
+        logger.error(
+            "Task watchdog fired on %s after %ds — closing browser", task, timeout_s,
+        )
+        try:
+            session.close()
+        except Exception:
+            logger.debug("session.close() raised inside watchdog", exc_info=True)
+
+    timer = threading.Timer(timeout_s, _unwedge)
+    timer.daemon = True
+    timer.start()
+    try:
+        handler(task, session, qualifiers)
+    finally:
+        timer.cancel()
+
+    if fired.is_set():
+        raise BrowserUnresponsiveError(
+            f"Task {task} watchdog fired after {timeout_s}s"
+        )
+
+
+# ── Human-rhythm pacing ──────────────────────────────────────────────
+
+
 class _HumanRhythmBreak:
     """Wall-clock burst timer that injects a random break between bursts.
 
@@ -103,7 +192,8 @@ class _HumanRhythmBreak:
     it sleeps a random break duration when the current burst is done.
     """
 
-    def __init__(self):
+    def __init__(self, heartbeat: Heartbeat):
+        self._heartbeat = heartbeat
         self._new_burst()
 
     def _new_burst(self):
@@ -126,7 +216,11 @@ class _HumanRhythmBreak:
             CAMPAIGN_CONFIG["break_max_seconds"],
         )
         logger.info("Taking a %dm break", int(break_seconds // 60))
-        time.sleep(break_seconds)
+        sleep_with_heartbeat(
+            break_seconds,
+            self._heartbeat,
+            f"on break, {int(break_seconds // 60)}m total",
+        )
         self._new_burst()
 
 
@@ -228,7 +322,8 @@ def run_daemon(session):
     )
 
     cloud_promo = _CloudPromoRotator(interval=60)
-    rhythm = _HumanRhythmBreak()
+    heartbeat = Heartbeat()
+    rhythm = _HumanRhythmBreak(heartbeat)
 
     # Single-threaded: one task at a time, no concurrent enqueuing,
     # so sleeping until the next scheduled_at is safe.
@@ -237,7 +332,9 @@ def run_daemon(session):
         if pause > 0:
             h, m = int(pause // 3600), int(pause % 3600 // 60)
             logger.info("Outside active hours — sleeping %dh%02dm", h, m)
-            time.sleep(pause)
+            sleep_with_heartbeat(
+                pause, heartbeat, f"outside active hours, {h}h{m:02d}m left",
+            )
             rhythm.reset()
             continue
 
@@ -252,13 +349,15 @@ def run_daemon(session):
             wait = Task.objects.seconds_to_next()
             if wait is None:
                 logger.info("Queue empty after reconcile — sleeping 1h")
-                time.sleep(3600)
+                sleep_with_heartbeat(3600, heartbeat, "queue empty")
                 rhythm.reset()
                 continue
             if wait > 0:
                 h, m = int(wait // 3600), int(wait % 3600 // 60)
                 logger.info("Next task in %dh%02dm — sleeping", h, m)
-                time.sleep(wait)
+                sleep_with_heartbeat(
+                    wait, heartbeat, f"next task in {h}h{m:02d}m",
+                )
                 rhythm.reset()
             continue
 
@@ -279,7 +378,7 @@ def run_daemon(session):
 
         try:
             with failure_diagnostics(session):
-                handler(task, session, qualifiers)
+                run_task_with_watchdog(handler, task, session, qualifiers)
         except AuthenticationError:
             logger.warning("Session expired during %s — re-authenticating", task)
             try:

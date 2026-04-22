@@ -1,6 +1,7 @@
 # linkedin/api/client.py
 import json
 import logging
+import threading
 from typing import Optional, Any
 from urllib.parse import urlencode
 
@@ -8,7 +9,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from linkedin.api.voyager import parse_linkedin_voyager_response, parse_connection_degree
 from linkedin.url_utils import url_to_public_id
-from linkedin.exceptions import AuthenticationError, ProfileInaccessibleError
+from linkedin.exceptions import (
+    AuthenticationError,
+    BrowserUnresponsiveError,
+    ProfileInaccessibleError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,28 +64,78 @@ class PlaywrightLinkedinAPI:
             'x-restli-protocol-version': '2.0.0',
         }
 
-    # -- transport --------------------------------------------------------
+    # ── Transport ────────────────────────────────────────────────────
+
+    _FETCH_JS = """([method, url, headers, body, timeoutMs]) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const init = {method, headers, credentials: "include",
+                      signal: controller.signal};
+        if (body !== null) init.body = body;
+        return fetch(url, init).then(async r => {
+            clearTimeout(timer);
+            return {status: r.status, ok: r.ok, body: await r.text()};
+        });
+    }"""
+
+    def _run_with_watchdog(self, label: str, fn):
+        """Run *fn* under a Python-side watchdog.
+
+        The JS-side ``AbortController`` only fires while V8 is running; if
+        Chromium is OOM-killed or the page is stuck on a consent/captcha
+        overlay, ``page.evaluate`` blocks the Python thread indefinitely.
+        This watchdog closes the browser context after ``2 * timeout_ms`` so
+        the caller raises ``BrowserUnresponsiveError`` (an ``IOError``) and
+        the existing tenacity retry can try again on a fresh session.
+        """
+        deadline_s = 2 * self.timeout_ms / 1000
+        fired = threading.Event()
+
+        def _kill():
+            fired.set()
+            logger.error("Browser watchdog fired on %s — closing context", label)
+            try:
+                self.page.context.close()
+            except Exception:
+                logger.debug("context.close() raised inside watchdog", exc_info=True)
+
+        timer = threading.Timer(deadline_s, _kill)
+        timer.daemon = True
+        timer.start()
+        try:
+            result = fn()
+        except Exception as exc:
+            if fired.is_set():
+                raise BrowserUnresponsiveError(
+                    f"Browser unresponsive after {int(deadline_s)}s on {label}"
+                ) from exc
+            raise
+        finally:
+            timer.cancel()
+
+        # Race: the timer may have fired after fn() returned but before we
+        # cancelled. Any response we obtained is from an already-closed
+        # context; treat it as a hang.
+        if fired.is_set():
+            raise BrowserUnresponsiveError(
+                f"Browser unresponsive after {int(deadline_s)}s on {label}"
+            )
+        return result
 
     def _fetch(self, method: str, url: str, headers: dict,
                body: str | None = None) -> _FetchResponse:
         """Run fetch() inside the browser page context.
 
-        This ensures the request carries all browser-injected headers
-        (x-li-track, cookies, sec-ch-*, …) exactly like a real XHR.
+        Carries all browser-injected headers (x-li-track, cookies, sec-ch-*,
+        …) exactly like a real XHR. Wrapped in the Python-side watchdog so
+        a dead Chromium child can't hang the daemon forever.
         """
-        raw = self.page.evaluate(
-            """([method, url, headers, body, timeoutMs]) => {
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), timeoutMs);
-                const init = {method, headers, credentials: "include",
-                              signal: controller.signal};
-                if (body !== null) init.body = body;
-                return fetch(url, init).then(async r => {
-                    clearTimeout(timer);
-                    return {status: r.status, ok: r.ok, body: await r.text()};
-                });
-            }""",
-            [method, url, headers, body, self.timeout_ms],
+        raw = self._run_with_watchdog(
+            f"{method} {url}",
+            lambda: self.page.evaluate(
+                self._FETCH_JS,
+                [method, url, headers, body, self.timeout_ms],
+            ),
         )
         return _FetchResponse(raw)
 

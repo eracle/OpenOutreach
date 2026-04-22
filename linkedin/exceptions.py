@@ -22,3 +22,13 @@ class ReachedConnectionLimit(Exception):
     """ Weekly connection limit reached. """
     pass
 
+
+class BrowserUnresponsiveError(IOError):
+    """Python-side watchdog fired because Playwright did not return in time.
+
+    Subclasses ``IOError`` so tenacity retries on ``get_profile`` / related
+    Voyager calls pick it up automatically; handlers can still catch it
+    distinctly to log 'browser watchdog fired' rather than a generic 5xx.
+    """
+    pass
+
