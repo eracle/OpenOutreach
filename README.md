@@ -8,7 +8,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/network/members)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 [![Open Issues](https://img.shields.io/github/issues/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/issues)
-[![Cloud](https://img.shields.io/badge/Cloud-$49%2Fmo-28A745?style=flat-square)](https://openoutreach.app)
+[![Cloud](https://img.shields.io/badge/Cloud-Hosted-28A745?style=flat-square)](https://openoutreach.app)
 
 <br/>
 
@@ -84,13 +84,13 @@ Once you've set up locally and your campaigns are running, **OpenOutreach Cloud*
 
 ```bash
 curl -fsSL https://openoutreach.app/install | sh   # install the CLI
-openoutreach signup                                  # $49/mo via Stripe
+openoutreach signup                                  # subscribe via Stripe
 openoutreach up ./data                               # upload your DB, provision a server
 openoutreach logs                                    # watch leads roll in
 openoutreach down                                    # download your updated DB, destroy the server
 ```
 
-| | Self-Hosted (Free) | Cloud ($49/mo) |
+| | Self-Hosted (Free) | Cloud (Managed) |
 |---|---|---|
 | AI lead discovery + Bayesian ML | Yes | Yes |
 | AI follow-up agent | Yes | Yes |
@@ -104,7 +104,7 @@ No feature gating, no lock-in. Cloud is a convenience layer — the code running
 
 <div align="center">
 
-[![Get Started with Cloud](https://img.shields.io/badge/Get%20Started%20with%20Cloud-49%24%2Fmo-28A745?style=for-the-badge)](https://openoutreach.app)
+[![Get Started with Cloud](https://img.shields.io/badge/Get%20Started%20with-Cloud-28A745?style=for-the-badge)](https://openoutreach.app)
 
 </div>
 
