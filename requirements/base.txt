@@ -2,7 +2,7 @@ playwright
 playwright-stealth
 pydantic
 jsonpath-ng
-pandas
+pandas==3.0.2
 langchain
 langchain-openai
 jinja2
