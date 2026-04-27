@@ -3,7 +3,7 @@ playwright-stealth
 pydantic
 jsonpath-ng
 pandas
-langchain
+langchain==1.2.14
 langchain-openai
 jinja2
 termcolor
