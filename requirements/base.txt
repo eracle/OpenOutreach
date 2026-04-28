@@ -2,7 +2,7 @@ playwright
 playwright-stealth
 pydantic
 pydantic-ai-slim[openai,anthropic,google,groq,mistral,cohere,bedrock]
-nest-asyncio
+nest-asyncio==1.6.0
 jsonpath-ng
 pandas
 jinja2
