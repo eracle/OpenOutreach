@@ -22,18 +22,28 @@ import nest_asyncio
 nest_asyncio.apply()
 
 
+# Override the SDK default of 2. Each retry uses the SDK's built-in jittered
+# exponential backoff and honors `Retry-After`, so 8 attempts ride through
+# typical 429/529 capacity blips (~1–2 minutes) instead of failing in ~1.5s.
+_MAX_RETRIES = 8
+
+
 # ── Per-provider builders ──
 
 def _build_openai(cfg):
+    from openai import AsyncOpenAI
     from pydantic_ai.models.openai import OpenAIModel
     from pydantic_ai.providers.openai import OpenAIProvider
-    return OpenAIModel(cfg.ai_model, provider=OpenAIProvider(api_key=cfg.llm_api_key))
+    client = AsyncOpenAI(api_key=cfg.llm_api_key, max_retries=_MAX_RETRIES)
+    return OpenAIModel(cfg.ai_model, provider=OpenAIProvider(openai_client=client))
 
 
 def _build_anthropic(cfg):
+    from anthropic import AsyncAnthropic
     from pydantic_ai.models.anthropic import AnthropicModel
     from pydantic_ai.providers.anthropic import AnthropicProvider
-    return AnthropicModel(cfg.ai_model, provider=AnthropicProvider(api_key=cfg.llm_api_key))
+    client = AsyncAnthropic(api_key=cfg.llm_api_key, max_retries=_MAX_RETRIES)
+    return AnthropicModel(cfg.ai_model, provider=AnthropicProvider(anthropic_client=client))
 
 
 def _build_google(cfg):
@@ -43,9 +53,11 @@ def _build_google(cfg):
 
 
 def _build_groq(cfg):
+    from groq import AsyncGroq
     from pydantic_ai.models.groq import GroqModel
     from pydantic_ai.providers.groq import GroqProvider
-    return GroqModel(cfg.ai_model, provider=GroqProvider(api_key=cfg.llm_api_key))
+    client = AsyncGroq(api_key=cfg.llm_api_key, max_retries=_MAX_RETRIES)
+    return GroqModel(cfg.ai_model, provider=GroqProvider(groq_client=client))
 
 
 def _build_mistral(cfg):
