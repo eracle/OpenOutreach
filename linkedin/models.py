@@ -20,6 +20,20 @@ _RATE_LIMIT_FIELDS = {
 class SiteConfig(models.Model):
     """Singleton model for global site configuration (LLM keys, etc.)."""
 
+    class LLMProvider(models.TextChoices):
+        OPENAI = "openai", "OpenAI"
+        ANTHROPIC = "anthropic", "Anthropic"
+        GOOGLE = "google", "Google"
+        GROQ = "groq", "Groq"
+        MISTRAL = "mistral", "Mistral"
+        COHERE = "cohere", "Cohere"
+        OPENAI_COMPATIBLE = "openai_compatible", "OpenAI-compatible"
+
+    llm_provider = models.CharField(
+        max_length=32,
+        choices=LLMProvider.choices,
+        default=LLMProvider.OPENAI,
+    )
     llm_api_key = models.CharField(max_length=500, blank=True, default="")
     ai_model = models.CharField(max_length=200, blank=True, default="")
     llm_api_base = models.CharField(max_length=500, blank=True, default="")

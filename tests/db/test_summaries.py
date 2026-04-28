@@ -5,6 +5,9 @@ import json
 from unittest.mock import patch, MagicMock
 
 import pytest
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 
 from tests.factories import LeadFactory, DealFactory
 
@@ -16,6 +19,32 @@ FAKE_PROFILE = {
     "positions": [{"company_name": "Acme Corp", "title": "Senior Engineer"}],
     "urn": "urn:li:fsd_profile:ABC123",
 }
+
+
+def _structured_test_model(output: dict) -> TestModel:
+    """TestModel that yields *output* as the structured output args."""
+    return TestModel(custom_output_args=output)
+
+
+def _text_function_model(text: str) -> FunctionModel:
+    """FunctionModel that returns a fixed text response on every call."""
+    def _respond(_messages: list[ModelMessage], _info: AgentInfo) -> ModelResponse:
+        return ModelResponse(parts=[TextPart(content=text)])
+
+    return FunctionModel(_respond)
+
+
+def _capturing_function_model(captured: dict, output: dict) -> FunctionModel:
+    """FunctionModel that records the messages it receives, then yields *output*."""
+    from pydantic_ai.messages import ToolCallPart
+
+    def _respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        captured["messages"] = messages
+        captured["output_tools"] = info.output_tools
+        tool_name = info.output_tools[0].name if info.output_tools else "final_result"
+        return ModelResponse(parts=[ToolCallPart(tool_name=tool_name, args=output)])
+
+    return FunctionModel(_respond)
 
 
 @pytest.fixture
@@ -35,30 +64,29 @@ class TestExtractFacts:
         assert extract_facts("   \n  ") == []
 
     def test_invokes_llm_with_structured_output(self, db):
-        from linkedin.db.summaries import extract_facts, FactList
+        from linkedin.db.summaries import extract_facts
 
-        fake_facts = FactList(facts=["Works at Acme.", "Based in Berlin."])
-        fake_structured = MagicMock()
-        fake_structured.invoke.return_value = fake_facts
-        fake_llm = MagicMock()
-        fake_llm.with_structured_output.return_value = fake_structured
-
-        with patch("langchain_openai.ChatOpenAI", return_value=fake_llm), \
-             patch("linkedin.conf.get_llm_config",
-                   return_value=("sk-test", "gpt-4o-mini", "https://api.openai.com/v1")):
-            facts = extract_facts("Alice works at Acme. She lives in Berlin.",
-                                  context="Campaign objective: hire engineers")
+        captured: dict = {}
+        model = _capturing_function_model(
+            captured, {"facts": ["Works at Acme.", "Based in Berlin."]},
+        )
+        with patch("linkedin.llm.get_llm_model", return_value=model):
+            facts = extract_facts(
+                "Alice works at Acme. She lives in Berlin.",
+                context="Campaign objective: hire engineers",
+            )
 
         assert facts == ["Works at Acme.", "Based in Berlin."]
-        # Structured output is requested with the FactList schema.
-        fake_llm.with_structured_output.assert_called_once_with(FactList)
-        # Two messages: system (with vendored prompt + context) + user.
-        sent_messages = fake_structured.invoke.call_args[0][0]
-        assert len(sent_messages) == 2
-        assert sent_messages[0]["role"] == "system"
-        assert "Campaign objective" in sent_messages[0]["content"]
-        assert sent_messages[1]["role"] == "user"
-        assert "Alice works at Acme" in sent_messages[1]["content"]
+        # The system prompt carries the vendored prompt + context; the user
+        # message carries the input text.
+        rendered = "\n".join(
+            part.content
+            for msg in captured["messages"]
+            for part in msg.parts
+            if hasattr(part, "content") and isinstance(part.content, str)
+        )
+        assert "Campaign objective" in rendered
+        assert "Alice works at Acme" in rendered
 
 
 class TestMaterializeProfileSummary:
@@ -192,27 +220,14 @@ class TestUpdateChatSummary:
 class TestReconcileFacts:
     """reconcile_facts wraps mem0's UPDATE prompt — mock the LLM at the boundary."""
 
-    def _stub_llm_with(self, memory_actions, *, raw_text=None):
-        """Build a fake ChatOpenAI whose `.invoke().content` returns a JSON string.
-
-        `raw_text` lets a test inject a non-JSON wrapper (markdown fence, think
-        block, leading prose) to exercise the parse-fallback chain.
-        """
-        payload = raw_text if raw_text is not None else json.dumps({"memory": memory_actions})
-        fake_response = MagicMock()
-        fake_response.content = payload
-        fake_llm = MagicMock()
-        fake_llm.invoke.return_value = fake_response
-        return fake_llm
-
     def test_empty_new_facts_returns_existing_unchanged(self, db):
         from linkedin.db.summaries import reconcile_facts
 
-        with patch("langchain_openai.ChatOpenAI") as mock_cls:
+        with patch("linkedin.llm.get_llm_model") as mock_factory:
             result = reconcile_facts(["fact a", "fact b"], [])
 
         assert result == ["fact a", "fact b"]
-        mock_cls.assert_not_called()
+        mock_factory.assert_not_called()
 
     def test_contradiction_drops_stale_fact(self, db):
         """LLM returns DELETE for the stale fact + ADD for the new one — both applied."""
@@ -222,10 +237,8 @@ class TestReconcileFacts:
             {"id": "0", "text": "Lead has no budget.", "event": "DELETE"},
             {"id": "1", "text": "Lead has budget.", "event": "ADD"},
         ]
-        fake_llm = self._stub_llm_with(actions)
-        with patch("langchain_openai.ChatOpenAI", return_value=fake_llm), \
-             patch("linkedin.conf.get_llm_config",
-                   return_value=("sk-test", "gpt-4o-mini", "https://api.openai.com/v1")):
+        model = _text_function_model(json.dumps({"memory": actions}))
+        with patch("linkedin.llm.get_llm_model", return_value=model):
             result = reconcile_facts(
                 ["Lead has no budget."],
                 ["Lead has budget."],
@@ -240,10 +253,8 @@ class TestReconcileFacts:
             {"id": "0", "text": "Lead is CTO at Acme.", "event": "UPDATE",
              "old_memory": "Lead is an engineer at Acme."},
         ]
-        fake_llm = self._stub_llm_with(actions)
-        with patch("langchain_openai.ChatOpenAI", return_value=fake_llm), \
-             patch("linkedin.conf.get_llm_config",
-                   return_value=("sk-test", "gpt-4o-mini", "https://api.openai.com/v1")):
+        model = _text_function_model(json.dumps({"memory": actions}))
+        with patch("linkedin.llm.get_llm_model", return_value=model):
             result = reconcile_facts(
                 ["Lead is an engineer at Acme."],
                 ["Lead is CTO at Acme."],
@@ -259,11 +270,9 @@ class TestReconcileFacts:
             {"id": "999", "text": "Hallucinated.", "event": "UPDATE"},
             {"id": "0", "text": "Real ADD.", "event": "ADD"},
         ]
-        fake_llm = self._stub_llm_with(actions)
+        model = _text_function_model(json.dumps({"memory": actions}))
         with caplog.at_level("WARNING"), \
-             patch("langchain_openai.ChatOpenAI", return_value=fake_llm), \
-             patch("linkedin.conf.get_llm_config",
-                   return_value=("sk-test", "gpt-4o-mini", "https://api.openai.com/v1")):
+             patch("linkedin.llm.get_llm_model", return_value=model):
             result = reconcile_facts(["existing fact"], ["new fact"])
 
         assert "existing fact" in result
@@ -278,10 +287,8 @@ class TestReconcileFacts:
             {"id": "0", "text": "Lead is the founder.", "event": "NONE"},
             {"id": "1", "text": "Lead replied politely.", "event": "ADD"},
         ]
-        fake_llm = self._stub_llm_with(actions)
-        with patch("langchain_openai.ChatOpenAI", return_value=fake_llm), \
-             patch("linkedin.conf.get_llm_config",
-                   return_value=("sk-test", "gpt-4o-mini", "https://api.openai.com/v1")):
+        model = _text_function_model(json.dumps({"memory": actions}))
+        with patch("linkedin.llm.get_llm_model", return_value=model):
             result = reconcile_facts(
                 ["Lead is the founder."],
                 ["Lead replied politely."],
@@ -298,10 +305,8 @@ class TestReconcileFacts:
             '{"memory": [{"id": "0", "text": "Lead is in Berlin.", "event": "ADD"}]}\n'
             "```"
         )
-        fake_llm = self._stub_llm_with([], raw_text=wrapped)
-        with patch("langchain_openai.ChatOpenAI", return_value=fake_llm), \
-             patch("linkedin.conf.get_llm_config",
-                   return_value=("sk-test", "gpt-4o-mini", "https://api.openai.com/v1")):
+        model = _text_function_model(wrapped)
+        with patch("linkedin.llm.get_llm_model", return_value=model):
             result = reconcile_facts([], ["Lead is in Berlin."])
 
         assert result == ["Lead is in Berlin."]
@@ -314,10 +319,8 @@ class TestReconcileFacts:
             "<think>The user wants me to add this fact about location.</think>\n"
             '{"memory": [{"id": "0", "text": "Lead is in Berlin.", "event": "ADD"}]}'
         )
-        fake_llm = self._stub_llm_with([], raw_text=wrapped)
-        with patch("langchain_openai.ChatOpenAI", return_value=fake_llm), \
-             patch("linkedin.conf.get_llm_config",
-                   return_value=("sk-test", "gpt-4o-mini", "https://api.openai.com/v1")):
+        model = _text_function_model(wrapped)
+        with patch("linkedin.llm.get_llm_model", return_value=model):
             result = reconcile_facts([], ["Lead is in Berlin."])
 
         assert result == ["Lead is in Berlin."]

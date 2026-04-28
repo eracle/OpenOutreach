@@ -11,10 +11,11 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 import jinja2
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field, model_validator
+from pydantic_ai import Agent
 
-from linkedin.conf import PROMPTS_DIR, get_llm_config
+from linkedin.conf import PROMPTS_DIR
+from linkedin.llm import get_llm_model
 
 logger = logging.getLogger(__name__)
 
@@ -175,16 +176,12 @@ def run_follow_up_agent(session, deal) -> FollowUpDecision:
     recent = _load_recent_messages(deal)
     system_prompt = _render_system_prompt(session, deal, recent)
 
-    llm_api_key, ai_model, llm_api_base = get_llm_config()
-    llm = ChatOpenAI(
-        model=ai_model,
-        temperature=0.7,
-        api_key=llm_api_key,
-        base_url=llm_api_base,
-        timeout=60,
+    agent = Agent(
+        get_llm_model(),
+        output_type=FollowUpDecision,
+        model_settings={"temperature": 0.7, "timeout": 60},
     )
-    structured_llm = llm.with_structured_output(FollowUpDecision)
-    decision = structured_llm.invoke(system_prompt)
+    decision = agent.run_sync(system_prompt).output
     if decision is None:
         raise RuntimeError(f"LLM returned unparseable response for follow-up of {public_id}")
 

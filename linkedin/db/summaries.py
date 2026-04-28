@@ -80,30 +80,21 @@ def extract_facts(text: str, *, context: str = "") -> list[str]:
     if not text or not text.strip():
         return []
 
-    from langchain_openai import ChatOpenAI
+    from pydantic_ai import Agent
 
-    from linkedin.conf import get_llm_config
-
-    llm_api_key, ai_model, llm_api_base = get_llm_config()
-    if not llm_api_key:
-        raise ValueError("LLM_API_KEY is not set in Site Configuration.")
+    from linkedin.llm import get_llm_model
 
     system = _FACT_EXTRACTION_PROMPT
     if context:
         system = f"{system}\n\nContext for relevance:\n{context}"
 
-    llm = ChatOpenAI(
-        model=ai_model,
-        temperature=0.0,
-        api_key=llm_api_key,
-        base_url=llm_api_base,
-        timeout=60,
+    agent = Agent(
+        get_llm_model(),
+        system_prompt=system,
+        output_type=FactList,
+        model_settings={"temperature": 0.0, "timeout": 60},
     )
-    structured = llm.with_structured_output(FactList)
-    result: FactList = structured.invoke([
-        {"role": "system", "content": system},
-        {"role": "user", "content": text},
-    ])
+    result: FactList = agent.run_sync(text).output
     return list(result.facts)
 
 
@@ -209,7 +200,7 @@ def update_chat_summary(deal, new_messages) -> None:
 # Mirrors mem0/memory/main.py::Memory._add_to_vector_store reconciliation
 # (pinned commit c239d8a4, upstream lines 594-700) with two substitutions:
 #   - vector-store ops → in-memory dict (Deal.chat_summary is a flat list)
-#   - mem0's `self.llm.generate_response` → ChatOpenAI.with_structured_output
+#   - mem0's `self.llm.generate_response` → pydantic-ai Agent.run_sync
 
 def reconcile_facts(existing: list[str], new_facts: list[str]) -> list[str]:
     """Reconcile `new_facts` against `existing` via mem0's UPDATE prompt.
@@ -225,31 +216,20 @@ def reconcile_facts(existing: list[str], new_facts: list[str]) -> list[str]:
 def _request_memory_actions(existing: list[str], new_facts: list[str]) -> list[_MemoryAction]:
     """Run mem0's UPDATE prompt and return the parsed event list.
 
-    Uses raw JSON mode + the vendored `remove_code_blocks` / `extract_json`
-    fallback chain (mirroring upstream lines 545-556) so providers that wrap
-    JSON in markdown or emit `<think>` blocks still parse cleanly.
+    Calls the LLM in raw text mode and then routes the response through the
+    vendored `remove_code_blocks` / `extract_json` fallback chain (mirroring
+    upstream lines 545-556) so providers that wrap JSON in markdown or emit
+    `<think>` blocks still parse cleanly.
     """
-    from langchain_openai import ChatOpenAI
+    from pydantic_ai import Agent
 
-    from linkedin.conf import get_llm_config
-
-    llm_api_key, ai_model, llm_api_base = get_llm_config()
-    if not llm_api_key:
-        raise ValueError("LLM_API_KEY is not set in Site Configuration.")
+    from linkedin.llm import get_llm_model
 
     old_memory = [{"id": str(idx), "text": fact} for idx, fact in enumerate(existing)]
     prompt = get_update_memory_messages(old_memory, new_facts, None)
 
-    llm = ChatOpenAI(
-        model=ai_model,
-        temperature=0.0,
-        api_key=llm_api_key,
-        base_url=llm_api_base,
-        timeout=60,
-        model_kwargs={"response_format": {"type": "json_object"}},
-    )
-    raw = llm.invoke([{"role": "user", "content": prompt}])
-    text = raw.content if isinstance(raw.content, str) else str(raw.content)
+    agent = Agent(get_llm_model(), model_settings={"temperature": 0.0, "timeout": 60})
+    text = agent.run_sync(prompt).output
     return _ReconcileResponse.model_validate(_parse_memory_response(text)).memory
 
 

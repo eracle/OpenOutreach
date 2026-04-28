@@ -8,7 +8,7 @@ from linkedin.models import ActionLog, Campaign, LinkedInProfile, SearchKeyword,
 
 @admin.register(SiteConfig)
 class SiteConfigAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "ai_model", "llm_api_base")
+    list_display = ("__str__", "llm_provider", "ai_model", "llm_api_base")
 
     def has_add_permission(self, request):
         return not SiteConfig.objects.exists()

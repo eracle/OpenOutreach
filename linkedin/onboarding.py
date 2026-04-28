@@ -41,6 +41,7 @@ class OnboardConfig:
     campaign_objective: str = ""
     booking_link: str = ""
     seed_urls: str = ""
+    llm_provider: str = "openai"
     llm_api_key: str = ""
     ai_model: str = ""
     llm_api_base: str = ""
@@ -64,7 +65,7 @@ _ACCOUNT_KEYS = {
     "connect_daily_limit", "connect_weekly_limit", "follow_up_daily_limit",
     "legal_acceptance",
 }
-_LLM_KEYS = {"llm_api_key", "ai_model", "llm_api_base"}
+_LLM_KEYS = {"llm_provider", "llm_api_key", "ai_model", "llm_api_base"}
 _ALL_KEYS = _CAMPAIGN_KEYS | _ACCOUNT_KEYS | _LLM_KEYS
 
 
@@ -81,11 +82,14 @@ def missing_keys() -> set[str]:
         keys |= _ACCOUNT_KEYS
 
     cfg = SiteConfig.load()
+    if not cfg.llm_provider:
+        keys.add("llm_provider")
     if not cfg.llm_api_key:
         keys.add("llm_api_key")
     if not cfg.ai_model:
         keys.add("ai_model")
-    if not cfg.llm_api_base:
+    # llm_api_base is only required for the openai_compatible provider.
+    if cfg.llm_provider == SiteConfig.LLMProvider.OPENAI_COMPATIBLE and not cfg.llm_api_base:
         keys.add("llm_api_base")
 
     return keys
@@ -232,6 +236,7 @@ def apply(config: OnboardConfig) -> None:
     cfg = SiteConfig.load()
     updated = False
     for field, val in [
+        ("llm_provider", config.llm_provider),
         ("llm_api_key", config.llm_api_key),
         ("ai_model", config.ai_model),
         ("llm_api_base", config.llm_api_base),

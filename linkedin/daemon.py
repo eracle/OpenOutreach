@@ -8,8 +8,8 @@ import time
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
-import openai
 from django.utils import timezone
+from pydantic_ai.exceptions import ModelHTTPError
 
 from termcolor import colored
 
@@ -389,11 +389,11 @@ def run_daemon(session):
             # fresh task for the deal on the next idle cycle.
             task.mark_failed()
             continue
-        except (openai.BadRequestError, openai.AuthenticationError, openai.NotFoundError) as e:
+        except ModelHTTPError as e:
             task.mark_failed()
             logger.error(
-                colored("Daemon stopped — OpenAI API error", "red", attrs=["bold"])
-                + "\n%s\nCheck ai_model, llm_api_key, and llm_api_base in Admin → Site Configuration.", e,
+                colored("Daemon stopped — LLM API error", "red", attrs=["bold"])
+                + "\n%s\nCheck llm_provider, ai_model, llm_api_key, and llm_api_base in Admin → Site Configuration.", e,
             )
             return
         except Exception:

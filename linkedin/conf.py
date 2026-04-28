@@ -73,13 +73,4 @@ CAMPAIGN_CONFIG = {
     "break_max_seconds": 1200,   # 20 min
 }
 
-# ----------------------------------------------------------------------
-# Global OpenAI / LLM config (stored in DB via SiteConfig)
-# ----------------------------------------------------------------------
-
-def get_llm_config():
-    """Return (llm_api_key, ai_model, llm_api_base) from the DB."""
-    from linkedin.models import SiteConfig
-    cfg = SiteConfig.load()
-    return cfg.llm_api_key, cfg.ai_model, cfg.llm_api_base or None
 

@@ -9,7 +9,7 @@ Detailed module documentation for OpenOutreach. See `CLAUDE.md` for rules and qu
 ### `rundaemon` management command (`management/commands/rundaemon.py`)
 
 Startup sequence:
-1. **Configure logging** — DEBUG level, suppresses noisy third-party loggers (urllib3, httpx, langchain, openai, playwright, etc.).
+1. **Configure logging** — DEBUG level, suppresses noisy third-party loggers (urllib3, httpx, pydantic_ai, openai, playwright, etc.).
 2. **Ensure DB** — `migrate --no-input` + `setup_crm` (idempotent).
 3. **Onboard** — checks `missing_keys()`; if incomplete: uses `--onboard <config.json>` (non-interactive), falls back to interactive wizard (TTY), or exits with clear error (no TTY).
 4. **Validate** — `LLM_API_KEY`, active `LinkedInProfile`, at least one campaign.
@@ -35,7 +35,7 @@ Single write path: `apply(config)` — idempotent, creates missing Campaign, Lin
 
 1. **Campaign** — name, product docs, objective, booking link, seed URLs. Creates `Campaign` with M2M user membership.
 2. **LinkedInProfile** — email, password, newsletter, rate limits. Django username from email slug.
-3. **LLM config** — `LLM_API_KEY`, `AI_MODEL`, `LLM_API_BASE` → writes to `SiteConfig` singleton in DB.
+3. **LLM config** — `LLM_PROVIDER`, `LLM_API_KEY`, `AI_MODEL`, `LLM_API_BASE` → writes to `SiteConfig` singleton in DB.
 4. **Legal notice** — per-account acceptance stored as `LinkedInProfile.legal_accepted`.
 
 ## Profile State Machine
@@ -78,7 +78,7 @@ Three apps in `INSTALLED_APPS`:
 
 ## CRM Data Model
 
-- **SiteConfig** (`linkedin/models.py`) — Singleton (pk=1). `llm_api_key`, `ai_model`, `llm_api_base`. Accessed via `SiteConfig.load()` / `conf.get_llm_config()`.
+- **SiteConfig** (`linkedin/models.py`) — Singleton (pk=1). `llm_provider` (TextChoices: openai/anthropic/google/groq/mistral/cohere/openai_compatible), `llm_api_key`, `ai_model`, `llm_api_base`. Accessed via `SiteConfig.load()`; `linkedin/llm.py:get_llm_model()` is the single factory that turns it into a `pydantic_ai.models.Model`.
 - **Campaign** (`linkedin/models.py`) — `name` (unique), `users` (M2M to User), `product_docs`, `campaign_objective`, `booking_link`, `is_freemium`, `action_fraction`, `seed_public_ids` (JSONField).
 - **LinkedInProfile** (`linkedin/models.py`) — 1:1 with User. `self_lead` FK to Lead (nullable, set on first self-profile discovery). Credentials, rate limits (`connect_daily_limit`, `connect_weekly_limit`, `follow_up_daily_limit`). Methods: `can_execute`/`record_action`/`mark_exhausted`. In-memory `_exhausted` dict for daily rate limit caching.
 - **SearchKeyword** (`linkedin/models.py`) — FK to Campaign. `keyword`, `used`, `used_at`. Unique on `(campaign, keyword)`.
@@ -113,9 +113,10 @@ Three apps in `INSTALLED_APPS`:
 - **`db/leads.py`** — Lead CRUD, `get_leads_for_qualification()`, `disqualify_lead()`, `_cache_urn_from_profile()`.
 - **`db/deals.py`** — Deal/state ops, `set_profile_state()`, `increment_connect_attempts()`, `create_freemium_deal()`.
 - **`db/chat.py`** — `sync_conversation()`, `_sync_from_api()`, folds newly-synced messages into `Deal.chat_summary` via `update_chat_summary`.
-- **`db/summaries.py`** — Single mem0-style LLM boundary. `materialize_profile_summary_if_missing(deal, session)` fires on first follow-up touch (one Voyager re-scrape per `(lead, campaign)` lifetime); `update_chat_summary(deal, new_messages)` folds newly-synced ChatMessages incrementally via `reconcile_facts`, which routes new facts through mem0's UPDATE prompt to apply ADD/UPDATE/DELETE/NONE events (mirrors `mem0/memory/main.py::Memory._add_to_vector_store` lines 594-700, with vector-store ops replaced by an in-memory dict because `Deal.chat_summary` is a flat list). `_format_messages_for_extraction` filters to incoming messages only, so `chat_summary` holds facts about the lead and a one-sided outgoing burst is a noop. `extract_facts(text, context)` runs `ChatOpenAI.with_structured_output(FactList)` against the vendored `_FACT_EXTRACTION_PROMPT`. mem0's `DEFAULT_UPDATE_MEMORY_PROMPT` and `get_update_memory_messages` live under `linkedin/vendor/mem0/configs/prompts.py` (mirrors upstream path so future syncs are a clean diff; pinned commit recorded in the file header).
+- **`db/summaries.py`** — Single mem0-style LLM boundary. `materialize_profile_summary_if_missing(deal, session)` fires on first follow-up touch (one Voyager re-scrape per `(lead, campaign)` lifetime); `update_chat_summary(deal, new_messages)` folds newly-synced ChatMessages incrementally via `reconcile_facts`, which routes new facts through mem0's UPDATE prompt to apply ADD/UPDATE/DELETE/NONE events (mirrors `mem0/memory/main.py::Memory._add_to_vector_store` lines 594-700, with vector-store ops replaced by an in-memory dict because `Deal.chat_summary` is a flat list). `_format_messages_for_extraction` filters to incoming messages only, so `chat_summary` holds facts about the lead and a one-sided outgoing burst is a noop. `extract_facts(text, context)` runs `pydantic_ai.Agent(get_llm_model(), output_type=FactList)` against the vendored `_FACT_EXTRACTION_PROMPT`. mem0's `DEFAULT_UPDATE_MEMORY_PROMPT` and `get_update_memory_messages` live under `linkedin/vendor/mem0/configs/prompts.py` (mirrors upstream path so future syncs are a clean diff; pinned commit recorded in the file header).
 - **`url_utils.py`** — `url_to_public_id()`, `public_id_to_url()` — LinkedIn URL ↔ public identifier conversion. Pure utility, no DB dependency.
-- **`conf.py`** — Config constants, `CAMPAIGN_CONFIG`, `get_llm_config()` (reads from `SiteConfig` in DB).
+- **`conf.py`** — Config constants, `CAMPAIGN_CONFIG`. LLM construction lives in `llm.py`.
+- **`llm.py`** — `get_llm_model()` factory: reads `SiteConfig`, dispatches via per-provider builders (OpenAI / Anthropic / Google / Groq / Mistral / Cohere / openai_compatible) to the right `pydantic_ai.models.Model`. Single LLM-construction boundary; call sites build `Agent(get_llm_model(), ...)`.
 - **`exceptions.py`** — `AuthenticationError`, `TerminalStateError`, `SkipProfile`, `ReachedConnectionLimit`.
 - **`onboarding.py`** — Interactive setup.
 - **`agents/follow_up.py`** — Follow-up agent. Single LLM call with structured output (`FollowUpDecision`). Conversation is read in Python and injected into the prompt. No tool-calling loop.
@@ -137,7 +138,7 @@ Three apps in `INSTALLED_APPS`:
 
 ## Configuration
 
-- **`SiteConfig`** (DB singleton) — `llm_api_key` (required), `ai_model` (required), `llm_api_base` (optional). Editable via Django Admin.
+- **`SiteConfig`** (DB singleton) — `llm_provider` (required, defaults to `openai`; choices: `openai`/`anthropic`/`google`/`groq`/`mistral`/`cohere`/`openai_compatible`), `llm_api_key` (required), `ai_model` (required), `llm_api_base` (required only for `openai_compatible`). Editable via Django Admin.
 - **`conf.py` schedule** — `ENABLE_ACTIVE_HOURS` (`True`), `ACTIVE_START_HOUR` (9), `ACTIVE_END_HOUR` (19), `ACTIVE_TIMEZONE` (system-local IANA name, falls back to "UTC"), `REST_DAYS` ((5, 6) = Sat+Sun). Daemon sleeps outside this window.
 - **`conf.py:CAMPAIGN_CONFIG`** — `min_ready_to_connect_prob` (0.9), `min_positive_pool_prob` (0.20), `connect_delay_seconds` (10), `connect_no_candidate_delay_seconds` (300), `check_pending_recheck_after_hours` (24), `check_pending_jitter_factor` (0.2), `qualification_n_mc_samples` (100), `enrich_min_delay_seconds` (6), `enrich_max_delay_seconds` (10), `enrich_max_per_page` (10), `burst_min_seconds` (2700), `burst_max_seconds` (3900), `break_min_seconds` (600), `break_max_seconds` (1200), `min_action_interval` (120), `embedding_model` ("BAAI/bge-small-en-v1.5").
 - **Prompt templates** (at `linkedin/templates/prompts/`) — `qualify_lead.j2` (temp 0.7), `search_keywords.j2` (temp 0.9), `follow_up_agent.j2`.
@@ -156,5 +157,5 @@ Base image: `mcr.microsoft.com/playwright/python:v1.55.0-noble`. VNC on port 590
 
 `requirements/` files. DjangoCRM's `mysqlclient` excluded via `--no-deps`. `uv pip install` for fast installs.
 
-Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin`, `pandas`, `langchain`/`langchain-openai`, `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`, `tenacity`
+Core: `playwright`, `playwright-stealth`, `Django`, `django-crm-admin`, `pandas`, `pydantic-ai-slim` (with `openai`/`anthropic`/`google`/`groq`/`mistral`/`cohere`/`bedrock` extras), `jinja2`, `pydantic`, `jsonpath-ng`, `tendo`, `termcolor`, `tenacity`
 ML: `scikit-learn`, `numpy`, `fastembed`, `joblib`

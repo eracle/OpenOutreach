@@ -27,13 +27,9 @@ def generate_search_keywords(
 
     Returns a list of search query strings.
     """
-    from langchain_openai import ChatOpenAI
+    from pydantic_ai import Agent
 
-    from linkedin.conf import get_llm_config
-
-    llm_api_key, ai_model, llm_api_base = get_llm_config()
-    if not llm_api_key:
-        raise ValueError("LLM_API_KEY is not set in Site Configuration.")
+    from linkedin.llm import get_llm_model
 
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(PROMPTS_DIR)))
     template = env.get_template("search_keywords.j2")
@@ -45,9 +41,12 @@ def generate_search_keywords(
         exclude_keywords=exclude_keywords or [],
     )
 
-    llm = ChatOpenAI(model=ai_model, temperature=0.9, api_key=llm_api_key, base_url=llm_api_base)
-    structured_llm = llm.with_structured_output(SearchKeywords)
-    result = structured_llm.invoke(prompt)
+    agent = Agent(
+        get_llm_model(),
+        output_type=SearchKeywords,
+        model_settings={"temperature": 0.9},
+    )
+    result = agent.run_sync(prompt).output
 
     logger.info("Generated %d search keywords via LLM", len(result.keywords))
     return result.keywords
