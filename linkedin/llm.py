@@ -3,8 +3,23 @@
 Single boundary for LLM construction. Call sites import `get_llm_model()` and
 hand the result to `pydantic_ai.Agent(...)`. Provider-specific routing lives
 here so the rest of the codebase stays provider-agnostic.
+
+Importing this module also applies ``nest_asyncio`` once. pydantic-ai's
+``Agent.run_sync`` wraps an async ``run`` in ``loop.run_until_complete``;
+something in its internals (anyio task group / portal) leaves the daemon
+thread's running-loop slot populated across calls, which trips the
+re-entrancy guard in ``BaseEventLoop._check_running`` on every subsequent
+``run_sync`` (``RuntimeError: This/Cannot run the event loop``). The
+official pydantic-ai troubleshooting recipe — same one used for Jupyter /
+Colab / Marimo — is ``nest_asyncio.apply()``, which patches the loop to
+allow nested ``run_until_complete``. See:
+https://pydantic.dev/docs/ai/overview/troubleshooting/
 """
 from __future__ import annotations
+
+import nest_asyncio
+
+nest_asyncio.apply()
 
 
 # ── Per-provider builders ──
