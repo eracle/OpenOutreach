@@ -1,6 +1,7 @@
 # linkedin/browser/login.py
 import logging
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from playwright_stealth import Stealth
 from termcolor import colored
@@ -42,6 +43,28 @@ SUBMIT_LOCATORS = [
     lambda p: p.locator('button[type="submit"]'),
 ]
 
+COMPLY_LOCATORS = [
+    lambda p: p.locator('button#content__button--primary--muted'),
+    lambda p: p.get_by_role("button", name="Agree to comply", exact=True),
+    lambda p: p.locator('button.content__button--primary'),
+]
+
+COMPLY_PROBE_TIMEOUT_MS = 5000
+
+
+def dismiss_comply_gate(page, timeout_ms: int = COMPLY_PROBE_TIMEOUT_MS) -> bool:
+    """Click LinkedIn's 'Agree to comply' interstitial if present. Return True if clicked."""
+    for factory in COMPLY_LOCATORS:
+        locator = factory(page).first
+        try:
+            locator.wait_for(state="visible", timeout=timeout_ms)
+        except PlaywrightTimeoutError:
+            continue
+        logger.info(colored("Dismissing 'Agree to comply' interstitial", "yellow"))
+        locator.click()
+        return True
+    return False
+
 
 def playwright_login(session: "AccountSession"):
     page = session.page
@@ -61,9 +84,11 @@ def playwright_login(session: "AccountSession"):
     session.wait()
 
     submit = resolve_locator(page, SUBMIT_LOCATORS)
+    submit.click()
+    dismiss_comply_gate(page)
     goto_page(
         session,
-        action=lambda: submit.click(),
+        action=lambda: None,
         expected_url_pattern="/feed",
         timeout=BROWSER_LOGIN_TIMEOUT_MS,
         error_message="Login failed – no redirect to feed",
@@ -106,9 +131,11 @@ def start_browser_session(session: "AccountSession"):
         _save_cookies(session)
         logger.info(colored("Login successful – session saved", "green", attrs=["bold"]))
     else:
+        session.page.goto(LINKEDIN_FEED_URL)
+        dismiss_comply_gate(session.page)
         goto_page(
             session,
-            action=lambda: session.page.goto(LINKEDIN_FEED_URL),
+            action=lambda: None,
             expected_url_pattern="/feed",
             timeout=BROWSER_DEFAULT_TIMEOUT_MS,
             error_message="Saved session invalid",
