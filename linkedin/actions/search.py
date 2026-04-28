@@ -22,7 +22,7 @@ def _go_to_profile(session: "AccountSession", url: str, public_identifier: str):
     try:
         goto_page(
             session,
-            action=lambda: session.page.goto(url),
+            action=lambda: session.page.goto(url, wait_until="domcontentloaded"),
             expected_url_pattern=f"/in/{public_identifier}",
             error_message="Failed to navigate to the target profile"
         )

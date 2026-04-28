@@ -65,7 +65,7 @@ class AccountSession:
 
     def wait(self, min_delay=MIN_DELAY, max_delay=MAX_DELAY):
         random_sleep(min_delay, max_delay)
-        self.page.wait_for_load_state("load")
+        self.page.wait_for_load_state("domcontentloaded")
 
     def reauthenticate(self):
         """Force a fresh login: close browser, clear saved cookies, re-launch."""
