@@ -12,5 +12,5 @@ tendo
 pyyaml
 fastembed
 scikit-learn
-huggingface_hub
+huggingface_hub==1.9.2
 openoutreach @ git+https://github.com/eracle/openoutreach-cli.git@main
