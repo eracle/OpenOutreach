@@ -1,7 +1,7 @@
 playwright
 playwright-stealth
 pydantic
-pydantic-ai-slim[openai,anthropic,google,groq,mistral,cohere,bedrock]
+pydantic-ai-slim[bedrock,mistral,groq,google,openai,anthropic,cohere]==1.96.1
 nest-asyncio
 jsonpath-ng
 pandas
