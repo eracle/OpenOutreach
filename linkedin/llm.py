@@ -168,12 +168,15 @@ _PROVIDER_BUILDERS: dict[str, Callable] = {
 
 # ── Model factory ────────────────────────────────────────────────────
 
+_PROVIDERS_WITHOUT_API_KEY = {"litellm"}
+
+
 def _validated_site_config():
     """Load `SiteConfig` and assert the required LLM fields are populated."""
     from linkedin.models import SiteConfig
 
     cfg = SiteConfig.load()
-    if not cfg.llm_api_key:
+    if not cfg.llm_api_key and cfg.llm_provider not in _PROVIDERS_WITHOUT_API_KEY:
         raise ValueError("LLM_API_KEY is not set in Site Configuration.")
     if not cfg.ai_model:
         raise ValueError("AI_MODEL is not set in Site Configuration.")
