@@ -140,6 +140,20 @@ def _build_openai_compatible(cfg):
     ))
 
 
+def _build_litellm(cfg):
+    if not cfg.llm_api_base:
+        raise ValueError("LLM_API_BASE is required for the litellm provider (your LiteLLM proxy URL).")
+    from openai import AsyncOpenAI
+    from pydantic_ai.models.openai import OpenAIModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+    client = AsyncOpenAI(
+        api_key=cfg.llm_api_key or "unused",
+        base_url=cfg.llm_api_base,
+        max_retries=_MAX_RETRIES,
+    )
+    return OpenAIModel(cfg.ai_model, provider=OpenAIProvider(openai_client=client))
+
+
 _PROVIDER_BUILDERS: dict[str, Callable] = {
     "openai": _build_openai,
     "anthropic": _build_anthropic,
@@ -148,6 +162,7 @@ _PROVIDER_BUILDERS: dict[str, Callable] = {
     "mistral": _build_mistral,
     "cohere": _build_cohere,
     "openai_compatible": _build_openai_compatible,
+    "litellm": _build_litellm,
 }
 
 
