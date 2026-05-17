@@ -28,6 +28,7 @@ class SiteConfig(models.Model):
         MISTRAL = "mistral", "Mistral"
         COHERE = "cohere", "Cohere"
         OPENAI_COMPATIBLE = "openai_compatible", "OpenAI-compatible"
+        LITELLM = "litellm", "LiteLLM"
 
     llm_provider = models.CharField(
         max_length=32,

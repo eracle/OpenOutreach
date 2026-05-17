@@ -140,6 +140,20 @@ def _build_openai_compatible(cfg):
     ))
 
 
+def _build_litellm(cfg):
+    if not cfg.llm_api_base:
+        raise ValueError("LLM_API_BASE is required for the litellm provider (your LiteLLM proxy URL).")
+    from openai import AsyncOpenAI
+    from pydantic_ai.models.openai import OpenAIModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+    client = AsyncOpenAI(
+        api_key=cfg.llm_api_key or "unused",
+        base_url=cfg.llm_api_base,
+        max_retries=_MAX_RETRIES,
+    )
+    return OpenAIModel(cfg.ai_model, provider=OpenAIProvider(openai_client=client))
+
+
 _PROVIDER_BUILDERS: dict[str, Callable] = {
     "openai": _build_openai,
     "anthropic": _build_anthropic,
@@ -148,17 +162,21 @@ _PROVIDER_BUILDERS: dict[str, Callable] = {
     "mistral": _build_mistral,
     "cohere": _build_cohere,
     "openai_compatible": _build_openai_compatible,
+    "litellm": _build_litellm,
 }
 
 
 # ── Model factory ────────────────────────────────────────────────────
+
+_PROVIDERS_WITHOUT_API_KEY = {"litellm"}
+
 
 def _validated_site_config():
     """Load `SiteConfig` and assert the required LLM fields are populated."""
     from linkedin.models import SiteConfig
 
     cfg = SiteConfig.load()
-    if not cfg.llm_api_key:
+    if not cfg.llm_api_key and cfg.llm_provider not in _PROVIDERS_WITHOUT_API_KEY:
         raise ValueError("LLM_API_KEY is not set in Site Configuration.")
     if not cfg.ai_model:
         raise ValueError("AI_MODEL is not set in Site Configuration.")
