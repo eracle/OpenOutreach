@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from linkedin.tz_detect import system_timezone
-
 
 # ----------------------------------------------------------------------
 # Paths
@@ -41,16 +39,6 @@ HUMAN_TYPE_MAX_DELAY_MS = 200
 DEFAULT_CONNECT_DAILY_LIMIT = 20
 DEFAULT_CONNECT_WEEKLY_LIMIT = 100
 DEFAULT_FOLLOW_UP_DAILY_LIMIT = 25
-
-# ----------------------------------------------------------------------
-# Active-hours schedule (daemon pauses outside this window)
-# Set to False to run 24/7.
-# ----------------------------------------------------------------------
-ENABLE_ACTIVE_HOURS = False
-ACTIVE_START_HOUR = 9   # inclusive, local time
-ACTIVE_END_HOUR = 19    # exclusive, local time
-ACTIVE_TIMEZONE = system_timezone()
-REST_DAYS = (5, 6)      # 0=Mon … 6=Sun; default Sat+Sun off
 
 # ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)

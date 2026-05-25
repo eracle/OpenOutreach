@@ -8,18 +8,12 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone
+from playwright.sync_api import Error as PlaywrightError
 from pydantic_ai.exceptions import ModelHTTPError
 
 from termcolor import colored
 
-from linkedin.conf import (
-    ACTIVE_END_HOUR,
-    ACTIVE_START_HOUR,
-    ACTIVE_TIMEZONE,
-    CAMPAIGN_CONFIG,
-    ENABLE_ACTIVE_HOURS,
-    REST_DAYS,
-)
+from linkedin.conf import CAMPAIGN_CONFIG
 from linkedin.diagnostics import failure_diagnostics
 from linkedin.exceptions import AuthenticationError
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
@@ -215,23 +209,32 @@ def _build_qualifiers(campaigns, cfg, kit_model=None):
 
 
 def seconds_until_active() -> float:
-    """Return seconds to wait before the next active window, or 0 if active now."""
-    if not ENABLE_ACTIVE_HOURS:
-        return 0.0
-    tz = ZoneInfo(ACTIVE_TIMEZONE)
-    now = timezone.localtime(timezone=tz)
+    """Return seconds to wait before the next active window, or 0 if active now.
 
-    if now.weekday() not in REST_DAYS and ACTIVE_START_HOUR <= now.hour < ACTIVE_END_HOUR:
+    Reads schedule settings from the ``SiteConfig`` DB singleton so users
+    can override the timezone (and other parameters) via Django Admin.
+    """
+    from linkedin.models import SiteConfig
+
+    config = SiteConfig.load()
+    if not config.enable_active_hours:
+        return 0.0
+
+    tz = ZoneInfo(config.active_timezone)
+    now = timezone.localtime(timezone=tz)
+    rest_days = config.rest_days or []
+
+    if now.weekday() not in rest_days and config.active_start_hour <= now.hour < config.active_end_hour:
         return 0.0
 
     # Find the next active start: try today first, then subsequent days
     candidate = timezone.make_aware(
-        now.replace(hour=ACTIVE_START_HOUR, minute=0, second=0, microsecond=0, tzinfo=None),
+        now.replace(hour=config.active_start_hour, minute=0, second=0, microsecond=0, tzinfo=None),
         timezone=tz,
     )
     if candidate <= now:
         candidate += timedelta(days=1)
-    while candidate.weekday() in REST_DAYS:
+    while candidate.weekday() in rest_days:
         candidate += timedelta(days=1)
     return (candidate - now).total_seconds()
 
@@ -349,6 +352,15 @@ def run_daemon(session):
                 + "\n%s\nCheck llm_provider, ai_model, llm_api_key, and llm_api_base in Admin → Site Configuration.", e,
             )
             return
+        except PlaywrightError:
+            # Browser page/renderer crashed — close session so the next
+            # ensure_browser() launches a fresh browser.
+            logger.warning(
+                "Browser crash during %s — closing session to force re-launch", task,
+            )
+            session.close()
+            task.mark_failed()
+            continue
         except Exception:
             task.mark_failed()
             logger.exception("Task %s failed", task)

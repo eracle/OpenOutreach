@@ -8,7 +8,27 @@ from linkedin.models import ActionLog, Campaign, LinkedInProfile, SearchKeyword,
 
 @admin.register(SiteConfig)
 class SiteConfigAdmin(admin.ModelAdmin):
-    list_display = ("__str__", "llm_provider", "ai_model", "llm_api_base")
+    list_display = ("__str__", "llm_provider", "ai_model", "active_timezone", "enable_active_hours")
+
+    fieldsets = (
+        ("LLM", {
+            "fields": ("llm_provider", "llm_api_key", "ai_model", "llm_api_base"),
+        }),
+        ("Active Hours", {
+            "fields": (
+                "enable_active_hours",
+                "active_start_hour",
+                "active_end_hour",
+                "active_timezone",
+                "rest_days",
+            ),
+            "description": (
+                "Daemon pauses outside this window. Set the timezone to your "
+                "local zone (especially in Docker where the container clock is UTC). "
+                "Rest days use 0=Mon … 6=Sun, e.g. [5,6] for weekends."
+            ),
+        }),
+    )
 
     def has_add_permission(self, request):
         return not SiteConfig.objects.exists()

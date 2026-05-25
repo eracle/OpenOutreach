@@ -8,6 +8,8 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
 
+from linkedin.tz_detect import system_timezone
+
 logger = logging.getLogger(__name__)
 
 # action_type → (daily_limit_field, weekly_limit_field)
@@ -37,6 +39,31 @@ class SiteConfig(models.Model):
     llm_api_key = models.CharField(max_length=500, blank=True, default="")
     ai_model = models.CharField(max_length=200, blank=True, default="")
     llm_api_base = models.CharField(max_length=500, blank=True, default="")
+
+    # ── Active-hours schedule (editable in Admin so Docker users can
+    # ── override the container timezone with their real local zone.)
+    enable_active_hours = models.BooleanField(
+        default=True,
+        help_text="Pause the daemon outside the active window.",
+    )
+    active_start_hour = models.PositiveSmallIntegerField(
+        default=9,
+        help_text="Inclusive, 0-23 local time.",
+    )
+    active_end_hour = models.PositiveSmallIntegerField(
+        default=19,
+        help_text="Exclusive, 0-23 local time.",
+    )
+    active_timezone = models.CharField(
+        max_length=64,
+        default=system_timezone,
+        help_text="IANA timezone name (e.g. 'America/New_York').",
+    )
+    rest_days = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of weekday ints (0=Mon … 6=Sun) to pause on.",
+    )
 
     class Meta:
         app_label = "linkedin"
