@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 _RATE_LIMIT_FIELDS = {
     "connect": ("connect_daily_limit", "connect_weekly_limit"),
     "follow_up": ("follow_up_daily_limit", None),
+    "engage": ("engage_daily_limit", None),
 }
 
 
@@ -210,6 +211,7 @@ class ActionLog(models.Model):
     class ActionType(models.TextChoices):
         CONNECT = "connect", "Connect"
         FOLLOW_UP = "follow_up", "Follow Up"
+        ENGAGE = "engage", "Feed Engagement"
 
     linkedin_profile = models.ForeignKey(
         LinkedInProfile,
