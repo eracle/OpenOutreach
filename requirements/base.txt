@@ -1,4 +1,4 @@
-playwright
+playwright==1.59.0
 playwright-stealth
 pydantic
 pydantic-ai-slim[openai,anthropic,google,groq,mistral,cohere,bedrock]
