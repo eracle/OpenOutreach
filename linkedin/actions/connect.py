@@ -72,7 +72,7 @@ def _connect_direct(session):
     if direct.count() == 0:
         return False
 
-    direct.first.click()
+    direct.first.click(force=True)
     logger.debug("Clicked direct 'Connect' button")
 
     error = session.page.locator(SELECTORS["error_toast"])
@@ -95,13 +95,13 @@ def _connect_via_more(session):
         more = top_card.locator(SELECTORS["more_button"])
         if more.count() == 0:
             return False
-        more.first.click()
+        more.first.click(force=True)
         session.wait()
 
     connect_option = page.locator(SELECTORS["connect_option"])
     if connect_option.count() == 0:
         return False
-    connect_option.first.click()
+    connect_option.first.click(force=True)
     logger.debug("Used 'More → Connect' flow")
 
     return True
