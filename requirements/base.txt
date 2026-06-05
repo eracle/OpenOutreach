@@ -15,5 +15,5 @@ pyyaml
 fastembed
 scikit-learn
 huggingface_hub
-questionary
+questionary==2.1.1
 linkedin-agent-cli
