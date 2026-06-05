@@ -16,4 +16,4 @@ fastembed
 scikit-learn
 huggingface_hub
 openoutreach @ git+https://github.com/eracle/openoutreach-cli.git@main
-linkedin-agent-cli @ git+https://github.com/eracle/linkedin-cli.git@main
+linkedin-agent-cli==0.1.5
