@@ -186,24 +186,34 @@ class TestResolveApiEmail:
             "openoutreach.emails.finder.resolve_email",
             return_value=FinderResult(email="bob@acme.com", status="valid"),
         ) as resolve:
-            lead.resolve_api_email()
+            assert lead.resolve_api_email() is True
 
         resolve.assert_called_once_with(FinderQuery(linkedin_url="https://www.linkedin.com/in/bob/"))
         assert Lead.objects.get(pk=lead.pk).api_email == "bob@acme.com"
 
-    def test_miss_leaves_null(self, db):
+    def test_genuine_miss_returns_false(self, db):
         from openoutreach.crm.models import Lead
 
         lead = self._lead()
         with patch("openoutreach.emails.finder.resolve_email", return_value=None):
-            lead.resolve_api_email()
+            assert lead.resolve_api_email() is False
+
+        assert Lead.objects.get(pk=lead.pk).api_email is None
+
+    def test_finder_unavailable_returns_none(self, db):
+        from openoutreach.crm.models import Lead
+        from openoutreach.emails.finder import FinderUnavailable
+
+        lead = self._lead()
+        with patch("openoutreach.emails.finder.resolve_email", side_effect=FinderUnavailable("no key")):
+            assert lead.resolve_api_email() is None
 
         assert Lead.objects.get(pk=lead.pk).api_email is None
 
     def test_already_resolved_is_noop(self, db):
         lead = self._lead(api_email="old@acme.com")
         with patch("openoutreach.emails.finder.resolve_email") as resolve:
-            lead.resolve_api_email()
+            assert lead.resolve_api_email() is True
 
         resolve.assert_not_called()
         assert lead.api_email == "old@acme.com"

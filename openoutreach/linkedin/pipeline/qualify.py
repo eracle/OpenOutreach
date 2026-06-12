@@ -116,6 +116,10 @@ def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: i
             create_disqualified_deal(session, public_id, reason=str(e))
             return
         logger.info("%s %s: %s", public_id, colored("QUALIFIED", "green", attrs=["bold"]), reason)
+        # Enrich at the QUALIFIED gate (only qualified leads ever reach here).
+        # TODO(p1-e3): on a genuine miss (returns False) park the Deal in the
+        # NO_EMAIL state so it's held out of the connect pool; None (finder
+        # off / unreachable) leaves it QUALIFIED to retry.
         deal.lead.resolve_api_email()
     else:
         create_disqualified_deal(session, public_id, reason=reason)

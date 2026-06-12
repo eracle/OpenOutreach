@@ -8,7 +8,7 @@ import time
 
 import requests
 
-from openoutreach.emails.finder import FinderQuery, FinderResult
+from openoutreach.emails.finder import FinderQuery, FinderResult, FinderUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +26,17 @@ _BROWSER_UA = (
 
 
 def find_email(api_key: str, query: FinderQuery) -> FinderResult | None:
-    """Submit one lead, poll until done, return its email — None on a miss or an
-    expected transport failure (HTTP error, network drop, poll timeout)."""
+    """Submit one lead, poll until done, return its email — None on a genuine
+    miss (finder ran, found nothing). Raises FinderUnavailable on a transport
+    failure (HTTP error, network drop, poll timeout) or an empty submit."""
     with _session(api_key) as session:
         try:
             request_id = _submit(session, query)
             row = _poll(session, request_id) if request_id else None
         except (requests.RequestException, TimeoutError) as exc:
-            logger.warning("BetterContact lookup failed for %s: %s", query.linkedin_url, exc)
-            return None
+            raise FinderUnavailable(f"BetterContact unreachable: {exc}") from exc
+    if request_id is None:
+        raise FinderUnavailable("BetterContact returned no request id")
     return _row_to_result(row) if row else None
 
 

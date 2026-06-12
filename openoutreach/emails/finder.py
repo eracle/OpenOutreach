@@ -14,6 +14,11 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+class FinderUnavailable(Exception):
+    """The finder could not run — no API key configured, or the service was
+    unreachable. Distinct from a genuine miss (finder ran, found no email)."""
+
+
 @dataclass(frozen=True)
 class FinderQuery:
     """A lead to resolve. linkedin_url alone works; name/company lift the hit rate."""
@@ -32,12 +37,16 @@ class FinderResult:
 
 
 def resolve_email(query: FinderQuery) -> FinderResult | None:
-    """Resolve one lead's work email, or None on a miss / no key configured."""
+    """Resolve one lead's work email.
+
+    Returns the result on a hit, None on a genuine miss (finder ran, found
+    nothing). Raises FinderUnavailable when no key is set or the service is
+    unreachable — the caller treats that differently from a real miss.
+    """
     from openoutreach.core.models import SiteConfig
     from openoutreach.emails import bettercontact
 
     api_key = SiteConfig.load().finder_api_key
     if not api_key:
-        logger.info("No finder API key configured; skipping enrichment.")
-        return None
+        raise FinderUnavailable("no finder API key configured")
     return bettercontact.find_email(api_key, query)
