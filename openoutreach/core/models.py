@@ -82,6 +82,7 @@ class Task(models.Model):
         CONNECT = "connect"
         CHECK_PENDING = "check_pending"
         FOLLOW_UP = "follow_up"
+        EMAIL = "email"
 
     class Status(models.TextChoices):
         PENDING = "pending"

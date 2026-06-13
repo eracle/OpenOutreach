@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 import questionary
 
-from openoutreach.core.conf import DEFAULT_CONNECT_DAILY_LIMIT
+from openoutreach.core.conf import DEFAULT_CONNECT_DAILY_LIMIT, DEFAULT_EMAIL_DAILY_LIMIT
 from openoutreach.core.models import SiteConfig
 from openoutreach.core.onboarding_wizard import _BACK, MultilineText
 from openoutreach.crm.models import Deal, DealState, Lead
@@ -39,7 +39,7 @@ def email_state() -> str:
     """Which setup step is next: NO_FINDER, NO_MAILBOX, or CONFIGURED."""
     if not SiteConfig.load().finder_api_key:
         return NO_FINDER
-    if not Mailbox.objects.filter(active=True).exists():
+    if not Mailbox.objects.exists():
         return NO_MAILBOX
     return CONFIGURED
 
@@ -89,42 +89,33 @@ def pipeline_stats() -> dict:
 
 @dataclass
 class ImportReport:
-    imported: int = 0
-    active: int = 0
+    parsed: int = 0
+    stored: int = 0
     failures: list[tuple[str, str]] = field(default_factory=list)  # (email, reason)
 
 
-def import_mailboxes(pasted: str) -> ImportReport:
-    """Store and auth-check every mailbox in a pasted export block.
+def import_mailboxes(pasted: str, daily_limit: int = DEFAULT_EMAIL_DAILY_LIMIT) -> ImportReport:
+    """Auth-check every mailbox in a pasted export block, storing only the ones
+    whose credentials log in. A row exists iff it authenticated — there is no
+    inactive state to carry. ``daily_limit`` is the warm-safe sends/day applied
+    to each imported box (set once at onboarding, like the LinkedIn limit).
 
     Raises ValueError if the paste has no recognizable header row.
     """
     report = ImportReport()
     for email, password in parse_mailboxes(pasted):
-        report.imported += 1
-        ok, reason = _authenticate(_store_mailbox(email, password))
-        if ok:
-            report.active += 1
-        else:
+        report.parsed += 1
+        box = Mailbox(username=email, password=password, from_address=email)
+        ok, reason = verify_auth(box.host, box.port, box.username, box.password)
+        if not ok:
             report.failures.append((email, reason))
+            continue
+        Mailbox.objects.update_or_create(
+            username=email,
+            defaults={"password": password, "from_address": email, "daily_limit": daily_limit},
+        )
+        report.stored += 1
     return report
-
-
-def _store_mailbox(email: str, password: str) -> Mailbox:
-    """Upsert one mailbox by username (host/port default to IceMail's Google boxes)."""
-    box, _ = Mailbox.objects.update_or_create(
-        username=email, defaults={"password": password, "from_address": email},
-    )
-    return box
-
-
-def _authenticate(box: Mailbox) -> tuple[bool, str]:
-    """Auth-check the box over SMTP and persist the resulting `active` flag."""
-    ok, reason = verify_auth(box.host, box.port, box.username, box.password)
-    if box.active != ok:
-        box.active = ok
-        box.save(update_fields=["active"])
-    return ok, reason
 
 
 # ── Interactive prompt ───────────────────────────────────────────
@@ -164,12 +155,26 @@ def _collect_mailboxes() -> None:
     pasted = _ask_for_paste()
     if pasted is None:
         return
+    daily_limit = _ask_for_daily_limit()
     try:
-        report = import_mailboxes(pasted)
+        report = import_mailboxes(pasted, daily_limit=daily_limit)
     except ValueError as exc:
         print(f"  {exc}")
         return
     _print_report(report)
+
+
+def _ask_for_daily_limit() -> int:
+    """Per-mailbox warm-safe sends/day; Enter accepts the conservative default."""
+    answer = questionary.text(
+        "Emails per mailbox per day (Enter for default):",
+        default=str(DEFAULT_EMAIL_DAILY_LIMIT),
+    ).ask()
+    try:
+        value = int((answer or "").strip())
+        return value if value > 0 else DEFAULT_EMAIL_DAILY_LIMIT
+    except (TypeError, ValueError):
+        return DEFAULT_EMAIL_DAILY_LIMIT
 
 
 def _ask_for_paste() -> str | None:
@@ -185,10 +190,10 @@ def _ask_for_paste() -> str | None:
 def _print_report(report: ImportReport) -> None:
     for email, reason in report.failures:
         print(f"  ✗ {email}: {reason}")
-    if not report.imported:
+    if not report.parsed:
         print("  No mailboxes found — include the header row (Email, Password, …).")
         return
-    print(f"  Imported {report.imported} mailbox(es); {report.active} authenticated and active.")
+    print(f"  Parsed {report.parsed} mailbox(es); {report.stored} authenticated and saved.")
 
 
 _COLLECT_BY_STATE = {NO_FINDER: _collect_finder_key, NO_MAILBOX: _collect_mailboxes}

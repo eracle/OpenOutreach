@@ -9,11 +9,17 @@ class DealState(models.TextChoices):
     OpenOutreach owns these values, not linkedin_cli. The library's connect/status
     verbs only *observe* three of them off the LinkedIn UI — QUALIFIED, PENDING,
     CONNECTED — and hand them back as plain strings over the CLI boundary; every
-    other state is written only here: READY_TO_CONNECT (passed the GP threshold),
-    COMPLETED/FAILED (outcome), and NO_EMAIL (enrichment found no address — the
-    deal is held out of the connect pool without advancing the LinkedIn state
-    machine). String values match the library's UI states so lifting a returned
-    string into this enum is a plain ``DealState(value)`` lookup at the boundary.
+    other state is written only here: READY_TO_CONNECT (passed the GP threshold)
+    and COMPLETED/FAILED (outcome). String values match the library's UI states
+    so lifting a returned string into this enum is a plain ``DealState(value)``
+    lookup at the boundary.
+
+    Email channel: enrichment is a *router*, not a gate. A lead with a resolved
+    ``Lead.api_email`` is reached by email (handled off ``Deal.next_email_at``,
+    excluded from the connect pool); a lead with no email flows through the
+    connect funnel as its only door (and the connection harvests contact info
+    on acceptance). No off-funnel email state — email progress reads from
+    ``Lead.api_email`` + the outgoing email ``ChatMessage`` count.
     """
     QUALIFIED = "Qualified"
     READY_TO_CONNECT = "Ready to Connect"
@@ -21,7 +27,6 @@ class DealState(models.TextChoices):
     CONNECTED = "Connected"
     COMPLETED = "Completed"
     FAILED = "Failed"
-    NO_EMAIL = "No Email"
 
 
 class Outcome(models.TextChoices):
@@ -62,6 +67,17 @@ class Deal(models.Model):
     connect_attempts = models.IntegerField(default=0)
     backoff_hours = models.IntegerField(default=0)
     next_check_pending_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Email channel (Layer 1 = single outbound touch, no follow-up cadence yet).
+    # The mailbox that sent the email, bound to the deal: it's the per-box-cap
+    # counting key (ChatMessage.filter(deal__mailbox=box)), the reply anchor, and
+    # the sticky thread box once follow-ups land with inbound reply-reading.
+    mailbox = models.ForeignKey(
+        "emails.Mailbox", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="deals",
+    )
+    # The email's subject — set when the single email is sent; the reuse source
+    # ("Re: …") once follow-ups land. The agent generates it once.
+    email_subject = models.CharField(max_length=300, blank=True, default="")
     profile_summary = models.JSONField(null=True, blank=True, default=None)
     chat_summary = models.JSONField(null=True, blank=True, default=None)
     creation_date = models.DateTimeField(default=timezone.now)

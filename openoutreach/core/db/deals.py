@@ -14,7 +14,6 @@ _STATE_LOG_STYLE = {
     DealState.CONNECTED: ("CONNECTED", "green", ["bold"]),
     DealState.COMPLETED: ("COMPLETED", "green", ["bold"]),
     DealState.FAILED: ("FAILED", "red", ["bold"]),
-    DealState.NO_EMAIL: ("NO_EMAIL", "yellow", []),
 }
 
 
@@ -140,7 +139,23 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
 
 
 def get_qualified_profiles(session) -> list:
-    return _deals_at_state(session, DealState.QUALIFIED)
+    """Connect-eligible QUALIFIED deals — those WITHOUT a resolved email.
+
+    Enrichment routes, it doesn't gate: a lead with ``api_email`` is reached on
+    the EMAIL channel and excluded here, so the scarce connect is spent only on
+    leads whose only door is LinkedIn (the connection then harvests their
+    contact info on acceptance). This is the single connect-pool chokepoint —
+    ready_pool promotes from here, so email-having leads never reach
+    READY_TO_CONNECT.
+    """
+    from openoutreach.crm.models import Deal
+
+    qs = Deal.objects.filter(
+        state=DealState.QUALIFIED,
+        campaign=session.campaign,
+        lead__api_email__isnull=True,
+    ).select_related("lead")
+    return [_deal_to_profile_dict(d) for d in qs]
 
 
 def get_ready_to_connect_profiles(session) -> list:

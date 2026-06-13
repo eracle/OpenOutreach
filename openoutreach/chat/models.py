@@ -13,10 +13,14 @@ class ChatMessage(models.Model):
         verbose_name_plural = _("messages")
         constraints = [
             models.UniqueConstraint(
-                fields=["deal", "linkedin_urn"],
-                name="uniq_deal_linkedin_urn",
+                fields=["deal", "channel", "external_id"],
+                name="uniq_deal_channel_external_id",
             ),
         ]
+
+    class Channel(models.TextChoices):
+        LINKEDIN = "linkedin", _("LinkedIn")
+        EMAIL = "email", _("Email")
 
     deal = models.ForeignKey(
         "crm.Deal",
@@ -57,10 +61,18 @@ class ChatMessage(models.Model):
         default=timezone.now,
         verbose_name=_("Creation date")
     )
-    linkedin_urn = models.CharField(
+    channel = models.CharField(
+        max_length=20,
+        choices=Channel.choices,
+        default=Channel.LINKEDIN,
+        verbose_name=_("Channel"),
+    )
+    external_id = models.CharField(
         max_length=300,
-        verbose_name=_("LinkedIn message URN"),
-        help_text=_("entityUrn from Voyager API, used for dedup (per deal)"),
+        null=True,
+        blank=True,
+        verbose_name=_("External message id"),
+        help_text=_("Voyager entityUrn (LinkedIn) or RFC-5322 Message-ID (email); per-deal dedup key"),
     )
     is_outgoing = models.BooleanField(
         default=True,

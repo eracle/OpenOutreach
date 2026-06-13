@@ -117,15 +117,13 @@ def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: i
             return
         logger.info("%s %s: %s", public_id, colored("QUALIFIED", "green", attrs=["bold"]), reason)
         # Enrich at the QUALIFIED gate (only qualified leads ever reach here).
-        # Tri-state: True = hit (proceed QUALIFIED), False = genuine miss (park
-        # in NO_EMAIL, out of the connect pool), None = finder off/unreachable
-        # (leave QUALIFIED to retry — a miss is free to re-attempt).
-        if deal.lead.resolve_api_email() is False:
-            from openoutreach.core.db.deals import set_profile_state
-            from openoutreach.crm.models import DealState
-
-            set_profile_state(session, public_id, DealState.NO_EMAIL.value,
-                              reason="No email found by finder")
+        # Router model: a hit banks Lead.api_email and routes the lead to the
+        # EMAIL channel (the connect pool excludes email-having leads — see
+        # get_qualified_profiles). A miss leaves the deal QUALIFIED so the
+        # connect funnel is its only door, and the connection harvests contact
+        # info on acceptance — email-miss is never parked, never a dead end.
+        # A miss is free to retry (BetterContact bills only usable hits).
+        deal.lead.resolve_api_email()
     else:
         create_disqualified_deal(session, public_id, reason=reason)
 

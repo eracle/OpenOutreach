@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                 ("username", models.CharField(max_length=320, unique=True)),
                 ("password", models.CharField(max_length=255)),
                 ("from_address", models.EmailField(max_length=320)),
-                ("active", models.BooleanField(default=True)),
+                ("daily_limit", models.PositiveIntegerField(default=30)),
             ],
             options={
                 "verbose_name_plural": "Mailboxes",

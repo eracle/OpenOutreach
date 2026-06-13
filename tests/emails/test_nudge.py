@@ -15,10 +15,8 @@ def _set_finder_key(value: str = "k"):
     cfg.save()
 
 
-def _active_box(email="a@b.com", active=True):
-    return Mailbox.objects.create(
-        username=email, password="p", from_address=email, active=active,
-    )
+def _box(email="a@b.com"):
+    return Mailbox.objects.create(username=email, password="p", from_address=email)
 
 
 # ── State machine ────────────────────────────────────────────────
@@ -33,16 +31,10 @@ def test_state_is_no_mailbox_when_finder_set_but_no_box():
     assert nudge.email_state() == nudge.NO_MAILBOX
 
 
-def test_state_is_configured_with_an_active_box():
+def test_state_is_configured_with_a_box():
     _set_finder_key()
-    _active_box()
+    _box()
     assert nudge.email_state() == nudge.CONFIGURED
-
-
-def test_inactive_box_does_not_count_as_configured():
-    _set_finder_key()
-    _active_box(active=False)
-    assert nudge.email_state() == nudge.NO_MAILBOX
 
 
 # ── Copy ─────────────────────────────────────────────────────────
@@ -76,26 +68,26 @@ def test_pipeline_stats_counts_the_pipeline():
 
 # ── Mailbox import ───────────────────────────────────────────────
 
-def test_import_marks_box_active_when_auth_succeeds():
+def test_import_stores_box_when_auth_succeeds():
     with patch("openoutreach.emails.nudge.verify_auth", return_value=(True, "ok")):
         report = nudge.import_mailboxes("Email\tPassword\na@b.com\tpw")
-    assert (report.imported, report.active, report.failures) == (1, 1, [])
+    assert (report.parsed, report.stored, report.failures) == (1, 1, [])
     box = Mailbox.objects.get(username="a@b.com")
-    assert box.active and box.from_address == "a@b.com"
+    assert box.from_address == "a@b.com"
 
 
-def test_import_marks_box_inactive_and_records_failure_on_auth_error():
+def test_import_skips_box_and_records_failure_on_auth_error():
     with patch("openoutreach.emails.nudge.verify_auth", return_value=(False, "auth rejected (534)")):
         report = nudge.import_mailboxes("Email\tPassword\na@b.com\tpw")
-    assert report.active == 0
+    assert report.stored == 0
     assert report.failures == [("a@b.com", "auth rejected (534)")]
-    assert not Mailbox.objects.get(username="a@b.com").active
+    assert not Mailbox.objects.filter(username="a@b.com").exists()
 
 
 def test_import_upserts_existing_mailbox_by_username():
-    Mailbox.objects.create(username="a@b.com", password="old", from_address="a@b.com", active=False)
+    Mailbox.objects.create(username="a@b.com", password="old", from_address="a@b.com")
     with patch("openoutreach.emails.nudge.verify_auth", return_value=(True, "ok")):
         nudge.import_mailboxes("Email\tPassword\na@b.com\tnewpw")
     box = Mailbox.objects.get(username="a@b.com")
-    assert box.password == "newpw" and box.active
+    assert box.password == "newpw"
     assert Mailbox.objects.filter(username="a@b.com").count() == 1
