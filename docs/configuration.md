@@ -59,6 +59,43 @@ Australia, Japan, South Korea, New Zealand).
 
 This check runs once per account (a database marker record prevents re-runs).
 
+## Email Channel Settings
+
+The email channel (LinkedIn for discovery, email for outreach) is **optional** — with nothing
+configured, every qualified lead routes to the LinkedIn connection channel. A per-launch onboarding
+nudge (`emails/nudge.py`) walks you through the two pieces below until both exist.
+
+### Finder key (`SiteConfig` singleton)
+
+The email finder is configured by a single key on the `SiteConfig` DB singleton, editable via Django
+Admin or captured by the onboarding nudge.
+
+| Field | Type | Description | Default |
+|:------|:-----|:------------|:--------|
+| `finder_api_key` | string | [BetterContact](https://bettercontact.rocks?fpr=openoutreach) API key for LinkedIn→work-email resolution. **Blank disables enrichment** — every qualified lead then routes to LinkedIn. | (empty) |
+
+When set, a qualified lead's work email is resolved on demand (`emails/finder.py`); a hit forks the
+deal onto the email channel, a miss leaves it on the LinkedIn channel. Misses are free to retry —
+the provider bills only usable hits.
+
+### Sending mailboxes (`Mailbox` Django model)
+
+Each `Mailbox` is one SMTP outbox. Boxes are imported by pasting the [IceMail](https://icemail.ai?via=openoutreach)
+*Export Mailboxes* sheet during onboarding (`emails/icemail.py`); each is auth-checked
+(`emails/smtp.py`) before it is stored.
+
+| Field | Type | Description | Default |
+|:------|:-----|:------------|:--------|
+| `host` | string | SMTP host. | `smtp.gmail.com` |
+| `port` | integer | SMTP port. | `587` |
+| `username` | string | SMTP login (unique). | (required) |
+| `password` | string | SMTP password. | (required) |
+| `from_address` | string | Envelope/from address for outgoing mail. | (required) |
+| `daily_limit` | integer | Warm-safe sends per day for this box, enforced per box at send time. | `DEFAULT_EMAIL_DAILY_LIMIT` |
+
+Sending is raw `smtplib` (`emails/sender.py`); the email queue drains eagerly, capped only by the
+pool-wide per-box daily headroom.
+
 ## Hardcoded Defaults (`conf.py:CAMPAIGN_CONFIG`)
 
 Timing and ML defaults are hardcoded in `linkedin/conf.py`. These are not user-configurable.

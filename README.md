@@ -21,7 +21,7 @@
 
 ### 🚀 What is OpenOutreach?
 
-OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** for B2B lead generation. Unlike other tools, **you don't need a list of profiles to contact** — you describe your product and your target market, and the system autonomously discovers, qualifies, and contacts the right people.
+OpenOutreach is a **self-hosted, open-source outreach tool** for B2B lead generation that uses **LinkedIn for discovery and email for outreach**. Unlike other tools, **you don't need a list of profiles to contact** — you describe your product and your target market, and the system autonomously discovers, qualifies, and contacts the right people.
 
 **How it works:**
 
@@ -29,13 +29,14 @@ OpenOutreach is a **self-hosted, open-source LinkedIn automation tool** for B2B 
 2. **The AI generates** LinkedIn search queries to discover candidate profiles
 3. **A Bayesian ML model** (Gaussian Process Regressor on profile embeddings) learns which profiles match your ideal customer — using an explore/exploit strategy to balance finding the best leads now vs. learning what makes a good lead
 4. **An LLM classifies** each profile selected by the model; the GP learns from every decision to select better candidates over time
-5. **Qualified leads** are automatically contacted, and an AI agent manages multi-turn follow-up conversations
+5. **Qualified leads are routed by channel.** OpenOutreach resolves a work email for each qualified lead: if one is found, an AI agent emails them directly (the high-volume channel); if not, it falls back to a LinkedIn connection request and agentic multi-turn follow-up after acceptance.
 
 The system gets smarter with every decision. It starts by exploring broadly, then progressively focuses on the highest-value profiles as it learns your ideal customer profile from its own classification history.
 
 **Why choose OpenOutreach?**
 
 - 🧠 **Autonomous lead discovery** — No contact lists needed; AI finds your ideal customers
+- 📧 **Email-first outreach** — Resolves a work email per qualified lead and sends from your own mailbox; LinkedIn is the discovery engine, email is the volume channel
 - 🛡️ **Undetectable** — Playwright + stealth plugins mimic real user behavior
 - 💾 **Self-hosted + full data ownership** — Everything runs locally, browse your CRM in a web UI
 - 🐳 **One-command setup** — Dockerized deployment, interactive onboarding
@@ -54,6 +55,15 @@ Perfect for founders, sales teams, and agencies who want powerful automation **w
 | 3 | **A product description + target market** | "We sell cloud cost optimization for DevOps teams at mid-market SaaS companies" |
 
 That's it. No spreadsheets, no lead databases, no scraping setup.
+
+**To turn on the email channel** (optional — LinkedIn-only outreach works without it), the onboarding nudge also asks for:
+
+| What | Why |
+|------|-----|
+| **An email-finder API key** ([BetterContact](https://bettercontact.rocks?fpr=openoutreach)) | Resolves a work email for each qualified lead |
+| **A sending mailbox** (cold-email infra — [IceMail](https://icemail.ai?via=openoutreach)) | Sends from your own SMTP box, paced under a per-box daily cap |
+
+If neither is configured, every qualified lead simply routes to the LinkedIn connection channel.
 
 ---
 
@@ -122,8 +132,9 @@ Then open:
 | 🎯 **Bayesian Active Learning**    | Gaussian Process model on profile embeddings learns your ideal customer via explore/exploit, selecting the most informative candidates for LLM qualification. |
 | 🤖 **Stealth Browser Automation**  | Playwright + stealth plugins mimic real user behavior for undetectable interactions.                                 |
 | 🛡️ **Voyager API Scraping**       | Uses LinkedIn's internal API for accurate, structured profile data (no fragile HTML parsing).                        |
-| 🔄 **Stateful Pipeline**          | Tracks profile states (`QUALIFIED` → `READY_TO_CONNECT` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB — fully resumable. |
-| ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type, respects LinkedIn's own limits automatically.                      |
+| 📧 **Email Outreach Channel**      | Resolves a work email per qualified lead (BetterContact) and sends an AI-written opener from your own mailbox over SMTP — the high-volume channel. Leads with no email fall back to LinkedIn. |
+| 🔄 **Stateful Pipeline**          | Tracks profile states (`QUALIFIED` → email fork `READY_TO_EMAIL` → `EMAILED`, or LinkedIn `READY_TO_CONNECT` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB — fully resumable. |
+| ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type — respects LinkedIn's own caps, and paces email under a per-mailbox daily cap.   |
 | 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI — browse Leads, Contacts, Companies, and Deals.              |
 | 🐳 **One-Command Deployment**      | Dockerized setup with interactive onboarding and a live browser view in your browser (noVNC at `http://localhost:6080/vnc.html`). |
 | ✍️ **AI-Powered Messaging**        | Agentic multi-turn follow-up conversations — the AI agent reads history, sends messages, and schedules future follow-ups. |
@@ -157,13 +168,16 @@ and output contract.
 
 ## 📖 How the ML Pipeline Works
 
-The daemon runs a continuous **task queue** backed by a persistent `Task` model. Three task types self-schedule follow-on work:
+The daemon runs a continuous **task queue** backed by a persistent `Task` model. Four task types self-schedule follow-on work:
 
 | Task Type | What it does |
 |-----------|-------------|
 | **Connect** | Ranks qualified profiles by GP model probability, sends connection requests (daily + weekly limits). Triggers qualification and search via composable generators when the pool is empty. |
 | **Check Pending** | Checks if a pending request was accepted (exponential backoff per profile) |
 | **Follow Up** | Runs an AI agent that manages multi-turn conversations with connected profiles |
+| **Email** | Sends one AI-written opener to a lead with a resolved work email, from your mailbox pool (single-shot, paced by per-mailbox daily cap) |
+
+**Channel routing at qualification:** when a profile is qualified, OpenOutreach tries to resolve a work email (BetterContact finder, gated by a configured key). A **hit** forks the lead onto the email channel (`READY_TO_EMAIL` → one opener → `EMAILED`, where it rests until you set an outcome — Layer 1 sends one opener and does not yet read replies). A **miss** (or no finder key) leaves the lead on the LinkedIn path, where the GP confidence gate promotes it to `READY_TO_CONNECT`. The fork is encoded in the Deal state, so each lead is contacted on exactly one channel and emailed at most once.
 
 **The qualification loop in detail:**
 

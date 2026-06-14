@@ -5,39 +5,47 @@ workflow engine.
 
 ## High-Level Overview
 
-The system automates LinkedIn outreach through a daemon that schedules actions continuously:
+The system uses **LinkedIn for discovery and email for outreach**, driven by a daemon that schedules actions continuously:
 
 1. **Input**: New profiles are auto-discovered as the daemon navigates LinkedIn pages. When the candidate pool runs dry, LLM-generated search keywords are used to discover new profiles.
 2. **Enrichment**: The daemon scrapes detailed profile data via LinkedIn's internal Voyager API, stores it in the CRM, and computes embeddings.
 3. **Qualification**: Profiles are qualified using a Gaussian Process Regressor with BALD active learning — the model selects the most informative profiles to query via LLM. All decisions go through the LLM; the GP is used only for candidate selection and the confidence gate.
-4. **Outreach**: Connection requests are sent to the highest-ranked qualified profiles, and agentic follow-up conversations run after acceptance.
-5. **State Tracking**: Each profile progresses through a state machine (implicit discovery/enrichment → `QUALIFIED` → `READY_TO_CONNECT` → `PENDING` → `CONNECTED` → `COMPLETED`), tracked as Deal states in the CRM.
+4. **Channel routing**: At qualification a finder (BetterContact, `emails/finder.py`) tries to resolve a work email and store it on `Lead.api_email`. Enrichment is a *router*, not a gate — a **hit** forks the lead onto the email channel; a **miss**, or no finder key configured, keeps it on the LinkedIn channel.
+5. **Outreach**: On the email channel, an AI agent (`core/agents/email_opener.py`) writes one opener, sent over SMTP from a user-owned `Mailbox` (the high-volume channel). On the LinkedIn channel, connection requests are sent to the highest-ranked qualified profiles and agentic follow-up conversations run after acceptance.
+6. **State Tracking**: Each profile progresses through a state machine (implicit discovery/enrichment → `QUALIFIED` → either email fork `READY_TO_EMAIL` → `EMAILED`, or LinkedIn `READY_TO_CONNECT` → `PENDING` → `CONNECTED` → `COMPLETED`), tracked as Deal states in the CRM.
 
 ## Core Data Model
 
 The system uses Django with a single SQLite database at `db.sqlite3` (project root). The key models are:
 
-- **Lead** (`crm/models/lead.py`) — One per LinkedIn profile URL. Stores `first_name`, `last_name`, `company_name`, `linkedin_url` (LinkedIn URL, unique), `description` (full parsed profile JSON), `embedding` (BinaryField storing 384-dim fastembed vector as bytes, with `embedding_array` numpy property accessor). `disqualified` (bool) marks permanent account-level exclusion (self-profile, unreachable profiles). `creation_date`, `update_date`.
+- **Lead** (`crm/models/lead.py`) — One per LinkedIn profile URL. Stores `first_name`, `last_name`, `company_name`, `linkedin_url` (LinkedIn URL, unique), `description` (full parsed profile JSON), `embedding` (BinaryField storing 384-dim fastembed vector as bytes, with `embedding_array` numpy property accessor). Email storage is one field per source: `contact_info` (raw LinkedIn contact-info overlay, captured on connection — 1st-degree only) and `api_email` (work email from the finder API; `resolve_api_email()` is tri-state: True = hit, False = genuine miss, None = finder couldn't run). `disqualified` (bool) marks permanent account-level exclusion (self-profile, unreachable profiles). `creation_date`, `update_date`.
 - **Deal** (`crm/models/deal.py`) — Tracks pipeline state. One Deal per Lead per campaign (campaign-scoped via FK). `state` = CharField (ProfileState choices). `outcome` = CharField (Outcome: converted/not_interested/wrong_fit/no_budget/has_solution/bad_timing/unresponsive/unknown). `reason` = qualification reason (free text). `connect_attempts` = retry count. `backoff_hours` = check_pending backoff. `creation_date`, `update_date`.
 - **Campaign** (`linkedin/models.py`) — `name` (unique), `users` (M2M to User for membership), `product_docs`, `campaign_objective`, `booking_link`, `is_freemium` (bool), `action_fraction` (float), `seed_public_ids` (JSONField).
 - **LinkedInProfile** (`linkedin/models.py`) — 1:1 with `auth.User`. Stores credentials, rate limits, newsletter preference. Rate-limiting methods: `can_execute()`, `record_action()`, `mark_exhausted()`.
 - **SearchKeyword** (`linkedin/models.py`) — FK to Campaign. Stores `keyword`, `used` (bool), `used_at`.
 - **ActionLog** (`linkedin/models.py`) — FK to LinkedInProfile + Campaign. Tracks `connect` and `follow_up` actions for rate limiting.
 - **Task** (`linkedin/models.py`) — Persistent priority queue for daemon actions. `task_type`, `status`, `scheduled_at`, `payload` (JSONField).
+- **Mailbox** (`emails/models.py`) — One SMTP outbox for the email channel. `host`/`port` (default to IceMail's Google Workspace boxes), `username`, `password`, `from_address`, `daily_limit` (warm-safe sends/day, enforced per box at send time). A row exists only once its credentials pass the import auth-check. `sent_today()` / `headroom_today()` back the per-box cap (`MailboxManager.remaining_today()` aggregates pool-wide headroom).
 - **ChatMessage** (`chat/models.py`) — GenericForeignKey to any object. `content`, `owner`, `answer_to` (threading), `topic`.
 
 ### Profile State Machine
 
-Defined in `linkedin/enums.py:ProfileState`:
+Defined in `crm/models/deal.py:DealState`:
 
 ```
-(url_only) → (enriched) → QUALIFIED → READY_TO_CONNECT → PENDING → CONNECTED → COMPLETED
-  (implicit)   (implicit)   (Deal)     (GP confidence gate)  (sent)   (accepted)   (followed up)
-                                ↓
+                                      finder HIT
+                                  ┌──▶ READY_TO_EMAIL ──(EMAIL task)──▶ EMAILED   (email channel, Layer-1 quasi-terminal)
+                                  │
+(url_only) → (enriched) → QUALIFIED ──▶ READY_TO_CONNECT → PENDING → CONNECTED → COMPLETED   (LinkedIn channel)
+  (implicit)   (implicit)   (Deal)  │   (GP confidence gate)  (sent)   (accepted)   (followed up)
+                                  │      finder MISS / no key
+                                  ↓
                           FAILED (LLM rejection creates campaign-scoped FAILED Deal)
 ```
 
-Pre-Deal states are implicit: a Lead with no description is "url_only", a Lead with description is "enriched". `ProfileState` is a `models.TextChoices` enum with 6 values: `QUALIFIED`, `READY_TO_CONNECT`, `PENDING`, `CONNECTED`, `COMPLETED`, `FAILED`. Values ARE the CRM stage names (e.g. `ProfileState.QUALIFIED.value == "Qualified"`).
+Pre-Deal states are implicit: a Lead with no description is "url_only", a Lead with description is "enriched". `DealState` is a `models.TextChoices` enum; values ARE the CRM stage names (e.g. `DealState.QUALIFIED.value == "Qualified"`).
+
+**The email fork at `QUALIFIED`.** Enrichment *routes*; it does not gate. A finder **hit** transitions `QUALIFIED → READY_TO_EMAIL` — a cheap, *ungated* FIFO send-queue (unlike `READY_TO_CONNECT`, which is the GP confidence gate), paced only by the per-mailbox daily cap. The single Layer-1 send moves it to `EMAILED`, a quasi-terminal state that rests until a human sets an `Outcome` (Layer 1 sends one opener and does not yet read inbound replies). A **miss**, finder-off, or couldn't-run leaves the deal `QUALIFIED` so the GP gate can promote it to `READY_TO_CONNECT` — its only door — and the connection harvests contact info on acceptance. The two fork states encode the one-shot guarantee in the state column: the email pool holds only `READY_TO_EMAIL`, so a deal is sent exactly once and can never double-send.
 
 ## Daemon (`linkedin/daemon.py`)
 
@@ -47,15 +55,16 @@ The daemon is the central orchestrator. It runs continuously using a **persisten
 
 Tasks are ordered by `scheduled_at` timestamp. The worker loop pops the oldest due task and executes it. Task creation is centralized in `linkedin/tasks/scheduler.py`: state transitions (via `set_profile_state`) fire `on_deal_state_entered(deal)`, which enqueues the task implied by the new state. When the queue has no ready task, the daemon calls `scheduler.reconcile(session)` — it recovers stale RUNNING rows, seeds one `connect` per campaign, and re-creates missing tasks for active Deals. This is the retry mechanism: a crashed handler leaves a FAILED task with no successor, and the next idle cycle re-creates it from CRM state.
 
-Three task types (all handler functions in `linkedin/tasks/`, signature: `handle_*(task, session, qualifiers)`):
+Four task types (the three LinkedIn handlers in `linkedin/tasks/`, the email handler in `emails/tasks/send.py`; shared signature `handle_*(task, session, qualifiers)`):
 
 | Task Type | Handler | Scope | Description |
 |-----------|---------|-------|-------------|
 | `connect` | `handle_connect` | per-campaign | ML-ranks and sends connection requests |
 | `check_pending` | `handle_check_pending` | per-profile | Checks one PENDING profile for acceptance |
 | `follow_up` | `handle_follow_up` | per-profile | Runs agentic follow-up conversation |
+| `email` | `handle_email` | per-deal | Sends one AI-written opener to a `READY_TO_EMAIL` deal via its mailbox |
 
-Daily and weekly rate limiters independently cap totals via `LinkedInProfile` methods (DB-backed via `ActionLog`).
+Daily and weekly rate limiters independently cap LinkedIn totals via `LinkedInProfile` methods (DB-backed via `ActionLog`); the email channel is paced instead by the per-`Mailbox` `daily_limit`. The LinkedIn channels schedule slots with Poisson-spaced **window planners** (anti-bot rhythm); email has no rhythm to fake, so it uses an **eager drain** — `flush_email_queue()` emits an immediate slot for every `READY_TO_EMAIL` deal, capped by pool-wide per-box headroom.
 
 Freemium campaigns use the same `connect` task type; the `ConnectStrategy` dataclass (built by `strategy_for()`) handles differences (candidate sourcing, delay, pre-connect hooks) based on `campaign.is_freemium`.
 
