@@ -114,11 +114,13 @@ class TestQualifyAutoDecisions:
             patch.object(qualifier, "update"),
             patch("openoutreach.linkedin.db.leads.promote_lead_to_deal") as mock_promote,
             patch("openoutreach.core.db.deals.set_profile_state") as mock_set_state,
+            patch("openoutreach.contacts.service.contribute") as mock_contribute,
         ):
             mock_promote.return_value.lead.resolve_api_email.return_value = True
             run_qualification(session, qualifier)
             mock_set_state.assert_called_once()
             assert mock_set_state.call_args.args[2] == DealState.READY_TO_EMAIL
+            mock_contribute.assert_called_once()  # finder hit → moment-1 give-back
 
     def test_genuine_email_miss_stays_qualified(self, db):
         """A genuine finder miss (False) leaves the Deal QUALIFIED → the connect funnel."""

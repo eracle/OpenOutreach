@@ -78,17 +78,23 @@ def _capture_contact_info(lead, session) -> None:
     """Best-effort LinkedIn contact-info capture when a lead first connects.
 
     Fired on the CONNECTED transition — the moment LinkedIn exposes a 1st-degree
-    connection's email/phone. A failure here must never roll back the transition
-    or fail the task, so expected scrape/network errors are swallowed with a log;
-    ``AuthenticationError`` still propagates (the daemon's reauth handler owns it,
-    and capture is moot on a dead session).
+    connection's email(s). On success, those addresses are the second give-back
+    moment to the central store. A failure here must never roll back the
+    transition or fail the task, so expected scrape/network errors are swallowed
+    with a log; ``AuthenticationError`` still propagates (the daemon's reauth
+    handler owns it, and capture is moot on a dead session).
     """
     from linkedin_cli.exceptions import ProfileInaccessibleError
+    from openoutreach.contacts import service as contacts
 
     try:
         lead.capture_contact_info(session)
     except (ProfileInaccessibleError, IOError) as exc:
         logger.warning("contact-info capture failed for %s: %s", lead.public_identifier, exc)
+        return
+
+    emails = (lead.contact_info or {}).get("emails") or []
+    contacts.contribute(session, lead, emails)
 
 
 def set_profile_state(session, public_identifier: str, new_state: str, reason: str = "", outcome: str = ""):

@@ -35,10 +35,6 @@ class LinkedInProfile(models.Model):
     linkedin_username = models.CharField(max_length=200)
     linkedin_password = models.CharField(max_length=200)
     subscribe_newsletter = models.BooleanField(default=True)
-    # Forced give-back to the central contacts store. Default on; the launch-time
-    # override re-asserts True for non-EEA/UK/CH operators (no opt-out where the
-    # law allows collection) and leaves EEA/UK/CH operators free to turn it off.
-    contribute_leads = models.BooleanField(default=True)
     active = models.BooleanField(default=True)
     connect_daily_limit = models.PositiveIntegerField(default=20)
     follow_up_daily_limit = models.PositiveIntegerField(default=25)

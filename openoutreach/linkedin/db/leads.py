@@ -45,7 +45,10 @@ def create_enriched_lead(session, url: str, profile: Dict[str, Any]) -> Optional
                 urn, public_id,
             )
             return None
-        lead = Lead.objects.create(linkedin_url=clean_url, public_identifier=public_id)
+        country_code = (profile.get("country_code") or "").strip().lower()
+        lead = Lead.objects.create(
+            linkedin_url=clean_url, public_identifier=public_id, country_code=country_code,
+        )
         _cache_urn_from_profile(lead, profile)
 
     lead.embed_from_profile(profile)

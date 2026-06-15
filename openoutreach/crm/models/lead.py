@@ -16,6 +16,9 @@ class Lead(models.Model):
     linkedin_url = models.URLField(max_length=200, unique=True)
     public_identifier = models.CharField(max_length=200, unique=True)
     urn = models.CharField(max_length=200, null=True, blank=True, unique=True, db_index=True)
+    # ISO-3166 alpha-2 of the lead's current location, cached from the profile
+    # scrape. Drives the contacts-store geo-gate; blank = unknown (→ never contributed).
+    country_code = models.CharField(max_length=2, blank=True, default="")
     embedding = models.BinaryField(null=True, blank=True)
     # Email enrichment — one field per source (roadmap: p1-e1 storage decision):
     #   contact_info — raw LinkedIn contact-info overlay {email, emails, phone_numbers},
@@ -66,6 +69,11 @@ class Lead(models.Model):
             else:
                 self.urn = urn
                 self.save(update_fields=["urn"])
+
+        country = (profile.get("country_code") or "").strip().lower()
+        if country and self.country_code != country:
+            self.country_code = country
+            self.save(update_fields=["country_code"])
 
         return profile
 

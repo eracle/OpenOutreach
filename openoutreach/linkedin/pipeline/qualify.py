@@ -141,13 +141,13 @@ def _resolve_email(session, lead) -> bool:
     """
     from openoutreach.contacts import service as contacts
 
-    cached_email = contacts.resolve_lead(lead)
+    cached_email = contacts.resolve(lead)
     if cached_email:
         lead.api_email = cached_email
         lead.save(update_fields=["api_email"])
         return True
     if lead.resolve_api_email() is True:
-        contacts.contribute_lead(session, lead, lead.api_email)
+        contacts.contribute(session, lead, [lead.api_email])
         return True
     return False
 

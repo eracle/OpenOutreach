@@ -17,7 +17,6 @@ class Command(BaseCommand):
         self._nudge_email_setup()
         session = self._create_session()
         self._ensure_newsletter(session)
-        self._ensure_give_back(session)
 
         from openoutreach.core.daemon import run_daemon
         run_daemon(session)
@@ -100,10 +99,3 @@ class Command(BaseCommand):
         ensure_newsletter_subscription(session, linkedin_url=linkedin_url)
         session.linkedin_profile.newsletter_processed = True
         session.linkedin_profile.save(update_fields=["newsletter_processed"])
-
-    def _ensure_give_back(self, session):
-        """Apply the central-store give-back override from the operator's own
-        location (force-on outside EEA/UK/CH; opt-out within)."""
-        from openoutreach.linkedin.setup.geo import apply_give_back_override
-
-        apply_give_back_override(session, session.self_profile.get("country_code"))

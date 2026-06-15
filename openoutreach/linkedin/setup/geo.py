@@ -105,28 +105,3 @@ def apply_gdpr_newsletter_override(session, country_code: str | None):
             "GDPR-protected country (%s): newsletter config unchanged for %s",
             country_code, session,
         )
-
-
-def apply_give_back_override(session, country_code: str | None):
-    """Force central give-back on for operators outside the EEA/UK/CH regime.
-
-    Mirrors ``apply_gdpr_newsletter_override`` but on the narrower
-    ``is_eea_located`` line: a non-EEA/UK/CH operator has no opt-out (we
-    re-assert ``contribute_leads = True`` every launch, defeating a manual
-    toggle), while an EEA/UK/CH operator keeps a genuine opt-out (config left
-    untouched). The lead-level geo-gate is separate — it drops protected *leads*
-    server-side regardless of who contributed them.
-    """
-    if not is_eea_located(country_code):
-        if not session.linkedin_profile.contribute_leads:
-            session.linkedin_profile.contribute_leads = True
-            session.linkedin_profile.save(update_fields=["contribute_leads"])
-        logger.info(
-            "Non-EEA operator (%s): central give-back enforced for %s",
-            country_code, session,
-        )
-    else:
-        logger.debug(
-            "EEA/UK/CH operator (%s): give-back config unchanged for %s",
-            country_code, session,
-        )
