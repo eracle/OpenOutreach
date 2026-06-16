@@ -74,15 +74,18 @@ def _existing_deal_or_lead(public_id: str, campaign):
 # ── State transitions ──
 
 
-def _capture_contact_info(lead, session) -> None:
-    """Best-effort LinkedIn contact-info capture when a lead first connects.
+def capture_and_contribute(lead, session) -> None:
+    """Best-effort LinkedIn contact-info capture + contribution for a connection.
 
-    Fired on the CONNECTED transition — the moment LinkedIn exposes a 1st-degree
-    connection's email(s). On success, those addresses are the second give-back
-    moment to the central store. A failure here must never roll back the
-    transition or fail the task, so expected scrape/network errors are swallowed
-    with a log; ``AuthenticationError`` still propagates (the daemon's reauth
-    handler owns it, and capture is moot on a dead session).
+    Fired on the CONNECTED transition and re-fired on each follow-up visit while
+    the overlay is still email-empty — LinkedIn often doesn't expose a 1st-degree
+    connection's email right at accept time, so a later visit can pick it up.
+    ``Lead.capture_contact_info`` is the idempotency owner (skips the scrape once
+    an email is stored); on a fresh hit those addresses are given back to the
+    central store. A failure here must never roll back the transition or fail the
+    task, so expected scrape/network errors are swallowed with a log;
+    ``AuthenticationError`` still propagates (the daemon's reauth handler owns it,
+    and capture is moot on a dead session).
     """
     from linkedin_cli.exceptions import ProfileInaccessibleError
     from openoutreach.contacts import service as contacts
@@ -94,6 +97,7 @@ def _capture_contact_info(lead, session) -> None:
         return
 
     emails = (lead.contact_info or {}).get("emails") or []
+    logger.debug("contact-info captured for %s: %d email(s)", lead.public_identifier, len(emails))
     contacts.contribute(session, lead, emails)
 
 
@@ -140,7 +144,7 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
     on_deal_state_entered(deal)
 
     if state_changed and ps == DealState.CONNECTED:
-        _capture_contact_info(deal.lead, session)
+        capture_and_contribute(deal.lead, session)
 
 
 # ── State queries ──

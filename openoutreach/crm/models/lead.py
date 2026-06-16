@@ -78,17 +78,21 @@ class Lead(models.Model):
         return profile
 
     def capture_contact_info(self, session) -> None:
-        """Scrape + persist the LinkedIn contact-info overlay once the lead is a
-        1st-degree connection.
+        """Scrape + persist the LinkedIn contact-info overlay for a 1st-degree
+        connection.
 
-        Idempotent: a non-null ``contact_info`` — even an empty
-        ``{email: None, emails: [], phone_numbers: []}`` — means we already tried,
-        so a re-connect or a second campaign does not re-scrape. The raw overlay is
-        stored unfiltered (work-vs-personal cleaning is downstream, in dbt).
+        The stored value is a tri-state retry sentinel: ``None`` means we never
+        got a clean read (never tried, or the fetch raised — the error path
+        returns before the field is written), so a later visit retries; a non-null
+        overlay — even an email-empty ``{email: None, emails: [], phone_numbers:
+        []}`` — means the read succeeded and the member simply exposes no email,
+        so it is not re-scraped. The raw overlay is stored unfiltered
+        (work-vs-personal cleaning is downstream, in dbt).
 
-        Errors are left to the caller: capture is driven from ``set_profile_state``
-        on the CONNECTED transition, which owns the best-effort guard
-        (``ProfileInaccessibleError``/``IOError`` swallowed; ``AuthenticationError``
+        Errors are left to the caller: capture is driven from the CONNECTED
+        transition (``set_profile_state``) and from each follow-up visit, both of
+        which own the best-effort guard (``ProfileInaccessibleError``/``IOError``
+        swallowed → field stays ``None`` → retried; ``AuthenticationError``
         propagates to the daemon's reauth handler).
         """
         if self.contact_info is not None:

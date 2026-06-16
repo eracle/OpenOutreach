@@ -20,6 +20,7 @@ CONTACT = {
     "emails": ["alice@acme.com"],
     "phone_numbers": ["+15551234567"],
 }
+EMPTY = {"email": None, "emails": [], "phone_numbers": []}
 
 
 def _promote_alice(session):
@@ -107,3 +108,35 @@ class TestContactCaptureOnConnect:
             patcher.stop()
 
         assert _alice().contact_info is None
+
+
+@pytest.mark.no_contact_capture_mock
+@pytest.mark.django_db
+class TestContactCaptureRetrySentinel:
+    def test_failed_read_stays_null_and_is_retried(self, fake_session):
+        _promote_alice(fake_session)
+        # First read raises (field stays None → retriable); the later visit succeeds.
+        patcher, method = _patch_api(side_effect=[ProfileInaccessibleError("blip"), (CONTACT, "raw")])
+        try:
+            with pytest.raises(ProfileInaccessibleError):
+                _alice().capture_contact_info(fake_session)
+            assert _alice().contact_info is None
+            _alice().capture_contact_info(fake_session)
+        finally:
+            patcher.stop()
+
+        assert method.call_count == 2
+        assert _alice().contact_info == CONTACT
+
+    def test_clean_empty_is_not_rescraped(self, fake_session):
+        _promote_alice(fake_session)
+        # A successful read exposing no email is the "not exposed" sentinel — stop.
+        patcher, method = _patch_api(get_contact_info=EMPTY)
+        try:
+            _alice().capture_contact_info(fake_session)
+            assert _alice().contact_info == EMPTY
+            _alice().capture_contact_info(fake_session)
+        finally:
+            patcher.stop()
+
+        assert method.call_count == 1

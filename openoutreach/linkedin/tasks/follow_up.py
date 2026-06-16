@@ -73,7 +73,7 @@ def _next_followup_deal(campaign):
 def handle_follow_up(task, session, qualifiers):
     from linkedin_cli.actions.message import send_raw_message
     from openoutreach.core.agents.follow_up import run_follow_up_agent
-    from openoutreach.core.db.deals import set_profile_state
+    from openoutreach.core.db.deals import capture_and_contribute, set_profile_state
     from openoutreach.core.db.summaries import materialize_profile_summary_if_missing
 
     campaign = session.campaign
@@ -99,6 +99,11 @@ def handle_follow_up(task, session, qualifiers):
         "[%s] %s %s",
         campaign, colored("▶ follow_up", "green", attrs=["bold"]), public_id,
     )
+
+    # Retry the contact-info overlay while still email-empty — LinkedIn may not
+    # have exposed the 1st-degree address at connect time; a later visit picks it
+    # up and contributes it. No-op once an email is captured.
+    capture_and_contribute(deal.lead, session)
 
     materialize_profile_summary_if_missing(deal, session)
     decision = run_follow_up_agent(session, deal)
