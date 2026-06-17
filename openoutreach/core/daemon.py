@@ -322,6 +322,13 @@ def run_daemon(session):
     heartbeat = Heartbeat()
     rhythm = _HumanRhythmBreak(heartbeat)
 
+    # Startup reconcile: recover any tasks a prior crash left RUNNING and flush
+    # every ready email into an immediate slot before serving the queue. Paired
+    # with email-first claim ordering (Task.pending), this makes the first thing
+    # the daemon does on startup send any email it can.
+    from openoutreach.core.scheduler import reconcile
+    reconcile(session)
+
     # Single-threaded: one task at a time, no concurrent enqueuing,
     # so sleeping until the next scheduled_at is safe.
     while True:

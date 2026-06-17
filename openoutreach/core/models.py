@@ -71,7 +71,18 @@ class Campaign(models.Model):
 
 class TaskQuerySet(models.QuerySet):
     def pending(self):
-        return self.filter(status=Task.Status.PENDING).order_by("scheduled_at")
+        """Pending tasks, EMAIL first, then oldest-scheduled first.
+
+        Email outranks the LinkedIn channels so a *ready* send always preempts
+        a ready connect/follow_up/check_pending — on startup and on every claim.
+        Email slots are always scheduled ``now``, so ranking them first never
+        makes ``seconds_to_next`` oversleep a sooner LinkedIn task."""
+        email_first = models.Case(
+            models.When(task_type=Task.TaskType.EMAIL, then=models.Value(0)),
+            default=models.Value(1),
+            output_field=models.IntegerField(),
+        )
+        return self.filter(status=Task.Status.PENDING).order_by(email_first, "scheduled_at")
 
     def claim_next(self) -> "Task | None":
         return self.pending().filter(scheduled_at__lte=timezone.now()).first()

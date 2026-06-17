@@ -300,3 +300,38 @@ class TestPlanCheckPendingWindow:
         )
         created = scheduler.plan_check_pending_window(fake_session, fake_session.campaign)
         assert created == 0
+
+
+@pytest.mark.django_db
+class TestEmailFirstClaimOrder:
+    """``claim_next`` must hand back a ready EMAIL task before any other ready
+    task, so a fresh daemon (or any idle cycle) sends queued email first."""
+
+    def _make(self, task_type, scheduled_at, campaign_id=1):
+        return Task.objects.create(
+            task_type=task_type,
+            status=Task.Status.PENDING,
+            scheduled_at=scheduled_at,
+            payload={"campaign_id": campaign_id},
+        )
+
+    def test_email_preempts_older_linkedin_task(self):
+        now = timezone.now()
+        # A connect task scheduled earlier than the email still loses to it.
+        self._make(Task.TaskType.CONNECT, now - timedelta(hours=1))
+        self._make(Task.TaskType.EMAIL, now)
+        assert Task.objects.claim_next().task_type == Task.TaskType.EMAIL
+
+    def test_falls_back_to_scheduled_at_without_email(self):
+        now = timezone.now()
+        self._make(Task.TaskType.FOLLOW_UP, now)
+        older = self._make(Task.TaskType.CONNECT, now - timedelta(hours=1))
+        assert Task.objects.claim_next().pk == older.pk
+
+    def test_future_email_is_not_claimed_early(self):
+        now = timezone.now()
+        # Email ranks first, but a not-yet-due email must not be claimed, and
+        # must not shadow a ready LinkedIn task.
+        self._make(Task.TaskType.EMAIL, now + timedelta(hours=1))
+        ready = self._make(Task.TaskType.CONNECT, now)
+        assert Task.objects.claim_next().pk == ready.pk
