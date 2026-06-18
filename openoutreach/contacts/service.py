@@ -72,7 +72,13 @@ def contribute(session, lead, emails: list[str], origin: str) -> None:
     ``ORIGIN_PROFILE_INFO``). The first contribution registers and mints the
     operator's token (kept in the instance's own config, never the repo); later
     ones reuse it.
+
+    Honors the operator's ``contribute_to_hub`` opt-in: opted out, the whole
+    give-back is skipped (no email, no vector — and so no give-to-get credit).
     """
+    if not session.linkedin_profile.contribute_to_hub:
+        logger.debug("hub: operator opted out of the store — skipping %s", lead.public_identifier)
+        return
     emails = [e for e in emails if e]
     if not emails:
         logger.debug("hub: nothing to contribute for %s — no email captured", lead.public_identifier)
@@ -89,10 +95,25 @@ def contribute(session, lead, emails: list[str], origin: str) -> None:
         "emails": emails,
         "origin": origin,
     }
+    _attach_embedding(lead, record)
     if config.contacts_api_token:
         _send(config, "contribute", record, lead, headers=_auth(config.contacts_api_token))
     else:
         _register(config, session, record, lead)
+
+
+def _attach_embedding(lead, record: dict) -> None:
+    """Add the cached profile vector to *record*, in place, when it's in hand.
+
+    The operator's opt-in is already checked in ``contribute``, so this only asks
+    whether a vector exists. Reads the cached bytes (``lead.embedding``) — never
+    ``get_embedding``, which would re-scrape — so a lead that was never embedded
+    contributes nothing extra. The 384 floats go on the wire as a JSON list; the
+    hub packs them to f16 bytes and validates the length.
+    """
+    if lead.embedding is None:
+        return
+    record["embedding"] = lead.embedding_array.tolist()
 
 
 def _register(config: SiteConfig, session, record: dict, lead) -> None:

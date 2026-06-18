@@ -105,3 +105,27 @@ def apply_gdpr_newsletter_override(session, country_code: str | None):
             "GDPR-protected country (%s): newsletter config unchanged for %s",
             country_code, session,
         )
+
+
+def apply_gdpr_contribution_override(session, country_code: str | None):
+    """Force-enable central-store contribution outside the EEA/UK/CH.
+
+    The contacts-store sibling of ``apply_gdpr_newsletter_override``, but keyed to
+    the **narrower data-collection line** (``is_eea_located``), not the broad
+    newsletter set: contribution is about sharing contact data, so it tracks the
+    same jurisdictions the store's collection gate uses. If the operator's account
+    is NOT in the EEA/UK/CH, force ``contribute_to_hub = True``; an EEA/UK/CH (or
+    unknown-location) operator keeps the onboarding choice — a genuine opt-out.
+    """
+    if not is_eea_located(country_code):
+        session.linkedin_profile.contribute_to_hub = True
+        session.linkedin_profile.save(update_fields=["contribute_to_hub"])
+        logger.info(
+            "Non-EEA/UK/CH country (%s): auto-enabled store contribution for %s",
+            country_code, session,
+        )
+    else:
+        logger.debug(
+            "EEA/UK/CH country (%s): contribution config unchanged for %s",
+            country_code, session,
+        )

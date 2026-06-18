@@ -10,7 +10,7 @@ Throughout this notice, an **operator** is a person running a self-hosted OpenOu
 
 ## What data is in the store
 
-The store is **radically minimised**. For each person it holds **only**:
+The store is **minimised**. For each person it holds these core fields:
 
 | Field | Example | Why it is kept |
 | --- | --- | --- |
@@ -20,7 +20,9 @@ The store is **radically minimised**. For each person it holds **only**:
 
 The store also records, for internal operation, which operator token contributed a record (provenance) and the timestamps of first and last contribution.
 
-**What is _not_ collected:** no name, headline, job title, company, phone number, postal address, raw LinkedIn profile text, or **embedding/profile vector**. The store holds only the three fields above — it is deliberately not a profile database.
+**Profile vector.** Where an operator has opted in to contribute it (see the operator notice), the store may also hold a **384-dimension numeric profile vector** (an "embedding") for a person: a compact mathematical representation derived from their public professional profile, **computed on the operator's own machine** so the **raw profile text is never sent or stored**. The vector exists to support the profiling described under *How data is used and disclosed* below. <!-- TODO(lawyer): this is new processing introduced by the agentic-email-marketing product (roadmap p1-e3); the legitimate-interest assessment and this notice must be reviewed before it is relied on. -->
+
+**What is _not_ collected:** no name, headline, job title, company, phone number, postal address, or raw LinkedIn profile text.
 
 Only **professional, business-context (B2B)** contact data is in scope. Consumer contact details and any special-category data are out of scope and are not collected.
 
@@ -40,11 +42,14 @@ The maintainer does **not** scrape LinkedIn or buy data to populate the store; i
 ## How data is used and disclosed
 
 - **Resolution (disclosure to operators).** An operator may query the store for a person's email before paying a finder service. A match is returned to that operator. This means **an email in the store may be disclosed to operators other than the one who contributed it**, so they can carry out business-to-business outreach. This is a disclosure of personal data to a third party — comparable to commercial B2B contact-data providers. The data is **not sold**.
-- **No other purposes.** The store is not used for advertising, profiling, automated decision-making, or any consumer-facing purpose.
+- **Profiling for targeting (profile vector).** Where a profile vector has been contributed, it is used to learn which professional-profile characteristics correlate with response to a given product, and to target business-to-business outreach accordingly. This is **profiling** within the meaning of Art. 4(4) GDPR, operating only on the non-EU/EEA/UK/CH professional contacts described above. <!-- TODO(lawyer): rewrite with the profiling balancing test; confirm the Art. 21(2) direct-marketing objection right and the per-country sending-regime gates (ePrivacy/CASL/CAN-SPAM/DPDP) before this purpose goes live. -->
+- **No consumer-facing purpose.** The store is not used for advertising to consumers or any consumer-facing purpose.
 
 ## Legal basis
 
 Where data-protection law applies, the basis for processing is **legitimate interest** (Art. 6(1)(f) GDPR and equivalents) — facilitating business-to-business professional communication using professional contact data. A legitimate-interest assessment balances that interest against the rights of the people in the store; the geographic exclusion, the strict data minimisation, the B2B-only scope, and the suppression mechanism below are the safeguards that keep that balance reasonable. Operators contributing or resolving data may be controllers or joint controllers and carry their own responsibilities.
+
+<!-- TODO(lawyer): this assessment was written for the resolution purpose only ("no profiling") and cannot be reused for the profile-vector/profiling use added above. Before that use is relied on, the LIA must be rewritten with profiling in the balancing test, and the resolution basis and the marketing/profiling basis may need to be stated separately (see roadmap p1-e3, lawyer-consult list). -->
 
 ## Your rights and how to exercise them
 

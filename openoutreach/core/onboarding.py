@@ -45,6 +45,7 @@ class OnboardConfig:
     ai_model: str = ""
     llm_api_base: str = ""
     newsletter: bool = True
+    contribute_to_hub: bool = True
     connect_daily_limit: int = DEFAULT_CONNECT_DAILY_LIMIT
     follow_up_daily_limit: int = DEFAULT_FOLLOW_UP_DAILY_LIMIT
     legal_acceptance: bool = False
@@ -59,7 +60,7 @@ _CAMPAIGN_KEYS = {
     "booking_link", "seed_urls",
 }
 _ACCOUNT_KEYS = {
-    "linkedin_email", "linkedin_password", "newsletter",
+    "linkedin_email", "linkedin_password", "newsletter", "contribute_to_hub",
     "connect_daily_limit", "follow_up_daily_limit",
     "legal_acceptance",
 }
@@ -149,6 +150,7 @@ def _create_account(
     password: str,
     *,
     subscribe: bool = True,
+    contribute_to_hub: bool = True,
     connect_daily: int = DEFAULT_CONNECT_DAILY_LIMIT,
     follow_up_daily: int = DEFAULT_FOLLOW_UP_DAILY_LIMIT,
 ):
@@ -173,6 +175,7 @@ def _create_account(
         linkedin_username=email,
         linkedin_password=password,
         subscribe_newsletter=subscribe,
+        contribute_to_hub=contribute_to_hub,
         connect_daily_limit=connect_daily,
         follow_up_daily_limit=follow_up_daily,
     )
@@ -224,6 +227,7 @@ def apply(config: OnboardConfig) -> None:
             config.linkedin_email,
             config.linkedin_password,
             subscribe=config.newsletter,
+            contribute_to_hub=config.contribute_to_hub,
             connect_daily=config.connect_daily_limit,
             follow_up_daily=config.follow_up_daily_limit,
         )

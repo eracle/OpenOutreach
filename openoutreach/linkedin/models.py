@@ -35,6 +35,16 @@ class LinkedInProfile(models.Model):
     linkedin_username = models.CharField(max_length=200)
     linkedin_password = models.CharField(max_length=200)
     subscribe_newsletter = models.BooleanField(default=True)
+    # Operator opt-in to give back to the central contacts store at all — the
+    # whole contribution (emails and, when cached, the profile vector for the
+    # agentic-email-marketing product; linkedin-docs
+    # roadmap/p1-e3-agentic-email-marketing-product.md). Mirrors
+    # ``subscribe_newsletter``: default on, asked at onboarding, force-enabled for
+    # operators outside the EEA/UK/CH by ``apply_gdpr_contribution_override``
+    # (keyed to ``is_eea_located``, not the broad newsletter set). Off = no
+    # give-back at all (and so no give-to-get credits / no resolve). Either way
+    # the raw profile text never leaves the operator's machine — only the vector.
+    contribute_to_hub = models.BooleanField(default=True)
     active = models.BooleanField(default=True)
     connect_daily_limit = models.PositiveIntegerField(default=20)
     follow_up_daily_limit = models.PositiveIntegerField(default=25)

@@ -89,12 +89,16 @@ class Command(BaseCommand):
             return
 
         from openoutreach.linkedin.api.newsletter import ensure_newsletter_subscription
-        from openoutreach.linkedin.setup.geo import apply_gdpr_newsletter_override
+        from openoutreach.linkedin.setup.geo import (
+            apply_gdpr_contribution_override,
+            apply_gdpr_newsletter_override,
+        )
         from linkedin_cli.url_utils import public_id_to_url
 
         profile = session.self_profile
         country_code = profile.get("country_code")
         apply_gdpr_newsletter_override(session, country_code)
+        apply_gdpr_contribution_override(session, country_code)
         linkedin_url = public_id_to_url(profile["public_identifier"])
         ensure_newsletter_subscription(session, linkedin_url=linkedin_url)
         session.linkedin_profile.newsletter_processed = True

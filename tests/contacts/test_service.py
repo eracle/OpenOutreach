@@ -6,6 +6,7 @@ Two best-effort calls: ``resolve`` (ask the hub before paying BetterContact) and
 """
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 import requests
 
@@ -32,12 +33,13 @@ def _config(token="tok", url=""):
     return cfg
 
 
-def _session():
+def _session(contribute_to_hub=True):
     """A daemon session stand-in for the register path."""
     session = MagicMock()
     session.self_profile = {"public_identifier": "me"}
     session.django_user.email = "me@x.com"
     session.linkedin_profile.linkedin_username = "me-user"
+    session.linkedin_profile.contribute_to_hub = contribute_to_hub
     return session
 
 
@@ -155,3 +157,32 @@ class TestContribute:
             # must not raise
             service.contribute(_session(), lead, ["jane@acme.com"], service.ORIGIN_BETTERCONTACT)
         assert SiteConfig.load().contacts_api_token == ""
+
+    def test_opted_out_operator_contributes_nothing(self):
+        _config(token="tok")
+        lead = LeadFactory(country_code="in")
+        with patch.object(service.requests, "post") as post:
+            service.contribute(
+                _session(contribute_to_hub=False), lead,
+                ["jane@acme.com"], service.ORIGIN_BETTERCONTACT,
+            )
+        post.assert_not_called()
+
+    def test_cached_embedding_rides_along(self):
+        _config(token="tok")
+        lead = LeadFactory(public_identifier="jane-doe", country_code="in")
+        lead.embedding_array = np.arange(384, dtype=np.float32)
+        with patch.object(
+            service.requests, "post", return_value=_resp(200, {"accepted": 1, "credits": 7}),
+        ) as post:
+            service.contribute(_session(), lead, ["jane@acme.com"], service.ORIGIN_BETTERCONTACT)
+        assert post.call_args.kwargs["json"]["embedding"] == list(range(384))
+
+    def test_uncached_embedding_is_omitted(self):
+        _config(token="tok")
+        lead = LeadFactory(country_code="in")  # no embedding cached
+        with patch.object(
+            service.requests, "post", return_value=_resp(200, {"accepted": 1, "credits": 7}),
+        ) as post:
+            service.contribute(_session(), lead, ["jane@acme.com"], service.ORIGIN_BETTERCONTACT)
+        assert "embedding" not in post.call_args.kwargs["json"]

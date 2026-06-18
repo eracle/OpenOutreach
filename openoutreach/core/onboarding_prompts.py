@@ -53,6 +53,11 @@ LLM_API_BASE = Text(
 # ── Preferences ──────────────────────────────────────────────────
 
 NEWSLETTER = Confirm("newsletter", "Subscribe to OpenOutreach newsletter?", default=True)
+CONTRIBUTE_TO_HUB = Confirm(
+    "contribute_to_hub",
+    "Contribute resolved non-EU prospect contacts to the shared store (earns lookup credits)?",
+    default=True,
+)
 CONNECT_DAILY = IntText("connect_daily_limit", "Connection requests daily limit", default=50)
 CONNECT_WEEKLY = IntText("connect_weekly_limit", "Connection requests weekly limit", default=250)
 FOLLOW_UP_DAILY = IntText("follow_up_daily_limit", "Follow-up messages daily limit", default=100)
@@ -73,7 +78,7 @@ SELF_HOSTED_QUESTIONS = [
     SEED_URLS,
     LINKEDIN_EMAIL, LINKEDIN_PASSWORD,
     LLM_PROVIDER, LLM_API_KEY, AI_MODEL, LLM_API_BASE,
-    NEWSLETTER,
+    NEWSLETTER, CONTRIBUTE_TO_HUB,
     CONNECT_DAILY, CONNECT_WEEKLY, FOLLOW_UP_DAILY,
     LEGAL,
 ]
