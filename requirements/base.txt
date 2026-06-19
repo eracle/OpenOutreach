@@ -16,4 +16,4 @@ fastembed
 scikit-learn
 huggingface_hub
 questionary
-linkedin-agent-cli
+linkedin-agent-cli==0.1.6
