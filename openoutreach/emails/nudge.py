@@ -49,13 +49,18 @@ def email_state() -> str:
 # GAIN — the discovery engine already worked; email is the reach you're missing.
 NO_BETTERCONTACT_NUDGE = """
 📧  LinkedIn finds the right people; email is how you reach them.
+
     Your model qualified {qualified} leads, but LinkedIn sends only ~{connect_cap}/day
     and most never accept. Email reaches the whole list — automatically, as they qualify.
+
     Turn on BetterContact email finding (paid; the affiliate fee keeps OpenOutreach free).
     Your first 50 lookups are free with the subscription, so you can try it at no cost:
+
       {bettercontact_url}
-    Next you'll add a sending provider — finding an address isn't reaching it. What
-    this means and why a separate sending domain:
+
+    Next you'll add a sending provider — finding an address isn't reaching it.
+    What this means and why a separate sending domain:
+
       {explainer_url}
 """
 
@@ -65,7 +70,9 @@ NO_MAILBOX_NUDGE = """
 📧  Set up email sending. {icemail} mailboxes need a ~2-week warmup, and the clock
     only starts once you add them — so the sooner they're warming, the sooner you
     reach the leads who never accept a LinkedIn connection.
+
 {waiting_line}    Add your sending mailboxes ({icemail} — paid; warmup is hands-off):
+
       {sender_url}
 """
 

@@ -44,6 +44,7 @@ def test_render_no_bettercontact_uses_numbers_and_link():
         "qualified": 42, "pending": 0, "resolved_emails": 0, "connect_cap": 20,
     })
     assert "42" in out and "20" in out and nudge.BETTERCONTACT_AFFILIATE_URL in out
+    assert nudge.EXPLAINER_URL in out  # points at the email-outreach explainer
 
 
 def test_render_no_mailbox_always_shows_warmup_and_sender_link():
