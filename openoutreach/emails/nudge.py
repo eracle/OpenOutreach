@@ -50,7 +50,8 @@ NO_BETTERCONTACT_NUDGE = """
 📧  LinkedIn finds the right people; email is how you reach them.
     Your model qualified {qualified} leads, but LinkedIn sends only ~{connect_cap}/day
     and most never accept. Email reaches the whole list — automatically, as they qualify.
-    Turn on BetterContact email finding (paid; the affiliate fee keeps OpenOutreach free):
+    Turn on BetterContact email finding (paid; the affiliate fee keeps OpenOutreach free).
+    Your first 50 lookups are free with the subscription, so you can try it at no cost:
       {bettercontact_url}
 """
 

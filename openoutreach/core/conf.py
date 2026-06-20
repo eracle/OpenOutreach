@@ -44,7 +44,7 @@ DEFAULT_EMAIL_DAILY_LIMIT = 30
 # Set to False to run 24/7. Working hours are a single contiguous window;
 # weekends are no longer special-cased (humans use LinkedIn 7 days a week).
 # ----------------------------------------------------------------------
-ENABLE_ACTIVE_HOURS = True
+ENABLE_ACTIVE_HOURS = False
 ACTIVE_START_HOUR = 9   # inclusive, local time
 ACTIVE_END_HOUR = 19    # exclusive, local time
 ACTIVE_TIMEZONE = system_timezone()

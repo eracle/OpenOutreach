@@ -108,24 +108,23 @@ def apply_gdpr_newsletter_override(session, country_code: str | None):
 
 
 def apply_gdpr_contribution_override(session, country_code: str | None):
-    """Force-enable central-store contribution outside the EEA/UK/CH.
+    """Set central-store contribution from the operator's jurisdiction.
 
     The contacts-store sibling of ``apply_gdpr_newsletter_override``, but keyed to
     the **narrower data-collection line** (``is_eea_located``), not the broad
     newsletter set: contribution is about sharing contact data, so it tracks the
-    same jurisdictions the store's collection gate uses. If the operator's account
-    is NOT in the EEA/UK/CH, force ``contribute_to_hub = True``; an EEA/UK/CH (or
-    unknown-location) operator keeps the onboarding choice — a genuine opt-out.
+    same jurisdictions the store's collection gate uses. The onboarding wizard no
+    longer asks — nationality is the single source of truth: an operator outside
+    the EEA/UK/CH contributes (and earns give-to-get credits); an EEA/UK/CH (or
+    unknown-location) operator does not. Runs once per profile, gated by
+    ``newsletter_processed`` in ``rundaemon``.
     """
-    if not is_eea_located(country_code):
-        session.linkedin_profile.contribute_to_hub = True
-        session.linkedin_profile.save(update_fields=["contribute_to_hub"])
-        logger.info(
-            "Non-EEA/UK/CH country (%s): auto-enabled store contribution for %s",
-            country_code, session,
-        )
-    else:
-        logger.debug(
-            "EEA/UK/CH country (%s): contribution config unchanged for %s",
-            country_code, session,
-        )
+    contribute = not is_eea_located(country_code)
+    profile = session.linkedin_profile
+    if profile.contribute_to_hub != contribute:
+        profile.contribute_to_hub = contribute
+        profile.save(update_fields=["contribute_to_hub"])
+    logger.info(
+        "Operator country (%s): store contribution %s for %s",
+        country_code, "enabled" if contribute else "disabled", session,
+    )
