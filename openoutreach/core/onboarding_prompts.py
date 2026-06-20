@@ -40,8 +40,9 @@ LINKEDIN_PASSWORD = Password("linkedin_password", "LinkedIn password")
 # mistral, cohere, openai_compatible.
 AI_MODEL = Text(
     "ai_model",
-    "AI model as provider:model "
-    "(e.g. anthropic:claude-sonnet-4-5-20250929, openai:gpt-4o, groq:llama-3.3-70b)",
+    "AI model — you must prefix the provider, written as 'provider:model' "
+    "(e.g. anthropic:claude-sonnet-4-5-20250929, openai:gpt-4o, groq:llama-3.3-70b). "
+    "Valid providers: openai, anthropic, google, groq, mistral, cohere, openai_compatible",
 )
 LLM_API_KEY = Password("llm_api_key", "LLM API key for that provider (e.g. sk-...)")
 LLM_API_BASE = Text(
