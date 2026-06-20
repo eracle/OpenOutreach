@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 BETTERCONTACT_AFFILIATE_URL = "https://bettercontact.rocks?fpr=openoutreach"
 SENDER_AFFILIATE_URL = "https://icemail.ai?via=openoutreach"
+EXPLAINER_URL = "https://openoutreach.app/email-outreach"
 
 NO_BETTERCONTACT = "no_bettercontact"
 NO_MAILBOX = "no_mailbox"
@@ -53,6 +54,9 @@ NO_BETTERCONTACT_NUDGE = """
     Turn on BetterContact email finding (paid; the affiliate fee keeps OpenOutreach free).
     Your first 50 lookups are free with the subscription, so you can try it at no cost:
       {bettercontact_url}
+    Next you'll add a sending provider — finding an address isn't reaching it. What
+    this means and why a separate sending domain:
+      {explainer_url}
 """
 
 # URGENCY — the ~2-week warmup clock (always true); a loss-aversion line only
@@ -89,6 +93,7 @@ def render(state: str, stats: dict, *, hyperlink: bool = False) -> str:
     return template.format(
         bettercontact_url=wrap(BETTERCONTACT_AFFILIATE_URL),
         sender_url=wrap(SENDER_AFFILIATE_URL),
+        explainer_url=wrap(EXPLAINER_URL),
         waiting_line=_waiting_line(stats),
         icemail=brand("icemail"),
         **stats,
