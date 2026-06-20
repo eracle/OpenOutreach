@@ -16,5 +16,5 @@ fastembed
 scikit-learn
 huggingface_hub
 questionary
-pytz
+pytz==2026.2
 linkedin-agent-cli
