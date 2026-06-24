@@ -14,7 +14,7 @@ tendo
 pyyaml
 fastembed
 scikit-learn
-huggingface_hub
+huggingface_hub==1.18.0
 questionary
 pytz
 linkedin-agent-cli
