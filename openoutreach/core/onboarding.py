@@ -114,10 +114,44 @@ def collect_from_wizard() -> OnboardConfig:
     if answers is None:
         raise SystemExit("Onboarding cancelled.")
 
+    _verify_llm_answers(answers)
+
     return OnboardConfig(**{
         k: v for k, v in answers.items()
         if k in OnboardConfig.__dataclass_fields__
     })
+
+
+def _verify_llm_answers(answers: dict) -> None:
+    """Live-check the collected LLM credentials, re-asking until they work.
+
+    Mutates *answers* in place. No-op when the LLM fields weren't asked this run
+    (already configured). Raises SystemExit if the user cancels the re-ask.
+    """
+    import questionary
+    from openoutreach.core.llm import verify_llm_credentials
+    from openoutreach.core.onboarding_prompts import AI_MODEL, LLM_API_BASE, LLM_API_KEY
+    from openoutreach.core.onboarding_wizard import ask
+
+    if "ai_model" not in answers and "llm_api_key" not in answers:
+        return
+
+    while True:
+        questionary.print("  Verifying LLM credentials…", style="fg:cyan")
+        error = verify_llm_credentials(
+            answers.get("ai_model", ""),
+            answers.get("llm_api_key", ""),
+            answers.get("llm_api_base", ""),
+        )
+        if error is None:
+            questionary.print("  ✓ LLM credentials OK.", style="fg:green")
+            return
+
+        questionary.print(f"  ✗ {error}", style="fg:red")
+        retry = ask([AI_MODEL, LLM_API_KEY, LLM_API_BASE])
+        if retry is None:
+            raise SystemExit("Onboarding cancelled.")
+        answers.update(retry)
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,8 @@ import asyncio
 import threading
 from typing import Awaitable, Callable, TypeVar
 
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 _T = TypeVar("_T")
 
 # Override the SDK default of 2. Each retry uses the SDK's built-in jittered
@@ -193,14 +195,40 @@ def _validated_site_config():
     return cfg
 
 
-def get_llm_model():
-    """Return a configured pydantic-ai `Model` for the current `SiteConfig`."""
-    cfg = _validated_site_config()
-    provider, model = split_model_id(cfg.ai_model)
+def build_llm_model(ai_model: str, api_key: str, api_base: str = ""):
+    """Build a pydantic-ai `Model` from explicit credentials.
+
+    Shared by `get_llm_model` (saved `SiteConfig`) and `verify_llm_credentials`
+    (candidate values, before they are persisted).
+    """
+    provider, model = split_model_id(ai_model)
     builder = _PROVIDER_BUILDERS.get(provider)
     if builder is None:
         raise ValueError(
-            f"Unknown LLM provider {provider!r} in AI_MODEL {cfg.ai_model!r}. "
+            f"Unknown LLM provider {provider!r} in AI_MODEL {ai_model!r}. "
             f"Use one of: {', '.join(_PROVIDER_BUILDERS)}."
         )
-    return builder(model, cfg.llm_api_key, cfg.llm_api_base)
+    return builder(model, api_key, api_base)
+
+
+def get_llm_model():
+    """Return a configured pydantic-ai `Model` for the current `SiteConfig`."""
+    cfg = _validated_site_config()
+    return build_llm_model(cfg.ai_model, cfg.llm_api_key, cfg.llm_api_base)
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(max=10), reraise=True)
+def _ping_model(ai_model: str, api_key: str, api_base: str) -> None:
+    """Send one trivial request to prove the credentials work (or raise)."""
+    from pydantic_ai import Agent
+
+    run_agent_sync(Agent(build_llm_model(ai_model, api_key, api_base)).run("ping"))
+
+
+def verify_llm_credentials(ai_model: str, api_key: str, api_base: str = "") -> str | None:
+    """Live ping for onboarding: return ``None`` if the model answers, else the error."""
+    try:
+        _ping_model(ai_model, api_key, api_base)
+        return None
+    except Exception as exc:  # noqa: BLE001 — verification reports every failure mode
+        return str(exc)
