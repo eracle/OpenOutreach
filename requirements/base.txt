@@ -17,5 +17,5 @@ scikit-learn
 huggingface_hub
 questionary
 pytz
-tenacity
+tenacity==9.1.4
 linkedin-agent-cli
