@@ -16,11 +16,9 @@ from dataclasses import dataclass
 
 import requests
 
-from openoutreach.core.logging import brand
-
 logger = logging.getLogger(__name__)
 
-_BASE = "https://app.bettercontact.rocks/api/v2/async"
+_ENRICH_URL = "https://app.bettercontact.rocks/api/v2/async"
 _POLL_INTERVAL_S = 5
 _POLL_TIMEOUT_S = 300
 _HTTP_TIMEOUT_S = 30
@@ -88,27 +86,6 @@ def find_email(api_key: str, query: BetterContactQuery) -> BetterContactResult |
     """Submit one lead, poll until done, return its email — None on a genuine
     miss (it ran, found nothing). Raises BetterContactUnavailable on a transport
     failure (HTTP error, network drop, poll timeout) or an empty submit."""
-    with _session(api_key) as session:
-        try:
-            request_id = _submit(session, query)
-            if request_id:
-                logger.info("bettercontact: submitted to %s (req %s), polling every %ds (up to %ds) …",
-                            brand("bettercontact"), request_id, _POLL_INTERVAL_S, _POLL_TIMEOUT_S)
-            row = _poll(session, request_id) if request_id else None
-        except (requests.RequestException, TimeoutError) as exc:
-            raise BetterContactUnavailable(f"BetterContact unreachable: {exc}") from exc
-    if request_id is None:
-        raise BetterContactUnavailable("BetterContact returned no request id")
-    return _row_to_result(row) if row else None
-
-
-def _session(api_key: str) -> requests.Session:
-    session = requests.Session()
-    session.headers.update({"X-API-Key": api_key, "User-Agent": _BROWSER_UA})
-    return session
-
-
-def _submit(session: requests.Session, query: BetterContactQuery) -> str | None:
     payload = {
         "data": [{
             "first_name": query.first_name,
@@ -120,25 +97,62 @@ def _submit(session: requests.Session, query: BetterContactQuery) -> str | None:
         "enrich_email_address": True,
         "enrich_phone_number": False,
     }
-    resp = session.post(_BASE, json=payload, timeout=_HTTP_TIMEOUT_S)
+    body = submit_and_poll(api_key, _ENRICH_URL, payload)
+    rows = body.get("data") or []
+    return _row_to_result(rows[0]) if rows else None
+
+
+# ── shared async transport (used by enrichment + Lead Finder discovery) ───
+
+
+def submit_and_poll(api_key: str, url: str, body: dict) -> dict:
+    """Submit one job to a BetterContact async endpoint, poll until terminated,
+    return the terminal JSON body.
+
+    The two BetterContact endpoints — enrichment (`/async`) and Lead Finder
+    (`/lead_finder/async`) — share this submit→poll contract; only their request
+    body and the key holding the results (`data` vs `leads`) differ, so callers
+    pull those out themselves. Raises BetterContactUnavailable on a transport
+    failure (HTTP error, network drop, poll timeout) or an empty submit.
+    """
+    with _session(api_key) as session:
+        try:
+            request_id = _submit(session, url, body)
+            logger.info("bettercontact: submitted (req %s), polling every %ds (up to %ds) …",
+                        request_id, _POLL_INTERVAL_S, _POLL_TIMEOUT_S)
+            return _poll(session, url, request_id)
+        except (requests.RequestException, TimeoutError) as exc:
+            raise BetterContactUnavailable(f"BetterContact unreachable: {exc}") from exc
+
+
+def _session(api_key: str) -> requests.Session:
+    session = requests.Session()
+    session.headers.update({"X-API-Key": api_key, "User-Agent": _BROWSER_UA})
+    return session
+
+
+def _submit(session: requests.Session, url: str, body: dict) -> str:
+    resp = session.post(url, json=body, timeout=_HTTP_TIMEOUT_S)
     resp.raise_for_status()
-    return resp.json().get("id")
+    payload = resp.json()
+    request_id = payload.get("request_id") or payload.get("id")
+    if not request_id:
+        raise BetterContactUnavailable("BetterContact returned no request id")
+    return request_id
 
 
-def _poll(session: requests.Session, request_id: str) -> dict | None:
-    """Poll until status is terminal; return the lead's `data` row, or None."""
+def _poll(session: requests.Session, url: str, request_id: str) -> dict:
+    """Poll until status is terminal; return the terminal JSON body."""
     deadline = time.monotonic() + _POLL_TIMEOUT_S
     attempt = 0
     while True:
-        resp = session.get(f"{_BASE}/{request_id}", timeout=_HTTP_TIMEOUT_S)
+        resp = session.get(f"{url}/{request_id}", timeout=_HTTP_TIMEOUT_S)
         resp.raise_for_status()
         body = resp.json()
-        status = body.get("status")
-        if status == "terminated":
-            data = body.get("data", [])
-            return data[0] if data else None
+        if body.get("status") == "terminated":
+            return body
         attempt += 1
-        logger.debug("bettercontact: poll %d for %s — status=%s", attempt, request_id, status)
+        logger.debug("bettercontact: poll %d for %s — status=%s", attempt, request_id, body.get("status"))
         if time.monotonic() >= deadline:
             raise TimeoutError(f"poll timed out for {request_id}")
         time.sleep(_POLL_INTERVAL_S)
