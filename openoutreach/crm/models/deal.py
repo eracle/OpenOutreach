@@ -32,6 +32,7 @@ class DealState(models.TextChoices):
     sent exactly once and can never double-send.
     """
     QUALIFIED = "Qualified"
+    READY_TO_FIND_EMAIL = "Ready to Find Email"
     READY_TO_EMAIL = "Ready to Email"
     EMAILED = "Emailed"
     READY_TO_CONNECT = "Ready to Connect"
@@ -97,6 +98,12 @@ class Deal(models.Model):
     # In-Reply-To/References matches it back to this exact campaign/deal (the
     # disambiguator when one lead is emailed across two campaigns). Null until sent.
     email_message_id = models.CharField(max_length=300, blank=True, default="")
+    # When the agentic email follow-up loop should next touch this EMAILED deal
+    # (read replies + let the agent decide send/wait/complete). The agent owns
+    # the pace: each run stamps ``now + decision.follow_up_hours``; the opener
+    # seeds it on the first send. The scheduler drains EMAILED deals whose clock
+    # is due. Null until the deal reaches EMAILED.
+    next_follow_up_at = models.DateTimeField(null=True, blank=True, db_index=True)
     profile_summary = models.JSONField(null=True, blank=True, default=None)
     chat_summary = models.JSONField(null=True, blank=True, default=None)
     creation_date = models.DateTimeField(default=timezone.now)

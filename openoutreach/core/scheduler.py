@@ -9,13 +9,15 @@ This module is the only place that creates ``Task`` rows. The pipeline
 moves forward in three layers:
 
 1. **Per-type planner** — ``plan_connect_window``,
-   ``plan_follow_up_window``, ``plan_check_pending_window``. Each one,
-   when no PENDING task of its type exists for a campaign, computes the
-   right slot count ``n`` for the next 24h, inserts one row that fires
-   immediately, and Poisson-spaces the remaining ``n - 1`` rows across
-   the working portion of the window. The leading immediate slot kills
-   the cold-start ramp (without it the first action would sit ``T/n``
-   away on average — ~72 min for a 20/day campaign).
+   ``plan_check_pending_window`` (LinkedIn). Each one, when no PENDING
+   task of its type exists for a campaign, computes the right slot count
+   ``n`` for the next 24h, inserts one row that fires immediately, and
+   Poisson-spaces the remaining ``n - 1`` rows across the working portion
+   of the window. The leading immediate slot kills the cold-start ramp
+   (without it the first action would sit ``T/n`` away on average — ~72
+   min for a 20/day campaign). The email channels do not fake a rhythm —
+   they **eager-drain** instead (``flush_email_queue`` for openers,
+   ``flush_follow_up_queue`` for due follow-ups).
 
 2. **State-transition hook** — ``on_deal_state_entered(deal)`` only
    updates ``deal.next_check_pending_at`` for PENDING transitions. It
@@ -196,25 +198,6 @@ def plan_connect_window(session, campaign) -> int:
     return created
 
 
-def plan_follow_up_window(session, campaign) -> int:
-    """Plan the next 24h of follow-up slots for *campaign*. No-op when a
-    PENDING follow-up task already exists for the campaign."""
-    if _has_pending(Task.TaskType.FOLLOW_UP, campaign.pk):
-        return 0
-
-    profile = session.linkedin_profile
-    daily_remaining = max(0, profile.follow_up_daily_limit - profile._daily_count("follow_up"))
-
-    created = _plan_slots(Task.TaskType.FOLLOW_UP, campaign.pk, daily_remaining, session.active_timezone)
-    if created:
-        logger.info(
-            "[%s] planned %d follow_up slots over next 24h — 1 fires now, "
-            "%d Poisson-spaced (daily=%d)",
-            campaign, created, max(0, created - 1), daily_remaining,
-        )
-    return created
-
-
 def plan_check_pending_window(session, campaign) -> int:
     """Plan the next 24h of check_pending slots for *campaign*. Slot count
     matches the PENDING deals whose backoff has already expired (due now),
@@ -293,6 +276,49 @@ def flush_email_queue(session, campaign) -> int:
     return created
 
 
+def flush_follow_up_queue(session, campaign) -> int:
+    """Drain due EMAILED deals for *campaign* into immediate follow-up slots.
+
+    The follow-up counterpart to ``flush_email_queue``: a follow-up has no anti-bot
+    rhythm to fake, so instead of Poisson-spacing a daily ration (the old LinkedIn
+    ``plan_follow_up_window``), every EMAILED deal whose countdown
+    (``next_follow_up_at``) is due is emitted as an immediate slot, capped by the
+    pool-wide per-box daily headroom (re-checked at send time). Reading the thread
+    happens inside the handler at that slot — exactly when the countdown fires.
+
+    No-op when a PENDING follow-up task already exists, no box has headroom, or
+    nothing is due.
+    """
+    from openoutreach.crm.models import Deal
+    from openoutreach.emails.models import Mailbox
+
+    if _has_pending(Task.TaskType.FOLLOW_UP, campaign.pk):
+        return 0
+
+    remaining = Mailbox.objects.remaining_today()
+    if remaining <= 0:
+        return 0
+
+    now = timezone.now()
+    due = Deal.objects.filter(
+        campaign_id=campaign.pk,
+        state=DealState.EMAILED,
+        outcome="",
+        lead__disqualified=False,
+        next_follow_up_at__lte=now,
+    ).count()
+    n = min(due, remaining)
+    if n <= 0:
+        return 0
+
+    created = _create_lazy_slots(Task.TaskType.FOLLOW_UP, campaign.pk, [now] * n)
+    logger.info(
+        "[%s] flushed %d follow_up slots to run now (due=%d, cap_remaining=%d)",
+        campaign, created, due, remaining,
+    )
+    return created
+
+
 # ── Delay helpers ─────────────────────────────────────────────────────
 
 
@@ -337,7 +363,6 @@ def _recover_stale_running_tasks() -> int:
 
 _PLANNERS = (
     plan_connect_window,
-    plan_follow_up_window,
     plan_check_pending_window,
 )
 
@@ -350,9 +375,11 @@ def reconcile(session) -> None:
     for campaign in session.campaigns:
         for planner in _PLANNERS:
             planner(session, campaign)
-        # Eager-drain counterpart to the window planners — queue every
-        # ready email to send now (paced only by the per-box daily cap).
+        # Eager-drain counterparts to the window planners — queue every ready
+        # opener and every due follow-up to run now (paced only by the per-box
+        # daily cap; follow-ups additionally gated by their countdown).
         flush_email_queue(session, campaign)
+        flush_follow_up_queue(session, campaign)
 
     pending_count = Task.objects.pending().count()
     logger.info("Task queue reconciled: %d pending tasks", pending_count)

@@ -26,6 +26,9 @@ class EmailDraft(BaseModel):
 
     subject: str = Field(description="The email subject line — short, specific, like a real person wrote it; not salesy.")
     body: str = Field(description="The email body. A few short sentences; no signature, no placeholders.")
+    follow_up_hours: float = Field(
+        description="Hours to wait before the first follow-up if they don't reply. You decide the pace; 48-72h is a reasonable cold-open default.",
+    )
 
 
 def compose_opener_email(session, deal) -> EmailDraft:

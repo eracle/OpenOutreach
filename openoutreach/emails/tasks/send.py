@@ -15,10 +15,12 @@ Each concern lives where it's cohesive; this module is just the orchestration:
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from django.utils import timezone
 from termcolor import colored
 
+from openoutreach.chat.models import ChatMessage
 from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)
@@ -50,24 +52,41 @@ def handle_email(task, session, qualifiers):
         mailbox, deal.lead.api_email, draft.subject, draft.body,
         bcc=session.linkedin_profile.linkedin_username,
     )
-    _record_sent_email(deal, mailbox, draft.subject, message_id)
+    _record_sent_email(session, deal, mailbox, draft, message_id)
     logger.info("[%s] email sent to %s (%s): %s\n%s",
                 campaign, public_id, deal.lead.api_email, draft.subject, draft.body)
 
 
-def _record_sent_email(deal, mailbox, subject, message_id) -> None:
-    """Bind the box, stamp the email fields, and move the deal to EMAILED — one save.
+def _record_sent_email(session, deal, mailbox, draft, message_id) -> None:
+    """Bind the box, stamp the email fields, record the opener message, move to EMAILED.
 
     The send record and the state transition live on the same row, so a single
     write commits both: the email can never be sent without leaving READY_TO_EMAIL
     (no double-send window), and EMAILED is never set without its audit fields.
-    The body is not stored — Layer 2 reconstructs the thread from the mailbox.
+    ``next_follow_up_at`` is seeded from the opener agent's own ``follow_up_hours`` —
+    the LLM owns the first gap just as it owns every later one — so the loop reads
+    replies + acts when that countdown fires. The opener is also written as the
+    thread's first outgoing ChatMessage — the follow-up agent reads it, and the
+    per-box cap counts it (``email_message_id`` is the thread root the reply-reader
+    matches on).
     """
+    now = timezone.now()
     deal.mailbox = mailbox
-    deal.email_subject = subject
+    deal.email_subject = draft.subject
     deal.email_message_id = message_id
-    deal.email_sent_at = timezone.now()
+    deal.email_sent_at = now
+    deal.next_follow_up_at = now + timedelta(hours=draft.follow_up_hours)
     deal.state = DealState.EMAILED
     deal.save(update_fields=[
-        "mailbox", "email_subject", "email_message_id", "email_sent_at", "state",
+        "mailbox", "email_subject", "email_message_id", "email_sent_at",
+        "next_follow_up_at", "state",
     ])
+
+    ChatMessage.objects.create(
+        deal=deal,
+        external_id=message_id,
+        content=draft.body,
+        is_outgoing=True,
+        owner=session.django_user,
+        creation_date=now,
+    )

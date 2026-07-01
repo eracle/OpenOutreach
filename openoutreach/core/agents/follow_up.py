@@ -1,8 +1,8 @@
 # openoutreach/core/agents/follow_up.py
-"""Follow-up agent: reads conversation, returns a structured decision.
+"""Follow-up agent: reads the email thread, returns a structured decision.
 
 Single LLM call with structured output — no tool-calling loop.
-The handler in tasks/follow_up.py executes the decision.
+The handler in ``emails/tasks/follow_up.py`` executes the decision.
 """
 from __future__ import annotations
 
@@ -113,8 +113,8 @@ def _log_chat_facts(public_id: str, deal) -> None:
 def _load_recent_messages(deal, limit: int = RECENT_MESSAGES_WINDOW) -> list:
     """Last `limit` ChatMessages for `deal`, in chronological order.
 
-    ChatMessages are LinkedIn DMs only; an email-routed deal never connected, so
-    this is empty for it — the email agent always composes a first touch.
+    The recency window of verbatim turns the agent sees alongside the rolling
+    ``chat_summary`` — the opener plus any replies read from the mailbox.
     """
     from openoutreach.chat.models import ChatMessage
 
@@ -123,7 +123,7 @@ def _load_recent_messages(deal, limit: int = RECENT_MESSAGES_WINDOW) -> list:
 
 
 def _render_system_prompt(session, deal, recent_messages: list) -> str:
-    """Render the LinkedIn follow-up prompt: shared base + the LinkedIn-only extras."""
+    """Render the email follow-up prompt: shared base + the in-thread extras."""
     from django.utils import timezone
     from openoutreach.core.agents.prompt import base_context, render
 
@@ -131,7 +131,6 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
     return render(
         "follow_up_agent.j2",
         **base_context(session, deal),
-        contact_email=session.linkedin_profile.linkedin_username,
         chat_summary=_format_facts(deal.chat_summary),
         recent_messages=_format_recent_messages(recent_messages, now),
         today=now.strftime("%Y-%m-%d"),
@@ -141,17 +140,17 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
 
 
 def run_follow_up_agent(session, deal) -> FollowUpDecision:
-    """Read the LinkedIn conversation and return a structured follow-up decision.
+    """Read the email thread and return a structured follow-up decision.
 
-    Syncs chat first (folding new messages into ``deal.chat_summary``), then renders
-    the prompt from the Deal's persistent summaries plus a small recency window of
-    verbatim messages, and asks the LLM to decide. Email is a separate, single-shot
-    path — see ``core.agents.email_opener.compose_opener_email``.
+    Reads replies first (folding new inbound messages into ``deal.chat_summary``),
+    then renders the prompt from the Deal's persistent summaries plus a small
+    recency window of verbatim messages, and asks the LLM to decide. The opener is
+    the separate first-touch path — see ``core.agents.email_opener``.
     """
     public_id = deal.lead.public_identifier
-    from openoutreach.linkedin.db.chat import sync_conversation
+    from openoutreach.emails.inbox import sync_inbox
 
-    sync_conversation(session, public_id)
+    sync_inbox(session, deal)
     deal.refresh_from_db(fields=["chat_summary", "profile_summary"])
     _log_chat_facts(public_id, deal)
 

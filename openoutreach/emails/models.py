@@ -38,6 +38,11 @@ class Mailbox(models.Model):
 
     host = models.CharField(max_length=255, default="smtp.gmail.com")
     port = models.PositiveIntegerField(default=587)
+    # IMAP read side, for the agentic follow-up loop's reply-reader
+    # (emails/inbox.py). Defaults match IceMail's Google Workspace boxes, which
+    # authenticate over IMAP with the same app password as SMTP.
+    imap_host = models.CharField(max_length=255, default="imap.gmail.com")
+    imap_port = models.PositiveIntegerField(default=993)
     username = models.CharField(max_length=320, unique=True)
     password = models.CharField(max_length=255)
     from_address = models.EmailField(max_length=320)
@@ -56,11 +61,18 @@ class Mailbox(models.Model):
     def sent_today(self) -> int:
         """Emails this box has sent since local midnight (the per-box cap ledger).
 
-        Keyed on ``email_sent_at`` (write-once at send, never cleared), so a deal
-        dispositioned past EMAILED later the same day still counts against the cap.
+        Counts **outgoing ChatMessages** on this box's deals, not deals: the
+        agentic loop sends many emails per deal (opener + every follow-up reply),
+        and each outbound email is one row, so the message count is the true send
+        volume. LinkedIn ChatMessages never carry a mailbox (``deal.mailbox`` is
+        null), so they are naturally excluded.
         """
+        from openoutreach.chat.models import ChatMessage
+
         midnight = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        return self.deals.filter(email_sent_at__gte=midnight).count()
+        return ChatMessage.objects.filter(
+            deal__mailbox=self, is_outgoing=True, creation_date__gte=midnight,
+        ).count()
 
     def headroom_today(self) -> int:
         """Sends this box has left today before hitting ``daily_limit``."""
