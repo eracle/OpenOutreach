@@ -3,9 +3,7 @@ from django.core.management.base import BaseCommand
 
 class Command(BaseCommand):
     help = (
-        "Delete all Leads, Deals, "
-        "ActionLogs, reset SearchKeywords, and clear GP model blobs. "
-        "Keeps Campaigns and LinkedInProfiles."
+        "Delete all Leads and Deals and clear GP model blobs. Keeps Campaigns."
     )
 
     def add_arguments(self, parser):
@@ -19,13 +17,10 @@ class Command(BaseCommand):
         from openoutreach.crm.models import Deal, Lead
 
         from openoutreach.core.models import Campaign
-        from openoutreach.linkedin.models import ActionLog, SearchKeyword
 
         counts = {
             "Leads": Lead.objects.count(),
             "Deals": Deal.objects.count(),
-            "ActionLogs": ActionLog.objects.count(),
-            "SearchKeywords (to reset)": SearchKeyword.objects.count(),
         }
 
         campaigns_with_models = Campaign.objects.exclude(model_blob=None).count()
@@ -43,11 +38,7 @@ class Command(BaseCommand):
 
         # Order matters: delete dependents first
         Deal.objects.all().delete()
-        ActionLog.objects.all().delete()
         Lead.objects.all().delete()
-
-        # Reset search keywords to unused
-        SearchKeyword.objects.update(used=False, used_at=None)
 
         # Clear GP model blobs
         Campaign.objects.exclude(model_blob=None).update(model_blob=None)

@@ -57,8 +57,8 @@ def handle_find_email(task, session, qualifiers):
     campaign = session.campaign
 
     # No mailbox → nothing to send even on a hit, so resolving an address (and
-    # spending a credit) is pointless. The nudge prompts the operator to connect
-    # one; until then the leg is idle.
+    # spending a credit) is pointless. Onboarding collects the mailbox; until
+    # one is connected the leg is idle.
     if not has_mailbox():
         logger.info("[%s] find_email: no mailbox — leg idle until one is connected", campaign)
         return
