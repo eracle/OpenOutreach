@@ -1,5 +1,11 @@
 # openoutreach/linkedin/pipeline/ready_pool.py
-"""Ready-to-connect pool: GP confidence gate between NEW and READY_TO_CONNECT."""
+"""Find-email pool: GP confidence gate between QUALIFIED and READY_TO_FIND_EMAIL.
+
+The rank gate for the paid action — the browserless replacement for the old
+connect gate. It promotes only QUALIFIED leads the GP model is confident about
+into READY_TO_FIND_EMAIL, so a BetterContact credit is only ever spent on a
+ranked lead.
+"""
 from __future__ import annotations
 
 import logging
@@ -8,7 +14,7 @@ import numpy as np
 
 from openoutreach.core.db.deals import (
     get_qualified_profiles,
-    get_ready_to_connect_profiles,
+    get_ready_to_find_email_profiles,
     set_profile_state,
 )
 from openoutreach.linkedin.ml.qualifier import BayesianQualifier
@@ -18,7 +24,8 @@ logger = logging.getLogger(__name__)
 
 
 def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) -> int:
-    """Promote QUALIFIED profiles above GP confidence threshold to READY_TO_CONNECT.
+    """Promote QUALIFIED profiles above the GP confidence threshold to
+    READY_TO_FIND_EMAIL.
 
     Returns the number of profiles promoted. Returns 0 when the GP model
     is not fitted (cold start) or when no QUALIFIED profiles exist.
@@ -33,7 +40,7 @@ def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) ->
     valid = []
     for p in profiles:
         lead = Lead.objects.filter(pk=p.get("lead_id")).first()
-        emb = lead.get_embedding(session) if lead else None
+        emb = lead.embedding_array if lead else None
         if emb is not None:
             embeddings.append(emb)
             valid.append(p)
@@ -50,18 +57,18 @@ def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) ->
     for prob, p in zip(probs, valid):
         if prob > threshold:
             pid = p.get("public_identifier", "?")
-            logger.info("%s READY_TO_CONNECT (P(f>0.5)=%.3f)", pid, prob)
-            set_profile_state(session, p["public_identifier"], DealState.READY_TO_CONNECT.value)
+            logger.info("%s READY_TO_FIND_EMAIL (P(f>0.5)=%.3f)", pid, prob)
+            set_profile_state(session, p["public_identifier"], DealState.READY_TO_FIND_EMAIL.value)
             promoted += 1
 
     return promoted
 
 
 def find_ready_candidate(session, qualifier: BayesianQualifier) -> dict | None:
-    """Return the top-ranked READY_TO_CONNECT profile, or None."""
-    profiles = get_ready_to_connect_profiles(session)
+    """Return the top-ranked READY_TO_FIND_EMAIL profile, or None."""
+    profiles = get_ready_to_find_email_profiles(session)
     if not profiles:
         return None
 
-    ranked = qualifier.rank_profiles(profiles, session=session)
+    ranked = qualifier.rank_profiles(profiles)
     return ranked[0] if ranked else None

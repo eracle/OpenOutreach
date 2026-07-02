@@ -85,7 +85,7 @@ def _send_reply(session, deal, decision) -> None:
         deal.lead.api_email,
         subject,
         decision.message,
-        bcc=session.linkedin_profile.linkedin_username,
+        bcc=session.django_user.email,
         in_reply_to=_latest_external_id(deal),
         references=deal.email_message_id,
     )

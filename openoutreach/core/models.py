@@ -34,6 +34,14 @@ class SiteConfig(models.Model):
     contacts_api_token = models.CharField(max_length=500, blank=True, default="")
     contacts_api_url = models.CharField(max_length=500, blank=True, default="")
 
+    # The operator's ISO-3166 alpha-2 country, collected at onboarding (self-hosted
+    # = one operator, so it lives on the config singleton, not a separate account
+    # model — identity like email/name stays on the Django ``User``). Drives the
+    # active-hours timezone (tz_country) and the email-jurisdiction rules
+    # (core/geo.py): newsletter opt-in default + whether we contribute to the
+    # contacts store (derived, ``not is_eea_located`` — never a stored toggle).
+    country_code = models.CharField(max_length=2, blank=True, default="")
+
     class Meta:
         verbose_name = "Site Configuration"
         verbose_name_plural = "Site Configuration"
@@ -70,10 +78,10 @@ class TaskQuerySet(models.QuerySet):
     def pending(self):
         """Pending tasks, EMAIL first, then oldest-scheduled first.
 
-        Email outranks the LinkedIn channels so a *ready* send always preempts
-        a ready connect/follow_up/check_pending — on startup and on every claim.
-        Email slots are always scheduled ``now``, so ranking them first never
-        makes ``seconds_to_next`` oversleep a sooner LinkedIn task."""
+        A ready send outranks the discovery/follow-up legs so it always preempts
+        a ready find_email/follow_up — on startup and on every claim. Email slots
+        are always scheduled ``now``, so ranking them first never makes
+        ``seconds_to_next`` oversleep a sooner task."""
         email_first = models.Case(
             models.When(task_type=Task.TaskType.EMAIL, then=models.Value(0)),
             default=models.Value(1),
@@ -94,8 +102,7 @@ class TaskQuerySet(models.QuerySet):
 
 class Task(models.Model):
     class TaskType(models.TextChoices):
-        CONNECT = "connect"
-        CHECK_PENDING = "check_pending"
+        FIND_EMAIL = "find_email"
         FOLLOW_UP = "follow_up"
         EMAIL = "email"
 

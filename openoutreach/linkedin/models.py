@@ -33,7 +33,12 @@ class LinkedInProfile(models.Model):
         related_name="+",
     )
     linkedin_username = models.CharField(max_length=200)
-    linkedin_password = models.CharField(max_length=200)
+    linkedin_password = models.CharField(max_length=200, blank=True, default="")
+    # ISO-3166 alpha-2 of the operator's country, collected at onboarding. Drives
+    # the active-hours timezone (tz_country) and the email-jurisdiction defaults
+    # (core/geo.py: newsletter opt-in + contacts-store contribution). Replaces the
+    # old LinkedIn-profile country scrape.
+    country_code = models.CharField(max_length=2, blank=True, default="")
     subscribe_newsletter = models.BooleanField(default=True)
     # Operator opt-in to give back to the central contacts store at all — the
     # whole contribution (emails and, when cached, the profile vector for the

@@ -18,7 +18,7 @@ import logging
 import requests
 
 from openoutreach.core.models import SiteConfig
-from openoutreach.linkedin.setup.geo import is_eea_located
+from openoutreach.core.geo import is_eea_located
 
 logger = logging.getLogger(__name__)
 
@@ -73,11 +73,14 @@ def contribute(session, lead, emails: list[str], origin: str) -> None:
     operator's token (kept in the instance's own config, never the repo); later
     ones reuse it.
 
-    Honors the operator's ``contribute_to_hub`` opt-in: opted out, the whole
+    Honors the operator's jurisdiction: an EEA/UK/CH operator does not contribute
+    (derived from their onboarding country, ``not is_eea_located``), so the whole
     give-back is skipped (no email, no vector — and so no give-to-get credit).
     """
-    if not session.linkedin_profile.contribute_to_hub:
-        logger.debug("hub: operator opted out of the store — skipping %s", lead.public_identifier)
+    from openoutreach.core.models import SiteConfig
+
+    if is_eea_located(SiteConfig.load().country_code):
+        logger.debug("hub: operator in EEA/UK/CH — skipping give-back for %s", lead.public_identifier)
         return
     emails = [e for e in emails if e]
     if not emails:
@@ -124,7 +127,7 @@ def _register(config: SiteConfig, session, record: dict, lead) -> None:
     """
     body = {
         "linkedin_public_id": session.self_profile.get("public_identifier"),
-        "subscriber_email": session.django_user.email or session.linkedin_profile.linkedin_username,
+        "subscriber_email": session.django_user.email,
         **record,
     }
     response = _send(config, "register", body, lead)

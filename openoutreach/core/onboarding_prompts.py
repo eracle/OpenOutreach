@@ -1,36 +1,28 @@
-"""Self-hosted onboarding prompt definitions.
+"""Self-hosted onboarding prompt definitions (email-only funnel).
 
-Vendored from the (retired) openoutreach-cli. Only the self-hosted profile
-is kept — the cloud-only VPN questions and their geo lookups are dropped.
+The declarative questions, grouped in onboarding order. The two credential steps
+that aren't simple questions — connecting a mailbox and setting the BetterContact
+key — are imperative (paste → auth-check → store) and live in ``onboarding.py``;
+they slot in between the LLM group and the country group.
 """
 
 from __future__ import annotations
 
 from openoutreach.core.onboarding_wizard import (
     Confirm,
-    IntText,
     MultilineText,
     Password,
     Text,
 )
 
-# ── Campaign ─────────────────────────────────────────────────────
+# ── Campaign (what you sell, and to whom) ────────────────────────
 
-CAMPAIGN_NAME = Text("campaign_name", "Campaign name", default="LinkedIn Outreach")
 PRODUCT_DESCRIPTION = MultilineText("product_description", "Product/service description")
 CAMPAIGN_OBJECTIVE = MultilineText(
     "campaign_objective",
     "Campaign objective (e.g. 'sell analytics platform to CTOs')",
 )
 BOOKING_LINK = Text("booking_link", "Booking link (e.g. https://cal.com/you)", required=False)
-SEED_URLS = MultilineText(
-    "seed_urls", "LinkedIn seed profile URLs (one per line)", required=False,
-)
-
-# ── LinkedIn account ─────────────────────────────────────────────
-
-LINKEDIN_EMAIL = Text("linkedin_email", "LinkedIn email")
-LINKEDIN_PASSWORD = Password("linkedin_password", "LinkedIn password")
 
 # ── LLM ──────────────────────────────────────────────────────────
 
@@ -51,17 +43,20 @@ LLM_API_BASE = Text(
     required=False,
 )
 
-# ── Preferences ──────────────────────────────────────────────────
+# ── Country (timezone + email jurisdiction) ──────────────────────
+
+COUNTRY = Text(
+    "country_code",
+    "Your country (ISO 3166 alpha-2, e.g. US, GB, DE) — sets your active-hours "
+    "timezone and email-jurisdiction defaults",
+)
+
+# ── Preferences + legal ──────────────────────────────────────────
 
 NEWSLETTER = Confirm("newsletter", "Subscribe to OpenOutreach newsletter?", default=True)
-# contribute_to_hub is NOT asked — it is derived from the operator's LinkedIn
-# country at first daemon run (apply_gdpr_contribution_override in geo.py).
-CONNECT_DAILY = IntText("connect_daily_limit", "LinkedIn connection requests daily limit", default=50)
-CONNECT_WEEKLY = IntText("connect_weekly_limit", "LinkedIn connection requests weekly limit", default=250)
-FOLLOW_UP_DAILY = IntText("follow_up_daily_limit", "LinkedIn follow-up messages daily limit", default=100)
-
-# ── Legal ────────────────────────────────────────────────────────
-
+# contribute_to_hub is NOT asked — it is derived from the operator's country
+# (collected above) at account creation (apply_gdpr_contribution_override in
+# core/geo.py).
 LEGAL = Confirm(
     "legal_acceptance",
     "Do you accept the Legal Notice? (https://github.com/eracle/OpenOutreach/LEGAL_NOTICE.md)",
@@ -69,14 +64,8 @@ LEGAL = Confirm(
     required=True,
 )
 
-# ── Profile ──────────────────────────────────────────────────────
-
-SELF_HOSTED_QUESTIONS = [
-    CAMPAIGN_NAME, PRODUCT_DESCRIPTION, CAMPAIGN_OBJECTIVE, BOOKING_LINK,
-    SEED_URLS,
-    LINKEDIN_EMAIL, LINKEDIN_PASSWORD,
-    AI_MODEL, LLM_API_KEY, LLM_API_BASE,
-    NEWSLETTER,
-    CONNECT_DAILY, CONNECT_WEEKLY, FOLLOW_UP_DAILY,
-    LEGAL,
-]
+# ── Ordered groups (imperative mailbox + BetterContact steps run between
+#    the LLM group and the country group — see onboarding.py) ──────
+CAMPAIGN_QUESTIONS = [PRODUCT_DESCRIPTION, CAMPAIGN_OBJECTIVE, BOOKING_LINK]
+LLM_QUESTIONS = [AI_MODEL, LLM_API_KEY, LLM_API_BASE]
+JURISDICTION_QUESTIONS = [COUNTRY, NEWSLETTER, LEGAL]

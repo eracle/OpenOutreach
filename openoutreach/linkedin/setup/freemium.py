@@ -13,8 +13,9 @@ def import_freemium_campaign(kit_config: dict):
     Adds all active users to the campaign.
     Returns the Campaign instance or None.
     """
+    from django.contrib.auth.models import User
+
     from openoutreach.core.models import Campaign
-    from openoutreach.linkedin.models import LinkedInProfile
 
     campaign_name = kit_config.get("campaign_name", "Freemium Outreach")
 
@@ -29,9 +30,9 @@ def import_freemium_campaign(kit_config: dict):
         },
     )
 
-    # Add all active LinkedIn users to this campaign
-    for lp in LinkedInProfile.objects.filter(active=True).select_related("user"):
-        campaign.users.add(lp.user)
+    # Add every active operator (the Django user running the daemon) to the campaign.
+    for user in User.objects.filter(is_active=True, is_staff=True):
+        campaign.users.add(user)
 
     logger.info("[Freemium] Campaign imported: %s (action_fraction=%.2f)",
                campaign_name, kit_config["action_fraction"])
@@ -39,20 +40,21 @@ def import_freemium_campaign(kit_config: dict):
 
 
 def seed_profiles(session, kit_config: dict):
-    """Seed Lead (with embedding) + QUALIFIED Deal for profiles listed in kit config."""
-    from openoutreach.crm.models import Lead
+    """Seed a Lead + QUALIFIED freemium Deal for each profile listed in kit config.
 
+    The seed's ``profile_url`` is a LinkedIn-shaped opaque key (never scraped — the
+    provider identity, per the pivot). Embeddings are *not* fetched here: they now
+    come from Lead-Finder discovery, so an unembedded seed is simply skipped by the
+    kit-ranked freemium pool until discovery embeds it (dormant-but-wired).
+    """
     from openoutreach.core.db.deals import create_freemium_deal
-    from linkedin_cli.url_utils import public_id_to_url
+    from openoutreach.crm.models import Lead
 
     public_ids = kit_config.get("seed_profiles", [])
     if not public_ids:
         return
 
     for public_id in public_ids:
-        url = public_id_to_url(public_id)
-
-        lead, _ = Lead.objects.get_or_create(public_identifier=public_id, defaults={"linkedin_url": url})
-
-        lead.get_embedding(session)
+        url = f"https://www.linkedin.com/in/{public_id}"
+        Lead.objects.get_or_create(public_identifier=public_id, defaults={"linkedin_url": url})
         create_freemium_deal(session, public_id)

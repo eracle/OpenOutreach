@@ -38,72 +38,9 @@ class Lead(models.Model):
         return label
 
     # ------------------------------------------------------------------
-    # Lazy accessors — re-scrape live on demand, persist only the
-    # derived caches we still keep (urn, embedding).
+    # Accessors — the embedding is cached at discovery; email is resolved
+    # via the paid finder. Nothing is scraped from LinkedIn any more.
     # ------------------------------------------------------------------
-
-    def get_profile(self, session) -> dict | None:
-        """Live Voyager scrape of the parsed profile dict.
-
-        No DB caching: the heavy fields (raw JSON, names, company) live
-        only in memory for as long as the caller holds the dict. We do
-        opportunistically populate ``self.urn`` if it's still null and
-        the scrape returns one.
-        """
-        from linkedin_cli.api.client import PlaywrightLinkedinAPI
-        from linkedin_cli.exceptions import ProfileInaccessibleError
-
-        session.ensure_browser()
-        api = PlaywrightLinkedinAPI(session=session)
-        try:
-            profile, _raw = api.get_profile(public_identifier=self.public_identifier)
-        except ProfileInaccessibleError:
-            return None
-        if not profile:
-            return None
-
-        urn = profile.get("urn") or None
-        if urn and self.urn != urn:
-            if Lead.objects.filter(urn=urn).exclude(pk=self.pk).exists():
-                logger.warning("URN %s already owned by another lead — skipping for %s", urn, self.public_identifier)
-            else:
-                self.urn = urn
-                self.save(update_fields=["urn"])
-
-        country = (profile.get("country_code") or "").strip().lower()
-        if country and self.country_code != country:
-            self.country_code = country
-            self.save(update_fields=["country_code"])
-
-        return profile
-
-    def capture_contact_info(self, session) -> None:
-        """Scrape + persist the LinkedIn contact-info overlay for a 1st-degree
-        connection.
-
-        The stored value is a tri-state retry sentinel: ``None`` means we never
-        got a clean read (never tried, or the fetch raised — the error path
-        returns before the field is written), so a later visit retries; a non-null
-        overlay — even an email-empty ``{email: None, emails: [], phone_numbers:
-        []}`` — means the read succeeded and the member simply exposes no email,
-        so it is not re-scraped. The raw overlay is stored unfiltered
-        (work-vs-personal cleaning is downstream, in dbt).
-
-        Errors are left to the caller: capture is driven from the CONNECTED
-        transition (``set_profile_state``) and from each follow-up visit, both of
-        which own the best-effort guard (``ProfileInaccessibleError``/``IOError``
-        swallowed → field stays ``None`` → retried; ``AuthenticationError``
-        propagates to the daemon's reauth handler).
-        """
-        if self.contact_info is not None:
-            return
-        from linkedin_cli.api.client import PlaywrightLinkedinAPI
-
-        session.ensure_browser()
-        api = PlaywrightLinkedinAPI(session=session)
-        contact, _raw = api.get_contact_info(public_identifier=self.public_identifier)
-        self.contact_info = contact
-        self.save(update_fields=["contact_info"])
 
     def resolve_api_email(self) -> bool | None:
         """Resolve + persist a work email via BetterContact, once the lead qualifies.
@@ -133,43 +70,11 @@ class Lead(models.Model):
             return True
         return False
 
-    def get_urn(self, session) -> str:
-        """LinkedIn URN. Reads cached column; falls back to a live scrape."""
-        if self.urn:
-            return self.urn
-        self.get_profile(session)  # sets self.urn as side-effect
-        if self.urn:
-            return self.urn
-        raise ValueError(f"Lead {self.pk}: could not resolve URN after re-fetch")
-
-    def get_embedding(self, session) -> np.ndarray | None:
-        """384-dim embedding. Lazy: scrapes + embeds on first access."""
-        if self.embedding is None:
-            profile = self.get_profile(session)
-            if profile:
-                self.embed_from_profile(profile)
-        return self.embedding_array
-
-    def embed_from_profile(self, profile: dict) -> None:
-        """Compute and persist the 384-dim embedding from an in-hand profile.
-
-        Used by callers that already have a freshly parsed profile dict,
-        so they can skip the scrape that ``get_embedding`` would trigger.
-        """
-        from openoutreach.linkedin.ml.embeddings import embed_text
-        from openoutreach.linkedin.ml.profile_text import build_profile_text
-
-        text = build_profile_text({"profile": profile})
-        emb = embed_text(text)
-        self.embedding = emb.tobytes()
-        self.save(update_fields=["embedding"])
-
     def to_profile_dict(self) -> dict:
         """Standard profile dict shape used by qualifiers and pools.
 
-        The ``profile`` key is intentionally absent — callers that need
-        the full Voyager-parsed dict must call ``get_profile(session)``
-        themselves (live scrape).
+        The rich profile is not carried — the embedding (cached at discovery) and
+        the identity keys are all the ranking/lookup legs need.
         """
         return {
             "lead_id": self.pk,

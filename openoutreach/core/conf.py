@@ -53,11 +53,12 @@ ACTIVE_END_HOUR = 19    # exclusive, local time
 ACTIVE_TIMEZONE = None  # None → resolve from LinkedIn profile country post-login
 
 # ----------------------------------------------------------------------
-# Planner cap for check_pending: at most this many lazy slots per 24h
-# planning window, regardless of how many PENDING deals are overdue.
-# Overflow rolls into the next planning cycle.
+# Planner cap for find_email: at most this many BetterContact lookups per
+# 24h planning window (the paid-action spend guard, since a verified hit
+# costs one credit). Slots that find no ranked candidate no-op; overflow
+# rolls into the next planning cycle.
 # ----------------------------------------------------------------------
-CHECK_PENDING_DAILY_CAP = 100
+FIND_EMAIL_DAILY_CAP = 50
 
 # ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)

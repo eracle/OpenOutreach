@@ -6,31 +6,23 @@ The daemon's task queue is *lazy*: each row carries only ``task_type``,
 target (lead/deal) at execution time via a single eligibility query.
 
 This module is the only place that creates ``Task`` rows. The pipeline
-moves forward in three layers:
+moves forward in two layers:
 
-1. **Per-type planner** — ``plan_connect_window``,
-   ``plan_check_pending_window`` (LinkedIn). Each one, when no PENDING
-   task of its type exists for a campaign, computes the right slot count
-   ``n`` for the next 24h, inserts one row that fires immediately, and
-   Poisson-spaces the remaining ``n - 1`` rows across the working portion
-   of the window. The leading immediate slot kills the cold-start ramp
-   (without it the first action would sit ``T/n`` away on average — ~72
-   min for a 20/day campaign). The email channels do not fake a rhythm —
-   they **eager-drain** instead (``flush_email_queue`` for openers,
+1. **Per-type planner** — ``plan_find_email_window``. When no PENDING
+   find_email task exists for a campaign, it inserts one row that fires
+   immediately and Poisson-spaces the remaining ``n - 1`` rows across the
+   working portion of the next 24h window. The leading immediate slot kills
+   the cold-start ramp (without it the first action would sit ``T/n`` away
+   on average). The email channels do not fake a rhythm — they
+   **eager-drain** instead (``flush_email_queue`` for openers,
    ``flush_follow_up_queue`` for due follow-ups).
 
-2. **State-transition hook** — ``on_deal_state_entered(deal)`` only
-   updates ``deal.next_check_pending_at`` for PENDING transitions. It
-   does **not** insert any Task row. CONNECTED and other transitions
-   are no-ops.
-
-3. **Reconcile** — ``reconcile(session)``. Recovers stale RUNNING tasks
+2. **Reconcile** — ``reconcile(session)``. Recovers stale RUNNING tasks
    and calls each planner per campaign. The daemon invokes it on startup
    and whenever the queue has no ready task.
 """
 from __future__ import annotations
 
-import datetime
 import logging
 import random
 from datetime import datetime as Datetime, timedelta
@@ -41,9 +33,8 @@ from django.utils import timezone
 from openoutreach.core.conf import (
     ACTIVE_END_HOUR,
     ACTIVE_START_HOUR,
-    CAMPAIGN_CONFIG,
-    CHECK_PENDING_DAILY_CAP,
     ENABLE_ACTIVE_HOURS,
+    FIND_EMAIL_DAILY_CAP,
 )
 from openoutreach.crm.models import DealState
 from openoutreach.core.models import Task
@@ -172,61 +163,33 @@ def _plan_slots(task_type: "Task.TaskType", campaign_id: int, n: int, tz_name) -
     return _create_lazy_slots(task_type, campaign_id, times)
 
 
-def plan_connect_window(session, campaign) -> int:
-    """Plan the next 24h of connect slots for *campaign*. No-op when a
-    PENDING connect task already exists for the campaign.
+def plan_find_email_window(session, campaign) -> int:
+    """Plan the next 24h of find_email slots for *campaign*. No-op when a
+    PENDING find_email task already exists, no mailbox is connected, or the
+    BetterContact finder is unconfigured.
 
-    Only the daily limit is consulted — LinkedIn's own weekly ceiling
-    surfaces at the handler boundary via ``ReachedConnectionLimit``.
+    ``find_email`` is the paid leg (one credit per verified hit), so the slot
+    count is a flat daily spend guard (``FIND_EMAIL_DAILY_CAP``) rather than a
+    rate-limit ration — there is no anti-bot rhythm to fake. Gating on finder
+    usability keeps the daemon from spinning empty slots when it can't act:
+    without a key or a mailbox, every lookup would be a no-op.
     """
-    if _has_pending(Task.TaskType.CONNECT, campaign.pk):
+    from openoutreach.emails import bettercontact
+    from openoutreach.emails.models import has_mailbox
+
+    if _has_pending(Task.TaskType.FIND_EMAIL, campaign.pk):
+        return 0
+    if not has_mailbox() or not bettercontact.is_configured():
         return 0
 
-    profile = session.linkedin_profile
-    n = max(0, profile.connect_daily_limit - profile._daily_count("connect"))
-
-    if campaign.is_freemium:
-        n = int(n * campaign.action_fraction)
-
-    created = _plan_slots(Task.TaskType.CONNECT, campaign.pk, n, session.active_timezone)
+    created = _plan_slots(
+        Task.TaskType.FIND_EMAIL, campaign.pk, FIND_EMAIL_DAILY_CAP, session.active_timezone,
+    )
     if created:
         logger.info(
-            "[%s] planned %d connect slots over next 24h — 1 fires now, "
-            "%d Poisson-spaced (daily=%d)",
-            campaign, created, max(0, created - 1), profile.connect_daily_limit,
-        )
-    return created
-
-
-def plan_check_pending_window(session, campaign) -> int:
-    """Plan the next 24h of check_pending slots for *campaign*. Slot count
-    matches the PENDING deals whose backoff has already expired (due now),
-    capped by ``CHECK_PENDING_DAILY_CAP``.
-
-    The "due now" bound must match the handler's own due filter
-    (``_next_due_pending_deal``): counting deals due later within the
-    horizon would plan an immediate slot the handler then finds nothing
-    to do for, leaving the queue empty and re-triggering reconcile in a
-    tight no-op spin."""
-    from openoutreach.crm.models import Deal
-
-    if _has_pending(Task.TaskType.CHECK_PENDING, campaign.pk):
-        return 0
-
-    now = timezone.now()
-    n_due = Deal.objects.filter(
-        campaign_id=campaign.pk,
-        state=DealState.PENDING,
-        next_check_pending_at__lte=now,
-    ).count()
-    n = min(n_due, CHECK_PENDING_DAILY_CAP)
-
-    created = _plan_slots(Task.TaskType.CHECK_PENDING, campaign.pk, n, session.active_timezone)
-    if created:
-        logger.info(
-            "[%s] planned %d check_pending slots over next 24h — 1 fires now, "
-            "%d Poisson-spaced (due=%d, cap=%d)",
-            campaign, created, max(0, created - 1), n_due, CHECK_PENDING_DAILY_CAP,
+            "[%s] planned %d find_email slots over next 24h — 1 fires now, "
+            "%d Poisson-spaced (cap=%d)",
+            campaign, created, max(0, created - 1), FIND_EMAIL_DAILY_CAP,
         )
     return created
 
@@ -319,34 +282,6 @@ def flush_follow_up_queue(session, campaign) -> int:
     return created
 
 
-# ── Delay helpers ─────────────────────────────────────────────────────
-
-
-def seconds_until_tomorrow() -> float:
-    """Seconds until 00:00 local time — used for daily rate-limit waits."""
-    now = timezone.now()
-    tomorrow = (now + datetime.timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0,
-    )
-    return (tomorrow - now).total_seconds()
-
-
-# ── State-transition hook ─────────────────────────────────────────────
-
-
-def on_deal_state_entered(deal) -> None:
-    """PENDING: stamp ``deal.next_check_pending_at = now + backoff_hours``.
-    All other transitions are no-ops (CONNECTED tasks are created lazily
-    by the planner, never by state changes)."""
-    state = DealState(deal.state)
-    if state != DealState.PENDING:
-        return
-
-    backoff = deal.backoff_hours or CAMPAIGN_CONFIG["check_pending_recheck_after_hours"]
-    deal.next_check_pending_at = timezone.now() + timedelta(hours=backoff)
-    deal.save(update_fields=["next_check_pending_at"])
-
-
 # ── Reconciliation ────────────────────────────────────────────────────
 
 
@@ -362,8 +297,7 @@ def _recover_stale_running_tasks() -> int:
 
 
 _PLANNERS = (
-    plan_connect_window,
-    plan_check_pending_window,
+    plan_find_email_window,
 )
 
 
@@ -375,7 +309,7 @@ def reconcile(session) -> None:
     for campaign in session.campaigns:
         for planner in _PLANNERS:
             planner(session, campaign)
-        # Eager-drain counterparts to the window planners — queue every ready
+        # Eager-drain counterparts to the window planner — queue every ready
         # opener and every due follow-up to run now (paced only by the per-box
         # daily cap; follow-ups additionally gated by their countdown).
         flush_email_queue(session, campaign)

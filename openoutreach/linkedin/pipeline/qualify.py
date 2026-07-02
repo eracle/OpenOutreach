@@ -23,22 +23,10 @@ def fetch_qualification_candidates(session):
 
     lead_ids = {ld["lead_id"] for ld in leads}
 
-    candidates = list(
+    return list(
         Lead.objects.filter(pk__in=lead_ids, embedding__isnull=False)
         .order_by("creation_date")
     )
-    if candidates:
-        return candidates
-
-    # Robustness fallback: embed any lead that was missed at discovery time
-    for ld in leads:
-        lead = Lead.objects.filter(pk=ld["lead_id"]).first()
-        if not lead or lead.embedding is not None:
-            continue
-        if lead.get_embedding(session) is not None:
-            return [lead]
-
-    return []
 
 
 def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
@@ -49,7 +37,7 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
     if not candidates:
         return None
 
-    logger.info(colored("\u25b6 qualify", "blue", attrs=["bold"]))
+    logger.info(colored("▶ qualify", "blue", attrs=["bold"]))
 
     # Balance-driven candidate selection
     selection_score = None
@@ -86,9 +74,11 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
 
     profile_text = _fetch_profile_text(session, lead_id, public_id)
     if not profile_text:
-        logger.warning("No profile text for lead %d \u2014 disqualifying", lead_id)
-        _save_qualification_result(session, qualifier, lead_id, public_id, embedding, 0, "no profile text available")
-        return public_id
+        # No text source yet — the discovery→qualify wiring (Lead Finder rows)
+        # lands in the reshape step. Skip rather than disqualify: a lead we
+        # can't read is not a negative fit signal.
+        logger.debug("No profile text for lead %d — skipping qualification", lead_id)
+        return None
 
     campaign = session.campaign
     label, reason = qualify_with_llm(
@@ -103,79 +93,31 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
 def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
     # LLM rejections are tracked as FAILED Deals with "Disqualified" closing reason
     # (campaign-scoped), not as Lead.disqualified (permanent account-level exclusion).
-    from openoutreach.core.db.deals import create_disqualified_deal, set_profile_state
-    from openoutreach.crm.models import DealState
+    #
+    # A hit leaves the Deal QUALIFIED. The GP rank gate (ready_pool) then promotes
+    # it to READY_TO_FIND_EMAIL, where the find_email leg spends a BetterContact
+    # credit and routes a hit onward to READY_TO_EMAIL. Enrichment is no longer
+    # inline at qualification — it sits behind the rank gate, so a credit is only
+    # ever spent on a ranked lead.
+    from openoutreach.core.db.deals import create_disqualified_deal
     from openoutreach.linkedin.db.leads import promote_lead_to_deal
 
     qualifier.update(embedding, label)
 
     if label == 1:
         try:
-            deal = promote_lead_to_deal(session, public_id, reason=reason)
+            promote_lead_to_deal(session, public_id, reason=reason)
         except ValueError as e:
-            logger.warning("Cannot promote %s: %s \u2014 disqualifying", public_id, e)
+            logger.warning("Cannot promote %s: %s — disqualifying", public_id, e)
             create_disqualified_deal(session, public_id, reason=str(e))
             return
         logger.info("%s %s: %s", public_id, colored("QUALIFIED", "green", attrs=["bold"]), reason)
-        # Enrich at the QUALIFIED gate (only qualified leads ever reach here).
-        # Router model as an explicit FSM fork — the state IS the routing:
-        #   hit  → QUALIFIED → READY_TO_EMAIL (the EMAIL send-queue; this is the
-        #          one transition the router makes — it must NOT write
-        #          READY_TO_CONNECT, which would bypass the GP confidence gate).
-        #   miss / finder-off / couldn't-run → stays QUALIFIED (no-op), so the
-        #          GP gate promotes it to READY_TO_CONNECT — the connect funnel is
-        #          its only door, and the connection harvests contact info on
-        #          acceptance. A miss is free to retry (BetterContact bills only
-        #          usable hits).
-        if _resolve_email(session, deal.lead):
-            set_profile_state(session, public_id, DealState.READY_TO_EMAIL)
     else:
         create_disqualified_deal(session, public_id, reason=reason)
 
 
-def _resolve_email(session, lead) -> bool:
-    """Resolution waterfall: free hub lookup first, paid BetterContact second.
-
-    Gated on `has_mailbox()` — with no mailbox to send from, resolving an
-    address is pointless, so we skip both finders and let the Deal take the
-    connect leg. The hub lookup is itself only worth the round-trip when we can
-    send, so it sits behind the same gate. The paid call additionally needs
-    BetterContact configured. A BetterContact hit is given back to the hub
-    (moment 1). Returns whether an email was resolved — i.e. whether to route
-    the Deal to READY_TO_EMAIL.
-    """
-    from openoutreach.contacts import service as contacts
-    from openoutreach.emails import bettercontact
-    from openoutreach.emails.models import has_mailbox
-
-    if not has_mailbox():
-        return False
-
-    cached_email = contacts.resolve(lead)  # free hub lookup
-    if cached_email:
-        lead.api_email = cached_email
-        lead.save(update_fields=["api_email"])
-        return True
-    if bettercontact.is_configured():  # paid finder
-        already_resolved = bool(lead.api_email)
-        if lead.resolve_api_email() is True:
-            # Give back only on the fresh resolve (api_email null→non-null) — a
-            # cached hit was already contributed, and re-sending it just adds a
-            # duplicate row to the append-only hub log.
-            if not already_resolved:
-                contacts.contribute(session, lead, [lead.api_email], contacts.ORIGIN_BETTERCONTACT)
-            return True
-    return False
-
-
 def _fetch_profile_text(session, lead_id: int, public_id: str) -> str | None:
-    from openoutreach.crm.models import Lead
-    from openoutreach.linkedin.ml.profile_text import build_profile_text
-
-    lead = Lead.objects.filter(pk=lead_id).first()
-    if not lead:
-        return None
-    profile_data = lead.get_profile(session)
-    if not profile_data:
-        return None
-    return build_profile_text({"profile": profile_data})
+    """Text for the LLM qualifier. Sourced from the Lead Finder row once the
+    discovery→qualify reshape lands; until then there is no persisted text
+    source, so qualification is skipped (see ``run_qualification``)."""
+    return None

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Qualifier protocol — shared interface for BayesianQualifier & KitQualifier
+# Qualifier protocol
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
@@ -29,8 +29,8 @@ class Qualifier(Protocol):
     ``explain`` returns a human-readable scoring summary for a single profile.
     """
 
-    def rank_profiles(self, profiles: list, session) -> list: ...
-    def explain(self, profile: dict, session) -> str: ...
+    def rank_profiles(self, profiles: list) -> list: ...
+    def explain(self, profile: dict) -> str: ...
 
 
 def format_prediction(prob: float, entropy: float, std: float, n_obs: int) -> str:
@@ -109,17 +109,18 @@ def _gpr_predict(pipe, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return pipe.named_steps['gpr'].predict(X_transformed, return_std=True)
 
 
-def _load_profile_embeddings(profiles: list, session, *, skip_missing: bool = False):
-    """Load embeddings for a list of profile dicts.
+def _load_profile_embeddings(profiles: list, *, skip_missing: bool = False):
+    """Load cached embeddings for a list of profile dicts.
 
-    Returns list of (profile, embedding) pairs.
+    Returns list of (profile, embedding) pairs. Reads the cached
+    ``Lead.embedding_array`` only — no scrape, so an unembedded lead is missing.
     """
     from openoutreach.crm.models import Lead
 
     result = []
     for p in profiles:
         lead = Lead.objects.filter(pk=p.get("lead_id")).first()
-        emb = lead.get_embedding(session) if lead else None
+        emb = lead.embedding_array if lead else None
         if emb is None:
             if skip_missing:
                 continue
@@ -129,12 +130,12 @@ def _load_profile_embeddings(profiles: list, session, *, skip_missing: bool = Fa
     return result
 
 
-def _rank_by_score(profiles: list, pipeline, session, *, skip_missing: bool = False) -> list:
+def _rank_by_score(profiles: list, pipeline, *, skip_missing: bool = False) -> list:
     """Rank profiles by raw pipeline.predict() score (descending).
 
     Works with any sklearn-compatible pipeline — no GPR-specific logic.
     """
-    scored = _load_profile_embeddings(profiles, session, skip_missing=skip_missing)
+    scored = _load_profile_embeddings(profiles, skip_missing=skip_missing)
     if not scored:
         return []
 
@@ -402,7 +403,7 @@ class BayesianQualifier:
     # Ranking & explain  (raw GP mean — no _prob_above_half)
     # ------------------------------------------------------------------
 
-    def rank_profiles(self, profiles: list, session) -> list:
+    def rank_profiles(self, profiles: list) -> list:
         """Rank QUALIFIED profiles by raw GP mean (descending).
 
         Returns ``[]`` on cold start (model not fitted yet).
@@ -412,14 +413,14 @@ class BayesianQualifier:
         if not self._fit_if_needed():
             logger.debug("rank_profiles: GPR not fitted (%d obs) — returning empty", self.n_obs)
             return []
-        return _rank_by_score(profiles, self._pipeline, session)
+        return _rank_by_score(profiles, self._pipeline)
 
-    def explain(self, profile: dict, session) -> str:
+    def explain(self, profile: dict) -> str:
         """Human-readable compact scoring explanation."""
         from openoutreach.crm.models import Lead
 
         lead = Lead.objects.filter(pk=profile.get("lead_id")).first()
-        emb = lead.get_embedding(session) if lead else None
+        emb = lead.embedding_array if lead else None
         if emb is None:
             return "No embedding found for profile"
         if not self._fit_if_needed():
@@ -456,18 +457,18 @@ class KitQualifier:
     def __init__(self, kit_model):
         self._model = kit_model
 
-    def rank_profiles(self, profiles: list, session) -> list:
+    def rank_profiles(self, profiles: list) -> list:
         """Rank profiles by raw model score (descending), skipping missing embeddings."""
         if not profiles:
             return []
-        return _rank_by_score(profiles, self._model, session, skip_missing=True)
+        return _rank_by_score(profiles, self._model, skip_missing=True)
 
-    def explain(self, profile: dict, session) -> str:
+    def explain(self, profile: dict) -> str:
         """Human-readable compact scoring explanation."""
         from openoutreach.crm.models import Lead
 
         lead = Lead.objects.filter(pk=profile.get("lead_id")).first()
-        emb = lead.get_embedding(session) if lead else None
+        emb = lead.embedding_array if lead else None
         if emb is None:
             return "No embedding found for profile"
         mean, std = _gpr_predict(self._model, emb)

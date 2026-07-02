@@ -1,16 +1,17 @@
-# openoutreach/linkedin/setup/geo.py
+# openoutreach/core/geo.py
 """Country-code jurisdiction detection — two separate regime lines.
 
-Both read the logged-in user's (or a lead's) ISO-2 country code from the
-Voyager API ``location.countryCode`` field, but answer different questions:
+Both read an ISO-3166-1 alpha-2 country code and answer different questions. The
+operator's code now comes from onboarding (the operator tells us their country);
+a lead's code comes from the discovery row. Neither is scraped from LinkedIn.
 
 - ``is_gdpr_protected`` / ``GDPR_COUNTRY_CODES`` — the broad *email-marketing
-  opt-in* set (EU/EEA + UK + CH + CA/BR/AU/JP/KR/NZ).  Drives newsletter
-  auto-subscription: non-protected accounts get ``subscribe_newsletter``
-  auto-enabled; protected accounts keep their existing config.
+  opt-in* set (EU/EEA + UK + CH + CA/BR/AU/JP/KR/NZ). Drives newsletter
+  auto-subscription: non-protected operators get ``subscribe_newsletter``
+  auto-enabled; protected ones keep their existing config.
 - ``is_eea_located`` / ``EEA_UK_CH`` — the narrower *data-collection regime*
-  set (EU/EEA + UK + CH only).  Gates contribution into the central contacts
-  store and the user-level forced-give-back override.
+  set (EU/EEA + UK + CH only). Gates contribution into the central contacts
+  store and the operator-level forced-give-back override.
 """
 from __future__ import annotations
 
@@ -77,54 +78,10 @@ def is_eea_located(country_code: str | None) -> bool:
     """Check whether *country_code* is in the EEA/UK/CH data-collection regime.
 
     Gates contribution to the central contacts store (a located profile is
-    dropped, never stored) and the user-level forced-give-back override.
+    dropped, never stored) and the operator-level forced-give-back override.
     Missing / ``None`` / blank codes default to ``True`` (err on the side of
     exclusion — a false drop costs one lead, a false keep is the only risk).
     """
     if not country_code or not country_code.strip():
         return True
     return country_code.strip().lower() in EEA_UK_CH
-
-
-def apply_gdpr_newsletter_override(session, country_code: str | None):
-    """Auto-enable newsletter subscription for non-GDPR locations.
-
-    If the country code is NOT GDPR-protected, sets
-    ``session.linkedin_profile.subscribe_newsletter = True`` and saves.
-    If GDPR-protected, does nothing (respects existing config).
-    """
-    if not is_gdpr_protected(country_code):
-        session.linkedin_profile.subscribe_newsletter = True
-        session.linkedin_profile.save(update_fields=["subscribe_newsletter"])
-        logger.info(
-            "Non-GDPR country (%s): auto-enabled newsletter for %s",
-            country_code, session,
-        )
-    else:
-        logger.debug(
-            "GDPR-protected country (%s): newsletter config unchanged for %s",
-            country_code, session,
-        )
-
-
-def apply_gdpr_contribution_override(session, country_code: str | None):
-    """Set central-store contribution from the operator's jurisdiction.
-
-    The contacts-store sibling of ``apply_gdpr_newsletter_override``, but keyed to
-    the **narrower data-collection line** (``is_eea_located``), not the broad
-    newsletter set: contribution is about sharing contact data, so it tracks the
-    same jurisdictions the store's collection gate uses. The onboarding wizard no
-    longer asks — nationality is the single source of truth: an operator outside
-    the EEA/UK/CH contributes (and earns give-to-get credits); an EEA/UK/CH (or
-    unknown-location) operator does not. Runs once per profile, gated by
-    ``newsletter_processed`` in ``rundaemon``.
-    """
-    contribute = not is_eea_located(country_code)
-    profile = session.linkedin_profile
-    if profile.contribute_to_hub != contribute:
-        profile.contribute_to_hub = contribute
-        profile.save(update_fields=["contribute_to_hub"])
-    logger.info(
-        "Operator country (%s): store contribution %s for %s",
-        country_code, "enabled" if contribute else "disabled", session,
-    )

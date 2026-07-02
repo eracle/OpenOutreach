@@ -20,20 +20,16 @@ from openoutreach.core.conf import (
     CAMPAIGN_CONFIG,
     ENABLE_ACTIVE_HOURS,
 )
-from openoutreach.linkedin.diagnostics import failure_diagnostics
-from linkedin_cli.exceptions import AuthenticationError, CheckpointChallengeError
 from openoutreach.linkedin.ml.qualifier import BayesianQualifier, KitQualifier
 from openoutreach.core.models import Task
+from openoutreach.emails.tasks.find_email import handle_find_email
 from openoutreach.emails.tasks.follow_up import handle_follow_up
 from openoutreach.emails.tasks.send import handle_email
-from openoutreach.linkedin.tasks.check_pending import handle_check_pending
-from openoutreach.linkedin.tasks.connect import handle_connect
 
 logger = logging.getLogger(__name__)
 
 _HANDLERS = {
-    Task.TaskType.CONNECT: handle_connect,
-    Task.TaskType.CHECK_PENDING: handle_check_pending,
+    Task.TaskType.FIND_EMAIL: handle_find_email,
     Task.TaskType.FOLLOW_UP: handle_follow_up,
     Task.TaskType.EMAIL: handle_email,
 }
@@ -196,33 +192,36 @@ class _HumanRhythmBreak:
 
 
 def _build_qualifiers(campaigns, cfg, kit_model=None):
-    """Create a qualifier for every campaign, keyed by campaign PK."""
+    """Create a qualifier for every campaign, keyed by campaign PK.
+
+    Freemium campaigns use the pre-trained kit model (``KitQualifier``) when one
+    is available; every other campaign gets a warm-started GP qualifier.
+    """
     from openoutreach.crm.models import Lead
 
     qualifiers: dict[int, BayesianQualifier | KitQualifier] = {}
-    n_regular = 0
     for campaign in campaigns:
         if campaign.is_freemium:
             if kit_model is None:
                 continue
             qualifiers[campaign.pk] = KitQualifier(kit_model)
-        else:
-            q = BayesianQualifier(
-                seed=42,
-                n_mc_samples=cfg["qualification_n_mc_samples"],
-                campaign=campaign,
+            continue
+
+        q = BayesianQualifier(
+            seed=42,
+            n_mc_samples=cfg["qualification_n_mc_samples"],
+            campaign=campaign,
+        )
+        X, y = Lead.get_labeled_arrays(campaign)
+        if len(X) > 0:
+            q.warm_start(X, y)
+            logger.info(
+                colored("GP qualifier warm-started", "cyan")
+                + " on %d labelled samples (%d positive, %d negative)"
+                + " for campaign %s",
+                len(y), int((y == 1).sum()), int((y == 0).sum()), campaign,
             )
-            X, y = Lead.get_labeled_arrays(campaign)
-            if len(X) > 0:
-                q.warm_start(X, y)
-                logger.info(
-                    colored("GP qualifier warm-started", "cyan")
-                    + " on %d labelled samples (%d positive, %d negative)"
-                    + " for campaign %s",
-                    len(y), int((y == 1).sum()), int((y == 0).sum()), campaign,
-                )
-            qualifiers[campaign.pk] = q
-            n_regular += 1
+        qualifiers[campaign.pk] = q
 
     return qualifiers
 
@@ -258,52 +257,33 @@ def seconds_until_active(tz_name: str | None) -> float:
 
 
 # ------------------------------------------------------------------
-# Checkpoint exit
-# ------------------------------------------------------------------
-
-
-def _exit_on_checkpoint(session, task, url: str) -> None:
-    """Log loudly, mark the task failed, close the session, and exit(1).
-
-    Called when LinkedIn flags the account with a security checkpoint.
-    We do NOT retry or reauthenticate — every retry hardens the block.
-    The user clears the challenge in a real browser, then restarts the daemon.
-    """
-    logger.error(
-        colored(
-            f"ACCOUNT CHECKPOINTED — {session.linkedin_profile.linkedin_username}",
-            "red", attrs=["bold"],
-        )
-    )
-    logger.error("Clear the challenge in a real browser: %s", url)
-    logger.error("Then restart the daemon.")
-    task.mark_failed()
-    session.close()
-    sys.exit(1)
-
-
-# ------------------------------------------------------------------
 # Task queue worker
 # ------------------------------------------------------------------
 
 
 def run_daemon(session):
-    from openoutreach.linkedin.ml.hub import fetch_kit
-    from openoutreach.linkedin.setup.freemium import import_freemium_campaign
     from openoutreach.core.models import Campaign
 
     cfg = CAMPAIGN_CONFIG
 
-    # Load kit model for freemium campaigns
+    # Load the pre-trained kit for freemium campaigns: create/refresh the freemium
+    # Campaign, seed its leads, and hand the kit model to the qualifier builder.
+    # Seed embeddings come from Lead-Finder discovery, so freshly-seeded leads stay
+    # dormant in the kit-ranked pool until discovery embeds them.
+    from openoutreach.linkedin.ml.hub import fetch_kit
+    from openoutreach.linkedin.setup.freemium import import_freemium_campaign, seed_profiles
+
     kit = fetch_kit()
     if kit:
         freemium_campaign = import_freemium_campaign(kit["config"])
         if freemium_campaign:
             prev_campaign = session.campaign
             session.campaign = freemium_campaign
-            from openoutreach.linkedin.setup.freemium import seed_profiles
             seed_profiles(session, kit["config"])
             session.campaign = prev_campaign
+            # The freemium campaign was just linked to the operator — drop the
+            # cached campaign list so it's picked up below.
+            session.__dict__.pop("campaigns", None)
 
     qualifiers = _build_qualifiers(
         session.campaigns, cfg, kit_model=kit["model"] if kit else None,
@@ -394,22 +374,7 @@ def run_daemon(session):
             continue
 
         try:
-            with failure_diagnostics(session):
-                handler(task, session, qualifiers)
-        except CheckpointChallengeError as exc:
-            _exit_on_checkpoint(session, task, exc.url)
-        except AuthenticationError:
-            logger.warning("Session expired during %s — re-authenticating", task)
-            try:
-                session.reauthenticate()
-            except CheckpointChallengeError as exc:
-                _exit_on_checkpoint(session, task, exc.url)
-            except Exception:
-                logger.exception("Re-authentication failed for %s", task)
-            # Either way, mark this task FAILED; reconcile will re-create a
-            # fresh task for the deal on the next idle cycle.
-            task.mark_failed()
-            continue
+            handler(task, session, qualifiers)
         except ModelHTTPError as e:
             task.mark_failed()
             logger.error(

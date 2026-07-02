@@ -14,9 +14,7 @@ class Command(BaseCommand):
         self._configure_logging(verbose=options["verbosity"] >= 2)
         self._ensure_db()
         self._ensure_onboarded()
-        self._nudge_email_setup()
         session = self._create_session()
-        self._ensure_newsletter(session)
 
         from openoutreach.core.daemon import run_daemon
         run_daemon(session)
@@ -37,69 +35,41 @@ class Command(BaseCommand):
         setup_crm()
 
     def _ensure_onboarded(self):
-        from openoutreach.core.onboarding import apply, collect_from_wizard, missing_keys
+        from openoutreach.core.onboarding import missing_keys, onboard_interactive
 
-        if not missing_keys():
+        missing = missing_keys()
+        if not missing:
             return
 
         if sys.stdin.isatty():
-            apply(collect_from_wizard())
+            onboard_interactive()
         else:
-            missing = missing_keys()
             self.stderr.write(
                 f"Onboarding incomplete and no TTY available.\n"
                 f"Missing: {', '.join(sorted(missing))}\n"
-                f"Run with an interactive terminal to complete onboarding."
+                f"Run with an interactive terminal to complete onboarding "
+                f"(a mailbox and a BetterContact key must be connected)."
             )
             sys.exit(1)
 
-    def _nudge_email_setup(self):
-        """Prompt (TTY) or log (headless) the next email-setup step. Deferrable —
-        never blocks the LinkedIn discovery leg."""
-        from openoutreach.emails.nudge import prompt_email_setup
-        prompt_email_setup()
-
     def _create_session(self):
-        from openoutreach.linkedin.browser.registry import get_first_active_profile, get_or_create_session
         from openoutreach.core.models import SiteConfig
+        from openoutreach.core.session import get_active_user, get_or_create_session
 
         if not SiteConfig.load().llm_api_key:
             logger.error("LLM_API_KEY is required. Set it in Site Configuration (Django Admin).")
             sys.exit(1)
 
-        profile = get_first_active_profile()
-        if profile is None:
-            logger.error("No active LinkedIn profiles found.")
+        user = get_active_user()
+        if user is None:
+            logger.error("No active operator account found.")
             sys.exit(1)
 
-        session = get_or_create_session(profile)
+        session = get_or_create_session(user)
 
         if not session.campaigns:
-            logger.error("No campaigns found for this user.")
+            logger.error("No campaigns found for this operator.")
             sys.exit(1)
-        campaign = next(
-            (c for c in session.campaigns if not c.is_freemium), None,
-        ) or session.campaigns[0]
-        session.campaign = campaign
+        session.campaign = session.campaigns[0]
 
         return session
-
-    def _ensure_newsletter(self, session):
-        if session.linkedin_profile.newsletter_processed:
-            return
-
-        from openoutreach.linkedin.api.newsletter import ensure_newsletter_subscription
-        from openoutreach.linkedin.setup.geo import (
-            apply_gdpr_contribution_override,
-            apply_gdpr_newsletter_override,
-        )
-        from linkedin_cli.url_utils import public_id_to_url
-
-        profile = session.self_profile
-        country_code = profile.get("country_code")
-        apply_gdpr_newsletter_override(session, country_code)
-        apply_gdpr_contribution_override(session, country_code)
-        linkedin_url = public_id_to_url(profile["public_identifier"])
-        ensure_newsletter_subscription(session, linkedin_url=linkedin_url)
-        session.linkedin_profile.newsletter_processed = True
-        session.linkedin_profile.save(update_fields=["newsletter_processed"])

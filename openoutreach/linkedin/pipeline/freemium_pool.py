@@ -42,14 +42,14 @@ def find_freemium_candidate(session, qualifier) -> dict | None:
     for candidate_pks in (seed_pks, undiscovered_pks):
         if not candidate_pks:
             continue
-        result = _pick_best(sorted(candidate_pks), qualifier, session)
+        result = _pick_best(sorted(candidate_pks), qualifier)
         if result:
             return result
 
     return None
 
 
-def _pick_best(lead_pks: list[int], qualifier, session) -> dict | None:
+def _pick_best(lead_pks: list[int], qualifier) -> dict | None:
     """Rank leads by qualifier and return the top-1 profile dict."""
     from openoutreach.crm.models import Lead
 
@@ -59,5 +59,5 @@ def _pick_best(lead_pks: list[int], qualifier, session) -> dict | None:
     if not profiles:
         return None
 
-    ranked = qualifier.rank_profiles(profiles, session=session)
+    ranked = qualifier.rank_profiles(profiles)
     return ranked[0] if ranked else None

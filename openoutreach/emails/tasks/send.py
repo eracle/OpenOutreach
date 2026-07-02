@@ -50,7 +50,7 @@ def handle_email(task, session, qualifiers):
 
     message_id = send_email(
         mailbox, deal.lead.api_email, draft.subject, draft.body,
-        bcc=session.linkedin_profile.linkedin_username,
+        bcc=session.django_user.email,
     )
     _record_sent_email(session, deal, mailbox, draft, message_id)
     logger.info("[%s] email sent to %s (%s): %s\n%s",

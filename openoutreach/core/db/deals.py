@@ -9,29 +9,12 @@ logger = logging.getLogger(__name__)
 
 _STATE_LOG_STYLE = {
     DealState.QUALIFIED: ("QUALIFIED", "green", []),
-    DealState.READY_TO_CONNECT: ("READY_TO_CONNECT", "yellow", ["bold"]),
+    DealState.READY_TO_FIND_EMAIL: ("READY_TO_FIND_EMAIL", "yellow", ["bold"]),
     DealState.READY_TO_EMAIL: ("READY_TO_EMAIL", "blue", ["bold"]),
     DealState.EMAILED: ("EMAILED", "blue", []),
-    DealState.PENDING: ("PENDING", "cyan", []),
-    DealState.CONNECTED: ("CONNECTED", "green", ["bold"]),
     DealState.COMPLETED: ("COMPLETED", "green", ["bold"]),
     DealState.FAILED: ("FAILED", "red", ["bold"]),
 }
-
-
-def increment_connect_attempts(session, public_id: str) -> int:
-    """Increment connect_attempts on the Deal and return the new count."""
-    from openoutreach.crm.models import Deal
-
-    deal = Deal.objects.filter(
-        lead__public_identifier=public_id, campaign=session.campaign,
-    ).first()
-    if not deal:
-        return 1
-
-    deal.connect_attempts += 1
-    deal.save(update_fields=["connect_attempts"])
-    return deal.connect_attempts
 
 
 def _deal_to_profile_dict(deal) -> dict:
@@ -74,51 +57,13 @@ def _existing_deal_or_lead(public_id: str, campaign):
 # ── State transitions ──
 
 
-def capture_and_contribute(lead, session) -> None:
-    """Best-effort LinkedIn contact-info capture + contribution for a connection.
-
-    Fired on the CONNECTED transition and on each follow-up visit, but the
-    contribution rides the ``Lead.contact_info`` null→non-null transition: it is
-    given to the central store **only on the visit that first captures the
-    overlay**. ``Lead.capture_contact_info`` is write-once (skips the scrape once
-    a value is stored), so a later visit finds the field already set and no-ops —
-    no re-sending the same source to the append-only hub log on every follow-up.
-    While the scrape keeps failing the field stays null, so capture (and the
-    contribution) is retried on the next visit. A failure here must never roll
-    back the transition or fail the task, so expected scrape/network errors are
-    swallowed with a log; ``AuthenticationError`` still propagates (the daemon's
-    reauth handler owns it, and capture is moot on a dead session).
-    """
-    from linkedin_cli.exceptions import ProfileInaccessibleError
-    from openoutreach.contacts import service as contacts
-
-    fresh_capture = lead.contact_info is None
-    try:
-        lead.capture_contact_info(session)
-    except (ProfileInaccessibleError, IOError) as exc:
-        logger.warning("contact-info capture failed for %s: %s", lead.public_identifier, exc)
-        return
-
-    if not fresh_capture:
-        return  # overlay already captured + contributed on an earlier visit
-
-    emails = (lead.contact_info or {}).get("emails") or []
-    logger.debug("contact-info captured for %s: %d email(s)", lead.public_identifier, len(emails))
-    contacts.contribute(session, lead, emails, contacts.ORIGIN_PROFILE_INFO)
-
-
 def set_profile_state(session, public_identifier: str, new_state: str, reason: str = "", outcome: str = ""):
-    """Move the Deal to the corresponding state and enqueue the implied next task.
+    """Move the Deal to the corresponding state.
 
     Campaign-scoped: only finds Deals in the current campaign.
     Raises ValueError if no Deal exists.
-
-    Task creation for state-driven transitions (CONNECTED → follow_up,
-    PENDING → check_pending) happens here via the scheduler hook — callers
-    do not enqueue directly.
     """
     from openoutreach.crm.models import Deal
-    from openoutreach.core.scheduler import on_deal_state_entered
 
     deal = (
         Deal.objects.filter(lead__public_identifier=public_identifier, campaign=session.campaign)
@@ -147,37 +92,27 @@ def set_profile_state(session, public_identifier: str, new_state: str, reason: s
     else:
         logger.debug("%s %s (unchanged)%s", public_identifier, label, suffix)
 
-    on_deal_state_entered(deal)
-
-    if state_changed and ps == DealState.CONNECTED:
-        capture_and_contribute(deal.lead, session)
-
 
 # ── State queries ──
 
 
 def get_qualified_profiles(session) -> list:
-    """Connect-eligible QUALIFIED deals — those WITHOUT a resolved email.
+    """QUALIFIED deals awaiting the rank gate.
 
-    Enrichment routes, it doesn't gate: a lead with ``api_email`` is reached on
-    the EMAIL channel and excluded here, so the scarce connect is spent only on
-    leads whose only door is LinkedIn (the connection then harvests their
-    contact info on acceptance). This is the single connect-pool chokepoint —
-    ready_pool promotes from here, so email-having leads never reach
-    READY_TO_CONNECT.
+    The single find-email-pool chokepoint: ``ready_pool`` promotes above the GP
+    confidence threshold from here to READY_TO_FIND_EMAIL (the paid-lookup pool).
     """
     from openoutreach.crm.models import Deal
 
     qs = Deal.objects.filter(
         state=DealState.QUALIFIED,
         campaign=session.campaign,
-        lead__api_email__isnull=True,
     ).select_related("lead")
     return [_deal_to_profile_dict(d) for d in qs]
 
 
-def get_ready_to_connect_profiles(session) -> list:
-    return _deals_at_state(session, DealState.READY_TO_CONNECT)
+def get_ready_to_find_email_profiles(session) -> list:
+    return _deals_at_state(session, DealState.READY_TO_FIND_EMAIL)
 
 
 def get_emailable_deals(session):
@@ -250,9 +185,8 @@ def create_disqualified_deal(session, public_id: str, reason: str = ""):
     return deal
 
 
-@transaction.atomic
 def create_freemium_deal(session, public_id: str):
-    """Create a Deal in the freemium campaign for a candidate lead."""
+    """Create a QUALIFIED Deal in the freemium campaign for a candidate lead."""
     campaign = session.campaign
     lead, existing = _existing_deal_or_lead(public_id, campaign)
     if existing:

@@ -1,10 +1,16 @@
-# openoutreach/linkedin/api/newsletter.py
+# openoutreach/emails/newsletter.py
+"""OpenOutreach newsletter subscription — a plain Brevo form POST.
+
+Subscribes the operator's own email (their connected mailbox address) to the
+OpenOutreach newsletter. Nothing here touches LinkedIn: the subscription was
+always an email signup; only the country-derived opt-in default and an optional
+LinkedIn field used to ride along, and both are gone.
+"""
 from __future__ import annotations
 
 import logging
 
 import requests
-from openoutreach.linkedin.browser.session import AccountSession
 
 logger = logging.getLogger(__name__)
 
@@ -14,65 +20,41 @@ BREVO_FORM_URL = (
 )
 
 
-def subscribe_to_newsletter(email: str, linkedin: str | None = None) -> bool:
-    """
-    Subscribe email to OpenOutreach newsletter via Brevo form.
-    Returns True if successful or already subscribed.
+def subscribe_to_newsletter(email: str) -> bool:
+    """Subscribe *email* to the OpenOutreach newsletter via the Brevo form.
+
+    Returns True if newly added or already subscribed, False on any failure.
     """
     data = {
         "EMAIL": email,
-        "email_address_check": "",  # leave empty (honeypot)
-        "locale": "en"
+        "email_address_check": "",  # honeypot — leave empty
+        "locale": "en",
     }
-    if linkedin:
-        data["LINKEDIN"] = linkedin
-
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Origin": "https://sibforms.com",
         "Referer": "https://sibforms.com/",
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
     }
 
     try:
         r = requests.post(BREVO_FORM_URL, data=data, headers=headers, timeout=10)
-
         logger.debug("Brevo response: %d - %s", r.status_code, r.text[:200])
-
         response_lower = r.text.lower()
 
         if r.status_code == 200:
             if len(r.text.strip()) == 0 or "successful" in response_lower:
                 logger.info("Newsletter: successfully added %s", email)
                 return True
-
             if "already subscribed" in response_lower:
                 logger.info("Newsletter: already subscribed %s", email)
                 return True
 
         logger.warning(
             "Newsletter subscription failed for %s - status=%d - response: %s",
-            email, r.status_code, r.text[:250]
+            email, r.status_code, r.text[:250],
         )
         return False
-
     except requests.RequestException as e:
         logger.error("Newsletter request failed for %s: %s", email, e)
         return False
-
-
-def ensure_newsletter_subscription(session: AccountSession, linkedin_url: str | None = None):
-    """Subscribe the account to the OpenOutreach newsletter if enabled."""
-    lp = session.linkedin_profile
-
-    if not lp.subscribe_newsletter:
-        logger.debug("Newsletter disabled for %s", session)
-        return
-
-    email = lp.linkedin_username
-    if not email or "@" not in str(email):
-        logger.warning("No valid email for newsletter: %s", session)
-        return
-
-    logger.debug("Subscribing %s to OpenOutreach newsletter...", email)
-    subscribe_to_newsletter(email, linkedin=linkedin_url)
