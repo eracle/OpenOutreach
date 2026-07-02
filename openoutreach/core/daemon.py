@@ -20,7 +20,7 @@ from openoutreach.core.conf import (
     CAMPAIGN_CONFIG,
     ENABLE_ACTIVE_HOURS,
 )
-from openoutreach.linkedin.ml.qualifier import BayesianQualifier, KitQualifier
+from openoutreach.core.ml.qualifier import BayesianQualifier, KitQualifier
 from openoutreach.core.models import Task
 from openoutreach.emails.tasks.find_email import handle_find_email
 from openoutreach.emails.tasks.follow_up import handle_follow_up
@@ -270,8 +270,8 @@ def run_daemon(session):
     # Campaign, seed its leads, and hand the kit model to the qualifier builder.
     # Seed embeddings come from Lead-Finder discovery, so freshly-seeded leads stay
     # dormant in the kit-ranked pool until discovery embeds them.
-    from openoutreach.linkedin.ml.hub import fetch_kit
-    from openoutreach.linkedin.setup.freemium import import_freemium_campaign, seed_profiles
+    from openoutreach.core.ml.hub import fetch_kit
+    from openoutreach.core.setup.freemium import import_freemium_campaign, seed_profiles
 
     kit = fetch_kit()
     if kit:

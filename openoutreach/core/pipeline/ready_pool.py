@@ -17,7 +17,7 @@ from openoutreach.core.db.deals import (
     get_ready_to_find_email_profiles,
     set_profile_state,
 )
-from openoutreach.linkedin.ml.qualifier import BayesianQualifier
+from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)

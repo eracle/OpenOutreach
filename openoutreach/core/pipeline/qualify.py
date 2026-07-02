@@ -7,7 +7,7 @@ import logging
 import numpy as np
 from termcolor import colored
 
-from openoutreach.linkedin.ml.qualifier import BayesianQualifier
+from openoutreach.core.ml.qualifier import BayesianQualifier
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def fetch_qualification_candidates(session):
     """Return Lead rows (with embeddings) for leads awaiting qualification."""
     from openoutreach.crm.models import Lead
-    from openoutreach.linkedin.db.leads import get_leads_for_qualification
+    from openoutreach.core.db.leads import get_leads_for_qualification
 
     leads = get_leads_for_qualification(session)
     if not leads:
@@ -31,7 +31,7 @@ def fetch_qualification_candidates(session):
 
 def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
     """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns public_id or None."""
-    from openoutreach.linkedin.ml.qualifier import qualify_with_llm, format_prediction
+    from openoutreach.core.ml.qualifier import qualify_with_llm, format_prediction
 
     candidates = fetch_qualification_candidates(session)
     if not candidates:
@@ -100,7 +100,7 @@ def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: i
     # inline at qualification — it sits behind the rank gate, so a credit is only
     # ever spent on a ranked lead.
     from openoutreach.core.db.deals import create_disqualified_deal
-    from openoutreach.linkedin.db.leads import promote_lead_to_deal
+    from openoutreach.core.db.leads import promote_lead_to_deal
 
     qualifier.update(embedding, label)
 

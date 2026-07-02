@@ -147,7 +147,7 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
         )
         return
 
-    from openoutreach.linkedin.ml.profile_text import build_profile_text
+    from openoutreach.core.ml.profile_text import build_profile_text
 
     profile_text = build_profile_text({"profile": profile})
     context_parts = []

@@ -37,14 +37,14 @@ def _select_candidate(session, campaign, qualifier):
     """
     if campaign.is_freemium:
         from openoutreach.core.db.deals import create_freemium_deal
-        from openoutreach.linkedin.pipeline.freemium_pool import find_freemium_candidate
+        from openoutreach.core.pipeline.freemium_pool import find_freemium_candidate
 
         candidate = find_freemium_candidate(session, qualifier)
         if candidate is not None:
             create_freemium_deal(session, candidate["public_identifier"])
         return candidate
 
-    from openoutreach.linkedin.pipeline.pools import find_candidate
+    from openoutreach.core.pipeline.pools import find_candidate
 
     return find_candidate(session, qualifier)
 

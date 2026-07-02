@@ -20,9 +20,9 @@ import logging
 from typing import Generator
 
 from openoutreach.core.conf import CAMPAIGN_CONFIG
-from openoutreach.linkedin.ml.qualifier import BayesianQualifier
-from openoutreach.linkedin.pipeline.qualify import run_qualification
-from openoutreach.linkedin.pipeline.ready_pool import find_ready_candidate, promote_to_ready
+from openoutreach.core.ml.qualifier import BayesianQualifier
+from openoutreach.core.pipeline.qualify import run_qualification
+from openoutreach.core.pipeline.ready_pool import find_ready_candidate, promote_to_ready
 
 logger = logging.getLogger(__name__)
 

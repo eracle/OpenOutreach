@@ -43,7 +43,7 @@ def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
 
 def embed_row(row: dict) -> np.ndarray:
     """384-dim vector for one lead row, for ML qualification."""
-    from openoutreach.linkedin.ml.embeddings import embed_text
+    from openoutreach.core.ml.embeddings import embed_text
 
     text = " ".join(row.get(f) or "" for f in TEXT_FIELDS).lower()
     return embed_text(text)
