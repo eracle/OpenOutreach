@@ -10,7 +10,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("linkedin", "0009_drop_legacy_pending_tasks"),
+        ("legacy", "0009_drop_legacy_pending_tasks"),
         ("core", "0001_initial"),
         ("crm", "0011_repoint_campaign_fk_to_core"),
     ]

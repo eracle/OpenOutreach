@@ -31,7 +31,7 @@ INSTALLED_APPS = [
     "openoutreach.crm.apps.CrmConfig",
     "openoutreach.chat.apps.ChatConfig",
     "openoutreach.core.apps.CoreConfig",
-    "openoutreach.linkedin.apps.LinkedInConfig",
+    "openoutreach.legacy.apps.LegacyConfig",
     "openoutreach.emails.apps.EmailsConfig",
 ]
 

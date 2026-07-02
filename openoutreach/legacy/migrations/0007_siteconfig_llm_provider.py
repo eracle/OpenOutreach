@@ -12,14 +12,14 @@ def infer_provider_from_existing_config(apps, schema_editor):
     case and set ``llm_provider="openai_compatible"``; leave fresh rows on
     the OpenAI default.
     """
-    SiteConfig = apps.get_model("linkedin", "SiteConfig")
+    SiteConfig = apps.get_model("legacy", "SiteConfig")
     SiteConfig.objects.filter(llm_api_base__gt="").update(llm_provider="openai_compatible")
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("linkedin", "0006_update_default_limits"),
+        ("legacy", "0006_update_default_limits"),
     ]
 
     operations = [

@@ -10,13 +10,13 @@ from django.db import migrations
 
 
 def drop_pending_tasks(apps, schema_editor):
-    Task = apps.get_model("linkedin", "Task")
+    Task = apps.get_model("legacy", "Task")
     Task.objects.filter(status="pending").delete()
 
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("linkedin", "0008_drop_connect_weekly_limit"),
+        ("legacy", "0008_drop_connect_weekly_limit"),
     ]
 
     operations = [

@@ -17,7 +17,7 @@ def _parse_env(text):
 
 def migrate_env_to_db(apps, schema_editor):
     """Read LLM config from .env, store in SiteConfig, then delete .env."""
-    SiteConfig = apps.get_model("linkedin", "SiteConfig")
+    SiteConfig = apps.get_model("legacy", "SiteConfig")
 
     env_file = Path(__file__).resolve().parent.parent.parent / ".env"
     if not env_file.exists():
@@ -37,7 +37,7 @@ def migrate_env_to_db(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("linkedin", "0002_linkedinprofile_self_lead"),
+        ("legacy", "0002_linkedinprofile_self_lead"),
     ]
 
     operations = [
@@ -50,6 +50,7 @@ class Migration(migrations.Migration):
                 ("llm_api_base", models.CharField(blank=True, default="", max_length=500)),
             ],
             options={
+                "db_table": "linkedin_siteconfig",
                 "verbose_name": "Site Configuration",
                 "verbose_name_plural": "Site Configuration",
             },

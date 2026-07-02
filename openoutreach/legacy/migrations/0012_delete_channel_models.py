@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("linkedin", "0011_linkedinprofile_contribute_to_hub"),
+        ("legacy", "0011_linkedinprofile_contribute_to_hub"),
     ]
 
     operations = [

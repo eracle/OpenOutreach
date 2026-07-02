@@ -10,7 +10,7 @@ from django.db import migrations
 def _remap_content_types(apps, schema_editor):
     ContentType = apps.get_model("contenttypes", "ContentType")
     ContentType.objects.using(schema_editor.connection.alias).filter(
-        app_label="linkedin", model__in=["campaign", "siteconfig", "task"]
+        app_label="legacy", model__in=["campaign", "siteconfig", "task"]
     ).update(app_label="core")
 
 
@@ -18,14 +18,14 @@ def _unmap_content_types(apps, schema_editor):
     ContentType = apps.get_model("contenttypes", "ContentType")
     ContentType.objects.using(schema_editor.connection.alias).filter(
         app_label="core", model__in=["campaign", "siteconfig", "task"]
-    ).update(app_label="linkedin")
+    ).update(app_label="legacy")
 
 
 class Migration(migrations.Migration):
 
     dependencies = [
         ("core", "0001_initial"),
-        ("linkedin", "0010_move_engine_models_to_core"),
+        ("legacy", "0010_move_engine_models_to_core"),
     ]
 
     operations = [

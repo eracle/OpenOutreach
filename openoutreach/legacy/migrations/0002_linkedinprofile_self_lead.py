@@ -12,7 +12,7 @@ def delete_me_markers(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("linkedin", "0001_initial"),
+        ("legacy", "0001_initial"),
         ("crm", "0003_public_identifier_unique"),
     ]
 

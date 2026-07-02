@@ -8,7 +8,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("linkedin", "0007_siteconfig_llm_provider"),
+        ("legacy", "0007_siteconfig_llm_provider"),
     ]
 
     operations = [

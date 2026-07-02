@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("linkedin", "0005_remove_task_error"),
+        ("legacy", "0005_remove_task_error"),
     ]
 
     operations = [

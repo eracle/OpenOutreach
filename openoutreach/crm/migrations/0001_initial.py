@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("linkedin", "0001_initial"),
+        ("legacy", "0001_initial"),
     ]
 
     operations = [
@@ -107,7 +107,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="deals",
-                        to="linkedin.campaign",
+                        to="legacy.campaign",
                     ),
                 ),
                 (

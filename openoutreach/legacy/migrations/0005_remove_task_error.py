@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('linkedin', '0004_compress_campaign_model_blob'),
+        ('legacy', '0004_compress_campaign_model_blob'),
     ]
 
     operations = [

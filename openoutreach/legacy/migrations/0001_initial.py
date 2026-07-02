@@ -43,6 +43,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
+            options={"db_table": "linkedin_campaign"},
         ),
         migrations.CreateModel(
             name="LinkedInProfile",
@@ -75,6 +76,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
+            options={"db_table": "linkedin_linkedinprofile"},
         ),
         migrations.CreateModel(
             name="Task",
@@ -120,6 +122,7 @@ class Migration(migrations.Migration):
                 ("completed_at", models.DateTimeField(blank=True, null=True)),
             ],
             options={
+                "db_table": "linkedin_task",
                 "indexes": [
                     models.Index(
                         fields=["status", "scheduled_at"],
@@ -153,7 +156,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="action_logs",
-                        to="linkedin.campaign",
+                        to="legacy.campaign",
                     ),
                 ),
                 (
@@ -161,11 +164,12 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="action_logs",
-                        to="linkedin.linkedinprofile",
+                        to="legacy.linkedinprofile",
                     ),
                 ),
             ],
             options={
+                "db_table": "linkedin_actionlog",
                 "indexes": [
                     models.Index(
                         fields=["linkedin_profile", "action_type", "created_at"],
@@ -194,11 +198,12 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="search_keywords",
-                        to="linkedin.campaign",
+                        to="legacy.campaign",
                     ),
                 ),
             ],
             options={
+                "db_table": "linkedin_searchkeyword",
                 "unique_together": {("campaign", "keyword")},
             },
         ),

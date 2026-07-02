@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("linkedin", "0009_drop_legacy_pending_tasks"),
+        ("legacy", "0009_drop_legacy_pending_tasks"),
     ]
 
     operations = [
