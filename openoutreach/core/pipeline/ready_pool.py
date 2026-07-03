@@ -56,9 +56,9 @@ def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) ->
     promoted = 0
     for prob, p in zip(probs, valid):
         if prob > threshold:
-            pid = p.get("public_identifier", "?")
+            pid = p.get("profile_url", "?")
             logger.info("%s READY_TO_FIND_EMAIL (P(f>0.5)=%.3f)", pid, prob)
-            set_profile_state(session, p["public_identifier"], DealState.READY_TO_FIND_EMAIL.value)
+            set_profile_state(session, p["profile_url"], DealState.READY_TO_FIND_EMAIL.value)
             promoted += 1
 
     return promoted

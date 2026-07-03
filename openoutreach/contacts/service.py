@@ -40,12 +40,12 @@ def resolve(lead) -> str | None:
     try:
         resp = requests.get(
             _endpoint(config, "resolve"),
-            params={"id": lead.public_identifier},
+            params={"id": lead.profile_url},
             headers=_auth(config.contacts_api_token),
             timeout=_TIMEOUT_S,
         )
     except requests.RequestException as exc:
-        logger.info("hub: resolve unavailable for %s: %s", lead.public_identifier, exc)
+        logger.info("hub: resolve unavailable for %s: %s", lead.profile_url, exc)
         return None
     if resp.status_code not in (200, 404):
         return None  # unexpected → fall back to BetterContact, stay quiet
@@ -58,10 +58,10 @@ def resolve(lead) -> str | None:
     email = emails[0] if emails else None
     if email:
         logger.info("hub: resolved %s for %s (saved a paid lookup) — %s credits available",
-                    email, lead.public_identifier, credits)
+                    email, lead.profile_url, credits)
     else:
         logger.info("hub: no stored email for %s — falling back to BetterContact (store balance: %s credits)",
-                    lead.public_identifier, credits)
+                    lead.profile_url, credits)
     return email
 
 
@@ -80,20 +80,20 @@ def contribute(session, lead, emails: list[str], origin: str) -> None:
     from openoutreach.core.models import SiteConfig
 
     if is_eea_located(SiteConfig.load().country_code):
-        logger.debug("hub: operator in EEA/UK/CH — skipping give-back for %s", lead.public_identifier)
+        logger.debug("hub: operator in EEA/UK/CH — skipping give-back for %s", lead.profile_url)
         return
     emails = [e for e in emails if e]
     if not emails:
-        logger.debug("hub: nothing to contribute for %s — no email captured", lead.public_identifier)
+        logger.debug("hub: nothing to contribute for %s — no email captured", lead.profile_url)
         return
     if is_eea_located(lead.country_code):
         logger.debug("hub: skipping %s (%s) — EEA/UK/CH lead, out of store scope",
-                     lead.public_identifier, lead.country_code)
+                     lead.profile_url, lead.country_code)
         return
 
     config = SiteConfig.load()
     record = {
-        "public_identifier": lead.public_identifier,
+        "public_identifier": lead.profile_url,
         "country_code": lead.country_code,
         "emails": emails,
         "origin": origin,
@@ -146,11 +146,11 @@ def _send(config: SiteConfig, path: str, body: dict, lead, headers: dict | None 
         resp = requests.post(_endpoint(config, path), json=body, headers=headers, timeout=_TIMEOUT_S)
         resp.raise_for_status()
     except requests.RequestException as exc:
-        logger.info("hub: give-back unavailable for %s: %s", lead.public_identifier, exc)
+        logger.info("hub: give-back unavailable for %s: %s", lead.profile_url, exc)
         return None
     payload = resp.json()
     logger.info("hub: contributed %s (%s) to the central store — %s credits available",
-                lead.public_identifier, lead.country_code, payload["credits"])
+                lead.profile_url, lead.country_code, payload["credits"])
     return payload
 
 

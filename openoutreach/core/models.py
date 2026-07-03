@@ -69,6 +69,15 @@ class Campaign(models.Model):
     action_fraction = models.FloatField(default=0.2)
     seed_public_ids = models.JSONField(default=list, blank=True)
     model_blob = models.BinaryField(null=True, blank=True)
+    # Discovery — the Lead Finder ICP spec {"filters": {...}, "country_code": "xx"},
+    # generated once by the LLM from product_docs + objective and reused across
+    # cycles so pagination stays coherent (empty = not yet generated). The offset
+    # is the page cursor into the Lead Finder result set — the state that lets
+    # discovery advance past page 1 across cycles and daemon restarts. Both are the
+    # simple static-discovery MVP; adaptive ICP refinement is a future redesign
+    # (roadmap: off-linkedin-leadfinder-pivot).
+    icp_filters = models.JSONField(default=dict, blank=True)
+    discovery_offset = models.IntegerField(default=0)
 
     def __str__(self):
         return self.name

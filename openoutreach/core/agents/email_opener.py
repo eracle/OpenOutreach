@@ -42,5 +42,5 @@ def compose_opener_email(session, deal) -> EmailDraft:
     )
     draft = run_agent_sync(agent.run(system_prompt)).output
     if draft is None:
-        raise ValueError(f"email opener returned no draft for {deal.lead.public_identifier}")
+        raise ValueError(f"email opener returned no draft for {deal.lead.profile_url}")
     return draft

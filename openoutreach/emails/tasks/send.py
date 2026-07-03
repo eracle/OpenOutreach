@@ -41,7 +41,7 @@ def handle_email(task, session, qualifiers):
         logger.info("[%s] email: nothing to send (empty queue or every box at cap)", campaign)
         return
 
-    public_id = deal.lead.public_identifier
+    public_id = deal.lead.profile_url
     logger.info("[%s] %s %s via %s", campaign,
                 colored("▶ email", "blue", attrs=["bold"]), public_id, mailbox.from_address)
 
@@ -49,12 +49,12 @@ def handle_email(task, session, qualifiers):
     draft = compose_opener_email(session, deal)
 
     message_id = send_email(
-        mailbox, deal.lead.api_email, draft.subject, draft.body,
+        mailbox, deal.lead.email, draft.subject, draft.body,
         bcc=session.django_user.email,
     )
     _record_sent_email(session, deal, mailbox, draft, message_id)
     logger.info("[%s] email sent to %s (%s): %s\n%s",
-                campaign, public_id, deal.lead.api_email, draft.subject, draft.body)
+                campaign, public_id, deal.lead.email, draft.subject, draft.body)
 
 
 def _record_sent_email(session, deal, mailbox, draft, message_id) -> None:

@@ -1,10 +1,15 @@
-# openoutreach/linkedin/setup/freemium.py
+# openoutreach/core/setup/freemium.py
 """Freemium campaign creation from kit config."""
 from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def profile_url_from_slug(slug: str) -> str:
+    """Build the provider profile URL for a kit seed's public-id slug."""
+    return f"https://www.linkedin.com/in/{slug}"
 
 
 def import_freemium_campaign(kit_config: dict):
@@ -42,19 +47,19 @@ def import_freemium_campaign(kit_config: dict):
 def seed_profiles(session, kit_config: dict):
     """Seed a Lead + QUALIFIED freemium Deal for each profile listed in kit config.
 
-    The seed's ``profile_url`` is a LinkedIn-shaped opaque key (never scraped — the
-    provider identity, per the pivot). Embeddings are *not* fetched here: they now
-    come from Lead-Finder discovery, so an unembedded seed is simply skipped by the
-    kit-ranked freemium pool until discovery embeds it (dormant-but-wired).
+    The seed's ``profile_url`` is an opaque identity key (never fetched).
+    Embeddings are *not* built here: they come from Lead-Finder discovery, so an
+    unembedded seed is simply skipped by the kit-ranked freemium pool until
+    discovery embeds it (dormant-but-wired).
     """
     from openoutreach.core.db.deals import create_freemium_deal
     from openoutreach.crm.models import Lead
 
-    public_ids = kit_config.get("seed_profiles", [])
-    if not public_ids:
+    seed_slugs = kit_config.get("seed_profiles", [])
+    if not seed_slugs:
         return
 
-    for public_id in public_ids:
-        url = f"https://www.linkedin.com/in/{public_id}"
-        Lead.objects.get_or_create(public_identifier=public_id, defaults={"linkedin_url": url})
-        create_freemium_deal(session, public_id)
+    for slug in seed_slugs:
+        url = profile_url_from_slug(slug)
+        Lead.objects.get_or_create(profile_url=url)
+        create_freemium_deal(session, url)

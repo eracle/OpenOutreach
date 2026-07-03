@@ -10,9 +10,9 @@ Two generators chain via ``next(upstream, None)``:
                  qualify_source  <- qualifies embedded, unlabelled leads
 
 Each qualify_source iteration produces exactly one label, which shifts the GP
-model. Discovery (bringing new leads in) is a separate concern — the Lead Finder
-discovery→qualify wiring lands in the reshape step; until then this chain only
-qualifies + ranks leads already embedded in the DB.
+model. When the unlabelled pool runs dry, qualify_source pulls a fresh page from
+Lead Finder discovery (``discover``) and retries, so the chain both brings new
+leads in and qualifies them.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from typing import Generator
 
 from openoutreach.core.conf import CAMPAIGN_CONFIG
 from openoutreach.core.ml.qualifier import BayesianQualifier
+from openoutreach.core.pipeline.discover import discover
 from openoutreach.core.pipeline.qualify import run_qualification
 from openoutreach.core.pipeline.ready_pool import find_ready_candidate, promote_to_ready
 
@@ -28,15 +29,20 @@ logger = logging.getLogger(__name__)
 
 
 def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None, None]:
-    """Yield public_ids from run_qualification() until the unlabelled pool is dry.
+    """Yield profile_urls from run_qualification() until discovery is exhausted.
 
-    Every yield produces a label that shifts the GP model.
+    Every yield produces a label that shifts the GP model. When the unlabelled
+    pool empties, pull a fresh discovery page and retry; a dry page (nothing new)
+    ends the generator.
     """
     while True:
         result = run_qualification(session, qualifier)
-        if result is None:
-            return
-        yield result
+        if result is not None:
+            yield result
+            continue
+        if discover(session) > 0:
+            continue
+        return
 
 
 def ready_source(session, qualifier: BayesianQualifier, threshold: float | None = None) -> Generator[dict, None, None]:

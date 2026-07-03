@@ -143,7 +143,7 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
     if not profile:
         logger.warning(
             "materialize_profile_summary: empty profile for deal=%s lead=%s",
-            deal.pk, lead.public_identifier,
+            deal.pk, lead.profile_url,
         )
         return
 
@@ -167,7 +167,7 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
     deal.save(update_fields=["profile_summary"])
     logger.info(
         "profile_summary built for deal=%s lead=%s (%d facts)",
-        deal.pk, lead.public_identifier, len(facts),
+        deal.pk, lead.profile_url, len(facts),
     )
 
 

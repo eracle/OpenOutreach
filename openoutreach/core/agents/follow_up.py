@@ -147,7 +147,7 @@ def run_follow_up_agent(session, deal) -> FollowUpDecision:
     recency window of verbatim messages, and asks the LLM to decide. The opener is
     the separate first-touch path — see ``core.agents.email_opener``.
     """
-    public_id = deal.lead.public_identifier
+    public_id = deal.lead.profile_url
     from openoutreach.emails.inbox import sync_inbox
 
     sync_inbox(session, deal)

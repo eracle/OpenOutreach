@@ -41,7 +41,7 @@ def _select_candidate(session, campaign, qualifier):
 
         candidate = find_freemium_candidate(session, qualifier)
         if candidate is not None:
-            create_freemium_deal(session, candidate["public_identifier"])
+            create_freemium_deal(session, candidate["profile_url"])
         return candidate
 
     from openoutreach.core.pipeline.pools import find_candidate
@@ -69,9 +69,9 @@ def handle_find_email(task, session, qualifiers):
         logger.info("[%s] find_email: no ranked candidate awaiting a lookup", campaign)
         return
 
-    public_id = candidate["public_identifier"]
+    public_id = candidate["profile_url"]
     deal = (
-        Deal.objects.filter(lead__public_identifier=public_id, campaign=campaign)
+        Deal.objects.filter(lead__profile_url=public_id, campaign=campaign)
         .select_related("lead")
         .first()
     )
@@ -93,7 +93,7 @@ def handle_find_email(task, session, qualifiers):
 def _resolve_email(session, lead) -> str:
     """Resolve a work email — free hub cache first, paid BetterContact second.
 
-    Returns ``"hit"`` (``api_email`` set), ``"miss"`` (a finder ran and found
+    Returns ``"hit"`` (``email`` set), ``"miss"`` (a finder ran and found
     nothing), or ``"unavailable"`` (no finder could run — no key, out of credits,
     or the service was unreachable). A fresh BetterContact hit is given back to
     the hub (moment 1); a cached hub hit is not re-contributed.
@@ -103,18 +103,18 @@ def _resolve_email(session, lead) -> str:
 
     cached_email = contacts.resolve(lead)  # free hub lookup
     if cached_email:
-        lead.api_email = cached_email
-        lead.save(update_fields=["api_email"])
+        lead.email = cached_email
+        lead.save(update_fields=["email"])
         return "hit"
 
     if not bettercontact.is_configured():
         return "unavailable"
 
-    already_resolved = bool(lead.api_email)
-    outcome = lead.resolve_api_email()  # tri-state: True / False / None
+    already_resolved = bool(lead.email)
+    outcome = lead.resolve_email()  # tri-state: True / False / None
     if outcome is True:
         if not already_resolved:
-            contacts.contribute(session, lead, [lead.api_email], contacts.ORIGIN_BETTERCONTACT)
+            contacts.contribute(session, lead, [lead.email], contacts.ORIGIN_BETTERCONTACT)
         return "hit"
     if outcome is False:
         return "miss"

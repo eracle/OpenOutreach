@@ -13,46 +13,45 @@ class Lead(models.Model):
         verbose_name = _("Lead")
         verbose_name_plural = _("Leads")
 
-    linkedin_url = models.URLField(max_length=200, unique=True)
-    public_identifier = models.CharField(max_length=200, unique=True)
-    urn = models.CharField(max_length=200, null=True, blank=True, unique=True, db_index=True)
-    # ISO-3166 alpha-2 of the lead's current location, cached from the profile
-    # scrape. Drives the contacts-store geo-gate; blank = unknown (→ never contributed).
+    # The discovery provider's per-person URL — the opaque identity and lookup
+    # key. Stored, never fetched.
+    profile_url = models.URLField(max_length=200, unique=True)
+    # ISO-3166 alpha-2 of the lead's location, stamped from the discovery ICP.
+    # Drives the contacts-store geo-gate; blank = unknown (→ never contributed).
     country_code = models.CharField(max_length=2, blank=True, default="")
     embedding = models.BinaryField(null=True, blank=True)
-    # Email enrichment — one field per source (roadmap: p1-e1 storage decision):
-    #   contact_info — raw LinkedIn contact-info overlay {email, emails, phone_numbers},
-    #                  captured once at CONNECTED; null = never scraped (idempotency flag).
-    #   api_email    — enrichment-API result (BetterContact); its writer lands with the
-    #                  finder slice (p1-e3). null = not found.
-    contact_info = models.JSONField(null=True, blank=True, default=None)
-    api_email = models.EmailField(null=True, blank=True, default=None)
+    # Firmographic text built from the Lead Finder row at discovery (same fields as
+    # the embedding), fed to the LLM qualifier. No LinkedIn re-scrape.
+    profile_text = models.TextField(blank=True, default="")
+    # Work email from the enrichment API (BetterContact); null = not found / not yet
+    # resolved. Written by the find-email leg once the lead is rank-gated.
+    email = models.EmailField(null=True, blank=True, default=None)
     disqualified = models.BooleanField(default=False)
     creation_date = models.DateTimeField(default=timezone.now)
     update_date = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        label = self.public_identifier or self.linkedin_url or f"Lead#{self.pk}"
+        label = self.profile_url or f"Lead#{self.pk}"
         if self.disqualified:
             return f"({_('Disqualified')}) {label}"
         return label
 
     # ------------------------------------------------------------------
-    # Accessors — the embedding is cached at discovery; email is resolved
-    # via the paid finder. Nothing is scraped from LinkedIn any more.
+    # Accessors — the embedding and profile text are cached at discovery;
+    # the email is resolved via the paid finder. Nothing is fetched live.
     # ------------------------------------------------------------------
 
-    def resolve_api_email(self) -> bool | None:
+    def resolve_email(self) -> bool | None:
         """Resolve + persist a work email via BetterContact, once the lead qualifies.
 
-        Returns True on a hit (``api_email`` set, cached — never re-resolved →
+        Returns True on a hit (``email`` set, cached — never re-resolved →
         caller routes the Deal QUALIFIED → READY_TO_EMAIL), False on a genuine
-        miss (BetterContact ran, found nothing → caller leaves the Deal QUALIFIED
-        for the connect leg), and None when it couldn't run (no key, or the
-        service was unreachable → caller leaves the Deal QUALIFIED to retry).
-        A miss is free to retry — BetterContact bills only usable hits.
+        miss (BetterContact ran, found nothing → caller fails the Deal), and None
+        when it couldn't run (no key, or the service was unreachable → caller
+        leaves the Deal queued to retry). A miss is free to retry — BetterContact
+        bills only usable hits.
         """
-        if self.api_email:
+        if self.email:
             return True
         from openoutreach.emails.bettercontact import (
             BetterContactQuery,
@@ -61,12 +60,12 @@ class Lead(models.Model):
         )
 
         try:
-            result = resolve_email(BetterContactQuery(linkedin_url=self.linkedin_url))
+            result = resolve_email(BetterContactQuery(linkedin_url=self.profile_url))
         except BetterContactUnavailable:
             return None
         if result:
-            self.api_email = result.email
-            self.save(update_fields=["api_email"])
+            self.email = result.email
+            self.save(update_fields=["email"])
             return True
         return False
 
@@ -74,12 +73,11 @@ class Lead(models.Model):
         """Standard profile dict shape used by qualifiers and pools.
 
         The rich profile is not carried — the embedding (cached at discovery) and
-        the identity keys are all the ranking/lookup legs need.
+        the identity key are all the ranking/lookup legs need.
         """
         return {
             "lead_id": self.pk,
-            "public_identifier": self.public_identifier,
-            "url": self.linkedin_url or "",
+            "profile_url": self.profile_url,
             "meta": {},
         }
 

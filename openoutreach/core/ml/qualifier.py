@@ -124,7 +124,7 @@ def _load_profile_embeddings(profiles: list, *, skip_missing: bool = False):
         if emb is None:
             if skip_missing:
                 continue
-            pid = p.get("public_identifier", "?")
+            pid = p.get("profile_url", "?")
             raise RuntimeError(f"No embedding found for profile {pid}")
         result.append((p, emb))
     return result

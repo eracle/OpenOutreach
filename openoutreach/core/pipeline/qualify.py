@@ -13,24 +13,22 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_qualification_candidates(session):
-    """Return Lead rows (with embeddings) for leads awaiting qualification."""
+    """Embedded, un-dealt Leads awaiting qualification in this campaign, oldest first.
+
+    Invariant (convention, not DB-enforced): a disqualified lead never gets a NEW
+    deal, so every deal-creating query filters ``disqualified=False``.
+    """
     from openoutreach.crm.models import Lead
-    from openoutreach.core.db.leads import get_leads_for_qualification
-
-    leads = get_leads_for_qualification(session)
-    if not leads:
-        return []
-
-    lead_ids = {ld["lead_id"] for ld in leads}
 
     return list(
-        Lead.objects.filter(pk__in=lead_ids, embedding__isnull=False)
+        Lead.objects.filter(disqualified=False, embedding__isnull=False)
+        .exclude(deal__campaign=session.campaign)
         .order_by("creation_date")
     )
 
 
 def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
-    """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns public_id or None."""
+    """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns profile_url or None."""
     from openoutreach.core.ml.qualifier import qualify_with_llm, format_prediction
 
     candidates = fetch_qualification_candidates(session)
@@ -58,8 +56,7 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
             logger.info("Strategy: %s (neg=%d, pos=%d)",
                         colored(strategy, "cyan", attrs=["bold"]), n_neg, n_pos)
 
-    lead_id = candidate.pk
-    public_id = candidate.public_identifier
+    profile_url = candidate.profile_url
     embedding = candidate.embedding_array
 
     result = qualifier.predict(embedding)
@@ -68,29 +65,27 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
         pred_prob, entropy, std = result
         stats = format_prediction(pred_prob, entropy, std, qualifier.n_obs)
         sel = f", {selection_score[0]}={selection_score[1]:.4f}" if selection_score else ""
-        logger.debug("%s (%s%s) — querying LLM", public_id, stats, sel)
+        logger.debug("%s (%s%s) — querying LLM", profile_url, stats, sel)
     else:
-        logger.debug("%s GP not fitted (%d obs) — querying LLM", public_id, qualifier.n_obs)
+        logger.debug("%s GP not fitted (%d obs) — querying LLM", profile_url, qualifier.n_obs)
 
-    profile_text = _fetch_profile_text(session, lead_id, public_id)
-    if not profile_text:
-        # No text source yet — the discovery→qualify wiring (Lead Finder rows)
-        # lands in the reshape step. Skip rather than disqualify: a lead we
-        # can't read is not a negative fit signal.
-        logger.debug("No profile text for lead %d — skipping qualification", lead_id)
+    if not candidate.profile_text:
+        # A lead we can't read is not a negative fit signal — skip rather than
+        # disqualify (e.g. a pre-pivot lead with no persisted firmographic text).
+        logger.debug("No profile text for %s — skipping qualification", profile_url)
         return None
 
     campaign = session.campaign
     label, reason = qualify_with_llm(
-        profile_text,
+        candidate.profile_text,
         product_docs=campaign.product_docs,
         campaign_objective=campaign.campaign_objective,
     )
-    _save_qualification_result(session, qualifier, lead_id, public_id, embedding, label, reason)
-    return public_id
+    _save_qualification_result(session, qualifier, profile_url, embedding, label, reason)
+    return profile_url
 
 
-def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: int, public_id: str, embedding: np.ndarray, label: int, reason: str):
+def _save_qualification_result(session, qualifier: BayesianQualifier, profile_url: str, embedding: np.ndarray, label: int, reason: str):
     # LLM rejections are tracked as FAILED Deals with "Disqualified" closing reason
     # (campaign-scoped), not as Lead.disqualified (permanent account-level exclusion).
     #
@@ -106,18 +101,11 @@ def _save_qualification_result(session, qualifier: BayesianQualifier, lead_id: i
 
     if label == 1:
         try:
-            promote_lead_to_deal(session, public_id, reason=reason)
+            promote_lead_to_deal(session, profile_url, reason=reason)
         except ValueError as e:
-            logger.warning("Cannot promote %s: %s — disqualifying", public_id, e)
-            create_disqualified_deal(session, public_id, reason=str(e))
+            logger.warning("Cannot promote %s: %s — disqualifying", profile_url, e)
+            create_disqualified_deal(session, profile_url, reason=str(e))
             return
-        logger.info("%s %s: %s", public_id, colored("QUALIFIED", "green", attrs=["bold"]), reason)
+        logger.info("%s %s: %s", profile_url, colored("QUALIFIED", "green", attrs=["bold"]), reason)
     else:
-        create_disqualified_deal(session, public_id, reason=reason)
-
-
-def _fetch_profile_text(session, lead_id: int, public_id: str) -> str | None:
-    """Text for the LLM qualifier. Sourced from the Lead Finder row once the
-    discovery→qualify reshape lands; until then there is no persisted text
-    source, so qualification is skipped (see ``run_qualification``)."""
-    return None
+        create_disqualified_deal(session, profile_url, reason=reason)

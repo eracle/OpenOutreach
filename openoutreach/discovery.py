@@ -41,9 +41,14 @@ def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
     return leads
 
 
+def profile_text_for(row: dict) -> str:
+    """Firmographic text for one lead row — the LLM qualifier's input and the
+    embedding's source, built from the same fields so both stay comparable."""
+    return " ".join(row.get(f) or "" for f in TEXT_FIELDS).lower()
+
+
 def embed_row(row: dict) -> np.ndarray:
     """384-dim vector for one lead row, for ML qualification."""
     from openoutreach.core.ml.embeddings import embed_text
 
-    text = " ".join(row.get(f) or "" for f in TEXT_FIELDS).lower()
-    return embed_text(text)
+    return embed_text(profile_text_for(row))

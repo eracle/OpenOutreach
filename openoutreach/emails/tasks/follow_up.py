@@ -57,7 +57,7 @@ def handle_follow_up(task, session, qualifiers):
         logger.info("[%s] follow_up: nothing due (no EMAILED deal past its countdown with box headroom)", campaign)
         return
 
-    public_id = deal.lead.public_identifier
+    public_id = deal.lead.profile_url
     logger.info("[%s] %s %s", campaign, colored("▶ follow_up", "green", attrs=["bold"]), public_id)
 
     decision = run_follow_up_agent(session, deal)
@@ -79,10 +79,10 @@ def _send_reply(session, deal, decision) -> None:
     from openoutreach.emails.sender import send_email
 
     subject = _reply_subject(deal.email_subject)
-    logger.info("[%s] follow_up reply to %s: %s", deal.campaign, deal.lead.public_identifier, decision.message)
+    logger.info("[%s] follow_up reply to %s: %s", deal.campaign, deal.lead.profile_url, decision.message)
     message_id = send_email(
         deal.mailbox,
-        deal.lead.api_email,
+        deal.lead.email,
         subject,
         decision.message,
         bcc=session.django_user.email,
@@ -106,9 +106,9 @@ def _complete(session, deal, decision) -> None:
     """End the conversation with the agent's chosen outcome."""
     from openoutreach.core.db.deals import set_profile_state
 
-    set_profile_state(session, deal.lead.public_identifier, DealState.COMPLETED.value, outcome=decision.outcome)
+    set_profile_state(session, deal.lead.profile_url, DealState.COMPLETED.value, outcome=decision.outcome)
     logger.info("[%s] follow_up completed for %s: outcome=%s",
-                deal.campaign, deal.lead.public_identifier, decision.outcome)
+                deal.campaign, deal.lead.profile_url, decision.outcome)
 
 
 def _rearm(deal, decision) -> None:
