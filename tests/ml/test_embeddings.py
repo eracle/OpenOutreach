@@ -2,7 +2,6 @@
 """Tests for embedding computation and Lead embedding fields."""
 from __future__ import annotations
 
-from datetime import date
 from unittest.mock import patch, MagicMock
 
 import numpy as np
@@ -15,8 +14,8 @@ class TestEmbedText:
         mock_model = MagicMock()
         mock_model.embed.return_value = [np.random.randn(384).astype(np.float32)]
 
-        with patch("openoutreach.linkedin.ml.embeddings._model", mock_model):
-            from openoutreach.linkedin.ml.embeddings import embed_text
+        with patch("openoutreach.core.ml.embeddings._model", mock_model):
+            from openoutreach.core.ml.embeddings import embed_text
             result = embed_text("hello world")
 
         assert result.shape == (384,)
@@ -29,8 +28,8 @@ class TestEmbedText:
             np.random.randn(384).astype(np.float32),
         ]
 
-        with patch("openoutreach.linkedin.ml.embeddings._model", mock_model):
-            from openoutreach.linkedin.ml.embeddings import embed_texts
+        with patch("openoutreach.core.ml.embeddings._model", mock_model):
+            from openoutreach.core.ml.embeddings import embed_texts
             result = embed_texts(["hello", "world"])
 
         assert result.shape == (2, 384)
@@ -42,7 +41,7 @@ class TestLeadEmbeddingFields:
 
         emb = np.random.randn(384).astype(np.float32)
         Lead.objects.create(
-            pk=1, public_identifier="alice", linkedin_url="https://linkedin.com/in/alice/",
+            pk=1, profile_url="https://linkedin.com/in/alice/",
             embedding=emb.tobytes(),
         )
 
@@ -53,7 +52,7 @@ class TestLeadEmbeddingFields:
         from openoutreach.crm.models import Lead
 
         emb = np.random.randn(384).astype(np.float32)
-        lead = Lead(pk=1, public_identifier="alice", linkedin_url="https://linkedin.com/in/alice/")
+        lead = Lead(pk=1, profile_url="https://linkedin.com/in/alice/")
         lead.embedding_array = emb
         lead.save()
 
@@ -64,7 +63,7 @@ class TestLeadEmbeddingFields:
         from openoutreach.crm.models import Lead
 
         lead = Lead.objects.create(
-            pk=1, public_identifier="alice", linkedin_url="https://linkedin.com/in/alice/",
+            pk=1, profile_url="https://linkedin.com/in/alice/",
         )
         assert lead.embedding_array is None
 
@@ -78,29 +77,26 @@ class TestLeadEmbeddingFields:
 
     def test_get_labeled_arrays_from_deals(self, fake_session):
         """Labels are derived from Deal state + outcome."""
-        from openoutreach.crm.models import Deal, Lead, Outcome
-        from linkedin_cli.enums import ProfileState
+        from openoutreach.crm.models import Deal, Lead, Outcome, DealState
 
         campaign = fake_session.campaign
 
         # Create a lead with embedding + QUALIFIED deal → label=1
         emb = np.random.randn(384).astype(np.float32)
         lead = Lead.objects.create(
-            linkedin_url="https://linkedin.com/in/alice/",
-            public_identifier="alice", embedding=emb.tobytes(),
+            profile_url="https://linkedin.com/in/alice/", embedding=emb.tobytes(),
         )
         Deal.objects.create(
-            lead=lead, campaign=campaign, state=ProfileState.QUALIFIED,
+            lead=lead, campaign=campaign, state=DealState.QUALIFIED,
         )
 
         # Create a lead with embedding + FAILED/Disqualified deal → label=0
         emb2 = np.random.randn(384).astype(np.float32)
         lead2 = Lead.objects.create(
-            linkedin_url="https://linkedin.com/in/bob/",
-            public_identifier="bob", embedding=emb2.tobytes(),
+            profile_url="https://linkedin.com/in/bob/", embedding=emb2.tobytes(),
         )
         Deal.objects.create(
-            lead=lead2, campaign=campaign, state=ProfileState.FAILED,
+            lead=lead2, campaign=campaign, state=DealState.FAILED,
             outcome=Outcome.WRONG_FIT,
         )
 
@@ -110,18 +106,16 @@ class TestLeadEmbeddingFields:
 
     def test_get_labeled_arrays_skips_operational_failures(self, fake_session):
         """FAILED deals with non-wrong_fit outcome are not training data."""
-        from openoutreach.crm.models import Deal, Lead, Outcome
-        from linkedin_cli.enums import ProfileState
+        from openoutreach.crm.models import Deal, Lead, Outcome, DealState
 
         campaign = fake_session.campaign
 
         emb = np.random.randn(384).astype(np.float32)
         lead = Lead.objects.create(
-            linkedin_url="https://linkedin.com/in/charlie/",
-            public_identifier="charlie", embedding=emb.tobytes(),
+            profile_url="https://linkedin.com/in/charlie/", embedding=emb.tobytes(),
         )
         Deal.objects.create(
-            lead=lead, campaign=campaign, state=ProfileState.FAILED,
+            lead=lead, campaign=campaign, state=DealState.FAILED,
             outcome=Outcome.UNKNOWN,
         )
 
@@ -133,13 +127,11 @@ class TestLeadEmbeddingFields:
 
         emb = np.random.randn(384).astype(np.float32)
         Lead.objects.create(
-            pk=1, public_identifier="alice",
-            linkedin_url="https://linkedin.com/in/alice/",
+            pk=1, profile_url="https://linkedin.com/in/alice/",
             embedding=emb.tobytes(),
         )
         Lead.objects.create(
-            pk=2, public_identifier="bob",
-            linkedin_url="https://linkedin.com/in/bob/",
+            pk=2, profile_url="https://linkedin.com/in/bob/",
             embedding=emb.tobytes(),
         )
 

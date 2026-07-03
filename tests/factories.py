@@ -19,10 +19,7 @@ class LeadFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = "crm.Lead"
 
-    public_identifier = factory.Sequence(lambda n: f"lead-{n}")
-    linkedin_url = factory.LazyAttribute(
-        lambda o: f"https://www.linkedin.com/in/{o.public_identifier}/"
-    )
+    profile_url = factory.Sequence(lambda n: f"https://www.linkedin.com/in/lead-{n}/")
 
 
 class DealFactory(factory.django.DjangoModelFactory):

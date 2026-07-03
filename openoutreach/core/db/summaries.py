@@ -131,25 +131,22 @@ def extract_facts(
 def materialize_profile_summary_if_missing(deal, session) -> None:
     """Build `deal.profile_summary` lazily on first follow-up touch.
 
-    Re-scrapes the lead via Voyager once per `(lead, campaign)` lifetime,
-    extracts facts conditioned on the campaign objective + product docs,
-    persists them on the Deal. No-op if already built.
+    Extracts facts from the lead's stored firmographic ``profile_text`` (captured
+    at discovery — no re-scrape), conditioned on the campaign objective + product
+    docs, and persists them on the Deal. No-op if already built or the lead has no
+    profile text.
     """
     if deal.profile_summary:
         return
 
     lead = deal.lead
-    profile = lead.get_profile(session)
-    if not profile:
+    if not lead.profile_text:
         logger.warning(
-            "materialize_profile_summary: empty profile for deal=%s lead=%s",
+            "materialize_profile_summary: no profile_text for deal=%s lead=%s",
             deal.pk, lead.profile_url,
         )
         return
 
-    from openoutreach.core.ml.profile_text import build_profile_text
-
-    profile_text = build_profile_text({"profile": profile})
     context_parts = []
     campaign = deal.campaign
     if getattr(campaign, "campaign_objective", None):
@@ -159,7 +156,7 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
     context = "\n\n".join(context_parts)
 
     facts = extract_facts(
-        profile_text,
+        lead.profile_text,
         seller_name=seller_name_from(session),
         context=context,
     )

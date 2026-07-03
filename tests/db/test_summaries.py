@@ -12,15 +12,6 @@ from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
 from tests.factories import LeadFactory, DealFactory
 
 
-FAKE_PROFILE = {
-    "first_name": "Alice",
-    "last_name": "Smith",
-    "headline": "Senior Engineer at Acme",
-    "positions": [{"company_name": "Acme Corp", "title": "Senior Engineer"}],
-    "urn": "urn:li:fsd_profile:ABC123",
-}
-
-
 def _structured_test_model(output: dict) -> TestModel:
     """TestModel that yields *output* as the structured output args."""
     return TestModel(custom_output_args=output)
@@ -49,10 +40,7 @@ def _capturing_function_model(captured: dict, output: dict) -> FunctionModel:
 
 @pytest.fixture
 def deal_with_lead(db, fake_session):
-    lead = LeadFactory(
-        public_identifier="alice",
-        linkedin_url="https://www.linkedin.com/in/alice/",
-    )
+    lead = LeadFactory(profile_url="https://www.linkedin.com/in/alice/")
     return DealFactory(lead=lead, campaign=fake_session.campaign)
 
 
@@ -103,26 +91,31 @@ class TestMaterializeProfileSummary:
 
         mock_extract.assert_not_called()
 
-    def test_builds_via_rescrape_and_persists(self, db, fake_session, deal_with_lead):
+    def test_builds_from_profile_text_and_persists(self, db, fake_session, deal_with_lead):
         from openoutreach.core.db.summaries import materialize_profile_summary_if_missing
 
-        with patch.object(deal_with_lead.lead, "get_profile", return_value=FAKE_PROFILE) as mock_refresh, \
-             patch("openoutreach.core.db.summaries.extract_facts",
+        deal_with_lead.lead.profile_text = "senior engineer at acme"
+        deal_with_lead.lead.save(update_fields=["profile_text"])
+
+        with patch("openoutreach.core.db.summaries.extract_facts",
                    return_value=["Senior Engineer at Acme.", "URN ABC123."]) as mock_extract:
             materialize_profile_summary_if_missing(deal_with_lead, fake_session)
 
-        mock_refresh.assert_called_once_with(fake_session)
         mock_extract.assert_called_once()
+        # Facts are extracted from the stored profile_text — no re-scrape.
+        assert mock_extract.call_args.args[0] == "senior engineer at acme"
         deal_with_lead.refresh_from_db()
         assert deal_with_lead.profile_summary == {
             "facts": ["Senior Engineer at Acme.", "URN ABC123."]
         }
 
-    def test_empty_profile_logs_and_skips(self, db, fake_session, deal_with_lead, caplog):
+    def test_no_profile_text_logs_and_skips(self, db, fake_session, deal_with_lead, caplog):
         from openoutreach.core.db.summaries import materialize_profile_summary_if_missing
 
-        with patch.object(deal_with_lead.lead, "get_profile", return_value=None), \
-             patch("openoutreach.core.db.summaries.extract_facts") as mock_extract:
+        deal_with_lead.lead.profile_text = ""
+        deal_with_lead.lead.save(update_fields=["profile_text"])
+
+        with patch("openoutreach.core.db.summaries.extract_facts") as mock_extract:
             materialize_profile_summary_if_missing(deal_with_lead, fake_session)
 
         mock_extract.assert_not_called()

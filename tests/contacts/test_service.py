@@ -25,10 +25,13 @@ def _resp(status_code=200, body=None):
     return resp
 
 
-def _config(token="tok", url=""):
+def _config(token="tok", url="", country_code="us"):
+    # country_code is the operator's jurisdiction — the give-back gate. Default
+    # non-EEA so contribute proceeds; the EEA-operator test overrides it.
     cfg = SiteConfig.load()
     cfg.contacts_api_token = token
     cfg.contacts_api_url = url
+    cfg.country_code = country_code
     cfg.save()
     return cfg
 
@@ -50,28 +53,28 @@ def _session(contribute_to_hub=True):
 class TestResolve:
     def test_no_token_returns_none_without_a_call(self):
         _config(token="")
-        lead = LeadFactory(public_identifier="jane-doe")
+        lead = LeadFactory(profile_url="jane-doe")
         with patch.object(service.requests, "get") as get:
             assert service.resolve(lead) is None
         get.assert_not_called()
 
     def test_hit_returns_email(self):
         _config()
-        lead = LeadFactory(public_identifier="jane-doe")
+        lead = LeadFactory(profile_url="jane-doe")
         body = {"public_identifier": "jane-doe", "emails": ["jane@acme.com"]}
         with patch.object(service.requests, "get", return_value=_resp(200, body)):
             assert service.resolve(lead) == "jane@acme.com"
 
     def test_hit_with_multiple_emails_takes_first(self):
         _config()
-        lead = LeadFactory(public_identifier="jane-doe")
+        lead = LeadFactory(profile_url="jane-doe")
         body = {"public_identifier": "jane-doe", "emails": ["jane@acme.com", "j@personal.com"]}
         with patch.object(service.requests, "get", return_value=_resp(200, body)):
             assert service.resolve(lead) == "jane@acme.com"
 
     def test_hit_with_empty_emails_returns_none(self):
         _config()
-        lead = LeadFactory(public_identifier="jane-doe")
+        lead = LeadFactory(profile_url="jane-doe")
         with patch.object(service.requests, "get", return_value=_resp(200, {"emails": []})):
             assert service.resolve(lead) is None
 
@@ -118,7 +121,7 @@ class TestContribute:
 
     def test_with_token_posts_the_record(self):
         _config(token="tok")
-        lead = LeadFactory(public_identifier="jane-doe", country_code="in")
+        lead = LeadFactory(profile_url="jane-doe", country_code="in")
         with patch.object(
             service.requests, "post", return_value=_resp(200, {"accepted": 1, "credits": 7}),
         ) as post:
@@ -136,7 +139,7 @@ class TestContribute:
 
     def test_first_contribution_registers_and_persists_token(self):
         _config(token="")
-        lead = LeadFactory(public_identifier="jane-doe", country_code="br")
+        lead = LeadFactory(profile_url="jane-doe", country_code="br")
         with patch.object(
             service.requests, "post", return_value=_resp(200, {"token": "NEW", "credits": 1}),
         ) as post:
@@ -158,19 +161,19 @@ class TestContribute:
             service.contribute(_session(), lead, ["jane@acme.com"], service.ORIGIN_BETTERCONTACT)
         assert SiteConfig.load().contacts_api_token == ""
 
-    def test_opted_out_operator_contributes_nothing(self):
-        _config(token="tok")
+    def test_eea_operator_contributes_nothing(self):
+        """An operator inside the EEA/UK/CH does not give back (jurisdiction gate)."""
+        cfg = _config(token="tok")
+        cfg.country_code = "de"
+        cfg.save()
         lead = LeadFactory(country_code="in")
         with patch.object(service.requests, "post") as post:
-            service.contribute(
-                _session(contribute_to_hub=False), lead,
-                ["jane@acme.com"], service.ORIGIN_BETTERCONTACT,
-            )
+            service.contribute(_session(), lead, ["jane@acme.com"], service.ORIGIN_BETTERCONTACT)
         post.assert_not_called()
 
     def test_cached_embedding_rides_along(self):
         _config(token="tok")
-        lead = LeadFactory(public_identifier="jane-doe", country_code="in")
+        lead = LeadFactory(profile_url="jane-doe", country_code="in")
         lead.embedding_array = np.arange(384, dtype=np.float32)
         with patch.object(
             service.requests, "post", return_value=_resp(200, {"accepted": 1, "credits": 7}),

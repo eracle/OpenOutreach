@@ -35,6 +35,19 @@ class TestSearch:
             assert discovery.search({}) == []
 
 
+class TestProfileTextFor:
+    def test_joins_fields_in_order_lowercased(self):
+        row = {
+            "contact_headline": "Head of Growth", "contact_location": "Berlin",
+            "contact_industry": "SaaS", "contact_job_title": "CMO",
+            "company_name": "Acme", "company_description": "We sell widgets",
+        }
+        assert discovery.profile_text_for(row) == "head of growth berlin saas cmo acme we sell widgets"
+
+    def test_tolerates_missing_and_null_fields(self):
+        assert discovery.profile_text_for({"contact_headline": "Hi", "company_name": None}) == "hi     "
+
+
 class TestEmbedRow:
     def test_builds_ordered_lowercased_text(self):
         row = {
@@ -45,11 +58,11 @@ class TestEmbedRow:
             "company_name": "Acme",
             "company_description": "We sell widgets",
         }
-        with patch("openoutreach.linkedin.ml.embeddings.embed_text", return_value=np.ones(384)) as embed:
+        with patch("openoutreach.core.ml.embeddings.embed_text", return_value=np.ones(384)) as embed:
             discovery.embed_row(row)
         embed.assert_called_once_with("head of growth berlin saas cmo acme we sell widgets")
 
     def test_tolerates_missing_and_null_fields(self):
-        with patch("openoutreach.linkedin.ml.embeddings.embed_text", return_value=np.ones(384)) as embed:
+        with patch("openoutreach.core.ml.embeddings.embed_text", return_value=np.ones(384)) as embed:
             discovery.embed_row({"contact_headline": "Hi", "company_name": None})
         embed.assert_called_once_with("hi     ")

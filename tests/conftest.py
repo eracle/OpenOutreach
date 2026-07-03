@@ -24,30 +24,24 @@ def _mock_embeddings(request):
     if "no_embed_mock" in request.keywords:
         yield
     else:
-        with patch("openoutreach.linkedin.ml.embeddings.embed_text", return_value=np.ones(384)):
-            yield
-
-
-@pytest.fixture(autouse=True)
-def _mock_contact_capture(request):
-    """Stub the LinkedIn contact-info scrape so CONNECTED transitions don't hit a
-    live browser. Opt out with the `no_contact_capture_mock` marker — the dedicated
-    capture tests mock the lower linkedin_cli boundary to exercise the real method."""
-    if "no_contact_capture_mock" in request.keywords:
-        yield
-    else:
-        with patch("openoutreach.crm.models.lead.Lead.capture_contact_info", return_value=None):
+        with patch("openoutreach.core.ml.embeddings.embed_text", return_value=np.ones(384)):
             yield
 
 
 class FakeAccountSession:
-    """Minimal stand-in for AccountSession — exposes django_user + campaign."""
+    """Minimal stand-in for AccountSession — the Django User + SiteConfig identity.
 
-    def __init__(self, django_user, linkedin_profile, campaign):
+    ``self_profile`` is the OPERATOR's identity (still a plain dict, used by the
+    contacts give-back and the summary/agent prompt builders). Leads carry their
+    own ``profile_url`` identity on the model — the session no longer holds a
+    LinkedInProfile row.
+    """
+
+    def __init__(self, django_user, campaign):
         self.django_user = django_user
-        self.linkedin_profile = linkedin_profile
         self.campaign = campaign
         self.self_profile = {
+            "public_identifier": django_user.email or django_user.username,
             "first_name": "Diego",
             "last_name": "Ramirez",
             "urn": "urn:li:fsd_profile:TEST",
@@ -69,21 +63,12 @@ class FakeAccountSession:
 def fake_session(db):
     """An AccountSession-like object backed by the Django test DB."""
     from openoutreach.core.models import Campaign
-    from openoutreach.linkedin.models import LinkedInProfile
 
-    user = UserFactory(username="testuser")
+    user = UserFactory(username="testuser", email="testuser@example.com")
 
     campaign = Campaign.objects.first()
     if campaign is None:
         campaign = Campaign.objects.create(name="LinkedIn Outreach")
     campaign.users.add(user)
 
-    linkedin_profile, _ = LinkedInProfile.objects.get_or_create(
-        user=user,
-        defaults={
-            "linkedin_username": "testuser@example.com",
-            "linkedin_password": "testpass",
-        },
-    )
-
-    return FakeAccountSession(django_user=user, linkedin_profile=linkedin_profile, campaign=campaign)
+    return FakeAccountSession(django_user=user, campaign=campaign)

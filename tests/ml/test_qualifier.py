@@ -7,7 +7,7 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import pytest
 
-from openoutreach.linkedin.ml.qualifier import BayesianQualifier, _binary_entropy
+from openoutreach.core.ml.qualifier import BayesianQualifier, _binary_entropy
 
 
 def _make_trained_qualifier(n_pos=10, n_neg=10, seed=42):
@@ -117,29 +117,27 @@ class TestBaldScores:
 class TestRankProfiles:
     def test_rank_profiles_empty(self):
         qualifier = BayesianQualifier(seed=42)
-        assert qualifier.rank_profiles([], session=MagicMock()) == []
+        assert qualifier.rank_profiles([]) == []
 
     def test_rank_profiles_orders_by_posterior(self, db):
         from openoutreach.crm.models import Lead
 
         qualifier, pos_emb, neg_emb = _make_trained_qualifier()
         Lead.objects.create(
-            pk=1, public_identifier="positive",
-            linkedin_url="https://linkedin.com/in/positive/",
+            pk=1, profile_url="https://linkedin.com/in/positive/",
             embedding=pos_emb.tobytes(),
         )
         Lead.objects.create(
-            pk=2, public_identifier="negative",
-            linkedin_url="https://linkedin.com/in/negative/",
+            pk=2, profile_url="https://linkedin.com/in/negative/",
             embedding=neg_emb.tobytes(),
         )
 
         profiles = [
-            {"lead_id": 2, "public_identifier": "negative"},
-            {"lead_id": 1, "public_identifier": "positive"},
+            {"lead_id": 2, "profile_url": "https://linkedin.com/in/negative/"},
+            {"lead_id": 1, "profile_url": "https://linkedin.com/in/positive/"},
         ]
-        ranked = qualifier.rank_profiles(profiles, session=MagicMock())
-        assert ranked[0]["public_identifier"] == "positive"
+        ranked = qualifier.rank_profiles(profiles)
+        assert ranked[0]["profile_url"] == "https://linkedin.com/in/positive/"
 
 
 class TestWarmStart:
@@ -217,8 +215,8 @@ class TestPoolHasTargets:
 class TestExplainProfile:
     def test_explain_no_embedding(self, db):
         qualifier = BayesianQualifier(seed=42)
-        profile = {"lead_id": 999, "public_identifier": "nonexistent"}
-        explanation = qualifier.explain(profile, session=MagicMock())
+        profile = {"lead_id": 999, "profile_url": "https://linkedin.com/in/nonexistent/"}
+        explanation = qualifier.explain(profile)
         assert "no embedding" in explanation.lower()
 
     def test_explain_with_embedding(self, db):
@@ -226,13 +224,12 @@ class TestExplainProfile:
 
         qualifier, pos_emb, _ = _make_trained_qualifier()
         Lead.objects.create(
-            pk=1, public_identifier="alice",
-            linkedin_url="https://linkedin.com/in/alice/",
+            pk=1, profile_url="https://linkedin.com/in/alice/",
             embedding=pos_emb.tobytes(),
         )
 
-        profile = {"lead_id": 1, "public_identifier": "alice"}
-        explanation = qualifier.explain(profile, session=MagicMock())
+        profile = {"lead_id": 1, "profile_url": "https://linkedin.com/in/alice/"}
+        explanation = qualifier.explain(profile)
         assert "mean=" in explanation
         assert "obs=" in explanation
 
@@ -242,11 +239,10 @@ class TestExplainProfile:
         qualifier = BayesianQualifier(seed=42)
         emb = np.ones(384, dtype=np.float32)
         Lead.objects.create(
-            pk=1, public_identifier="alice",
-            linkedin_url="https://linkedin.com/in/alice/",
+            pk=1, profile_url="https://linkedin.com/in/alice/",
             embedding=emb.tobytes(),
         )
 
-        profile = {"lead_id": 1, "public_identifier": "alice"}
-        explanation = qualifier.explain(profile, session=MagicMock())
+        profile = {"lead_id": 1, "profile_url": "https://linkedin.com/in/alice/"}
+        explanation = qualifier.explain(profile)
         assert "not fitted" in explanation.lower()

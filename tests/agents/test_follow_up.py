@@ -10,7 +10,7 @@ from tests.factories import LeadFactory, DealFactory
 
 @pytest.fixture
 def deal_with_summaries(db, fake_session):
-    lead = LeadFactory(public_identifier="alice")
+    lead = LeadFactory()
     return DealFactory(
         lead=lead,
         campaign=fake_session.campaign,
@@ -59,7 +59,7 @@ class TestRenderSystemPrompt:
     def test_handles_missing_summaries_gracefully(self, db, fake_session):
         from openoutreach.core.agents.follow_up import _render_system_prompt
 
-        lead = LeadFactory(public_identifier="bob")
+        lead = LeadFactory()
         deal = DealFactory(lead=lead, campaign=fake_session.campaign)
         fake_session.self_profile = {"first_name": "Bob", "last_name": "Builder", "urn": "urn:li:fsd_profile:SELF"}
 
@@ -78,7 +78,7 @@ class TestLoadRecentMessages:
 
         from openoutreach.core.agents.follow_up import _load_recent_messages, RECENT_MESSAGES_WINDOW
 
-        lead = LeadFactory(public_identifier="alice")
+        lead = LeadFactory()
         deal = DealFactory(lead=lead, campaign=fake_session.campaign)
 
         base = timezone.now()
@@ -88,7 +88,7 @@ class TestLoadRecentMessages:
                 content=f"msg-{i}",
                 is_outgoing=(i % 2 == 0),
                 owner=fake_session.django_user,
-                linkedin_urn=f"urn:msg:{i}",
+                external_id=f"urn:msg:{i}",
                 creation_date=base + timedelta(minutes=i),
             )
 

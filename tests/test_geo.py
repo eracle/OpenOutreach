@@ -1,12 +1,9 @@
 # tests/test_geo.py
 import pytest
-from unittest.mock import MagicMock
 
-from openoutreach.linkedin.setup.geo import (
+from openoutreach.core.geo import (
     EEA_UK_CH,
     GDPR_COUNTRY_CODES,
-    apply_gdpr_contribution_override,
-    apply_gdpr_newsletter_override,
     is_eea_located,
     is_gdpr_protected,
 )
@@ -73,35 +70,6 @@ def test_all_eu_members_present():
     assert eu_codes.issubset(GDPR_COUNTRY_CODES)
 
 
-# ── apply_gdpr_newsletter_override ───────────────────────────────────
-
-
-def _make_fake_session(subscribe=None):
-    """Create a fake session with a linkedin_profile mock."""
-    session = MagicMock()
-    session.linkedin_profile.subscribe_newsletter = subscribe
-    return session
-
-
-def test_override_non_gdpr_sets_true():
-    session = _make_fake_session(subscribe=None)
-    apply_gdpr_newsletter_override(session, "us")
-    assert session.linkedin_profile.subscribe_newsletter is True
-    session.linkedin_profile.save.assert_called_once()
-
-
-def test_override_gdpr_respects_existing_config():
-    session = _make_fake_session(subscribe=False)
-    apply_gdpr_newsletter_override(session, "de")
-    assert session.linkedin_profile.subscribe_newsletter is False
-
-
-def test_override_missing_code_respects_existing_config():
-    session = _make_fake_session(subscribe=False)
-    apply_gdpr_newsletter_override(session, None)
-    assert session.linkedin_profile.subscribe_newsletter is False
-
-
 # ── is_eea_located (data-collection regime) ──────────────────────────
 
 
@@ -156,40 +124,3 @@ def test_eea_uk_ch_excludes_email_optin_countries():
     assert {"br", "ca", "au", "jp", "kr", "nz"}.isdisjoint(EEA_UK_CH)
     # but the full EEA/UK/CH line is present
     assert {"de", "fr", "no", "is", "li", "gb", "ch"}.issubset(EEA_UK_CH)
-
-
-# ── apply_gdpr_contribution_override (nationality-driven, not asked) ──
-
-
-def _contribution_session(contribute=None):
-    session = MagicMock()
-    session.linkedin_profile.contribute_to_hub = contribute
-    return session
-
-
-def test_contribution_override_enables_outside_eea():
-    session = _contribution_session(contribute=False)
-    apply_gdpr_contribution_override(session, "us")
-    assert session.linkedin_profile.contribute_to_hub is True
-    session.linkedin_profile.save.assert_called_once()
-
-
-def test_contribution_override_disables_inside_eea():
-    session = _contribution_session(contribute=True)
-    apply_gdpr_contribution_override(session, "de")
-    assert session.linkedin_profile.contribute_to_hub is False
-    session.linkedin_profile.save.assert_called_once()
-
-
-def test_contribution_override_missing_code_disables():
-    # Unknown location errs on the side of exclusion (is_eea_located → True).
-    session = _contribution_session(contribute=True)
-    apply_gdpr_contribution_override(session, None)
-    assert session.linkedin_profile.contribute_to_hub is False
-
-
-def test_contribution_override_no_write_when_unchanged():
-    session = _contribution_session(contribute=True)
-    apply_gdpr_contribution_override(session, "us")
-    assert session.linkedin_profile.contribute_to_hub is True
-    session.linkedin_profile.save.assert_not_called()

@@ -27,8 +27,23 @@ def _ready(campaign, email="lead@corp.com"):
     """A deal queued for its Layer-1 email (READY_TO_EMAIL, address resolved)."""
     return DealFactory(
         campaign=campaign,
-        lead=LeadFactory(api_email=email),
+        lead=LeadFactory(email=email),
         state=DealState.READY_TO_EMAIL,
+    )
+
+
+def _record_send(deal, box, user):
+    """Register one outgoing email on a box — the cap ledger counts outgoing
+    ChatMessages per box, not deals (the agentic loop sends many per deal)."""
+    from openoutreach.chat.models import ChatMessage
+
+    deal.mailbox = box
+    deal.state = DealState.EMAILED
+    deal.email_sent_at = timezone.now()
+    deal.save()
+    ChatMessage.objects.create(
+        deal=deal, external_id=f"<m{deal.pk}@corp.com>", content="body",
+        is_outgoing=True, owner=user, creation_date=timezone.now(),
     )
 
 
@@ -37,14 +52,11 @@ def _ready(campaign, email="lead@corp.com"):
 
 @pytest.mark.django_db
 class TestMailboxPacing:
-    def test_sent_today_counts_emailed_deals_for_this_box(self, fake_session):
+    def test_sent_today_counts_outgoing_messages_for_this_box(self, fake_session):
         box = _box(daily_limit=10)
         d = _ready(fake_session.campaign)
         assert box.sent_today() == 0
-        d.mailbox = box
-        d.state = DealState.EMAILED
-        d.email_sent_at = timezone.now()
-        d.save()
+        _record_send(d, box, fake_session.django_user)
         assert box.sent_today() == 1
         assert box.headroom_today() == 9
 
@@ -61,20 +73,12 @@ class TestMailboxPacing:
         heavy = _box("heavy@b.com", daily_limit=10)
         # Spend 4 on heavy.
         for _ in range(4):
-            d = _ready(fake_session.campaign)
-            d.mailbox = heavy
-            d.state = DealState.EMAILED
-            d.email_sent_at = timezone.now()
-            d.save()
+            _record_send(_ready(fake_session.campaign), heavy, fake_session.django_user)
         assert Mailbox.objects.least_loaded_under_cap() == light
 
     def test_least_loaded_returns_none_when_all_capped(self, fake_session):
         box = _box(daily_limit=1)
-        d = _ready(fake_session.campaign)
-        d.mailbox = box
-        d.state = DealState.EMAILED
-        d.email_sent_at = timezone.now()
-        d.save()
+        _record_send(_ready(fake_session.campaign), box, fake_session.django_user)
         assert Mailbox.objects.least_loaded_under_cap() is None
 
 
@@ -180,7 +184,7 @@ class TestHandleEmail:
             "openoutreach.core.db.summaries.materialize_profile_summary_if_missing",
         ), patch(
             "openoutreach.core.agents.email_opener.compose_opener_email",
-            return_value=EmailDraft(subject="Hi there", body="Short opener."),
+            return_value=EmailDraft(subject="Hi there", body="Short opener.", follow_up_hours=48),
         ), patch(
             "openoutreach.emails.sender.send_email", return_value="<mid@corp.com>",
         ) as send:
@@ -206,10 +210,7 @@ class TestHandleEmail:
     def test_no_op_when_every_box_is_capped(self, fake_session):
         box = _box(daily_limit=1)
         spent = _ready(fake_session.campaign, "spent@corp.com")
-        spent.mailbox = box
-        spent.state = DealState.EMAILED
-        spent.email_sent_at = timezone.now()
-        spent.save()
+        _record_send(spent, box, fake_session.django_user)
         queued = _ready(fake_session.campaign, "queued@corp.com")
 
         send = self._run(fake_session)

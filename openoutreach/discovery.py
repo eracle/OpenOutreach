@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 LEAD_FINDER_URL = "https://app.bettercontact.rocks/api/v2/lead_finder/async"
 
-# Lead-row fields we embed, in the same order as the LinkedIn-era
-# build_profile_text so old and new vectors stay comparable.
+# Lead-row fields we embed, in the same field order the pre-pivot embedder
+# used, so old and new vectors stay comparable in the cache's space.
 TEXT_FIELDS = [
     "contact_headline",
     "contact_location",
