@@ -1,11 +1,27 @@
 # openoutreach/linkedin/admin.py
 from django.contrib import admin
 
+from django import forms
 from openoutreach.linkedin.models import ActionLog, LinkedInProfile, SearchKeyword
+
+
+class LinkedInProfileForm(forms.ModelForm):
+    """Custom form for LinkedInProfile to mask sensitive password in Django Admin."""
+
+    class Meta:
+        model = LinkedInProfile
+        fields = "__all__"
+        widgets = {
+            # Use PasswordInput to hide the password from clear view.
+            # render_value=True is required so the existing password is not cleared when saving other fields.
+            "linkedin_password": forms.PasswordInput(render_value=True),
+        }
 
 
 @admin.register(LinkedInProfile)
 class LinkedInProfileAdmin(admin.ModelAdmin):
+    form = LinkedInProfileForm
+    # Ensure sensitive credentials are never added to list_display
     list_display = ("user", "linkedin_username", "active", "legal_accepted")
     list_filter = ("active",)
     raw_id_fields = ("user", "self_lead")
