@@ -18,4 +18,3 @@ huggingface_hub
 questionary
 pytz
 tenacity
-linkedin-agent-cli
