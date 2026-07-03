@@ -22,3 +22,4 @@ if __name__ == "__main__":
         sys.argv = [sys.argv[0], "rundaemon"] + sys.argv[1:]
 
     execute_from_command_line(sys.argv)
+
