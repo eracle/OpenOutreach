@@ -26,23 +26,65 @@ class MailboxManager(models.Manager):
             return None
         return min(ranked, key=lambda pair: pair[1])[0]
 
+    def create_verified(
+        self,
+        *,
+        from_address: str,
+        password: str,
+        host: str,
+        port: int,
+        imap_host: str,
+        imap_port: int,
+        daily_limit: int = DEFAULT_EMAIL_DAILY_LIMIT,
+    ) -> tuple["Mailbox | None", str]:
+        """Auth-check a mailbox over SMTP, then store it — the connect gate.
+
+        The provider has no health API, so the SMTP login *is* the gate: nothing
+        is stored unless auth succeeds, so a row always means working credentials.
+        The SMTP username is the address itself (a mailbox you own logs in as
+        itself; a distinct login is a relay case we don't support). Returns
+        ``(mailbox, "")`` on success or ``(None, reason)`` when auth is rejected.
+        Re-entering an address repairs that box in place (``update_or_create``).
+        """
+        from openoutreach.emails.smtp import verify_auth
+
+        ok, reason = verify_auth(host, port, from_address, password)
+        if not ok:
+            return None, reason
+        box, _ = self.update_or_create(
+            username=from_address,
+            defaults={
+                "password": password,
+                "from_address": from_address,
+                "host": host,
+                "port": port,
+                "imap_host": imap_host,
+                "imap_port": imap_port,
+                "daily_limit": daily_limit,
+            },
+        )
+        return box, ""
+
 
 class Mailbox(models.Model):
-    """One SMTP inbox. host/port default to IceMail's Google Workspace boxes.
+    """One SMTP inbox, connected field-by-field at onboarding.
 
-    A row exists only once its credentials pass the import auth-check — the
-    provider has no health API, so the import is the gate. Send-time failures
-    are not swallowed: a bad send fails its task and is retried, the box is
-    left untouched (re-import with fixed credentials to repair it).
+    A row exists only once its credentials pass the SMTP auth-check
+    (``objects.create_verified``) — the provider has no health API, so the login
+    is the gate. Send-time failures are not swallowed: a bad send fails its task
+    and is retried, the box is left untouched (re-enter fixed credentials to
+    repair it). host/port/imap default to IceMail's Google Workspace boxes; any
+    other provider overrides them at entry.
     """
 
     host = models.CharField(max_length=255, default="smtp.gmail.com")
     port = models.PositiveIntegerField(default=587)
     # IMAP read side, for the agentic follow-up loop's reply-reader
-    # (emails/inbox.py). Defaults match IceMail's Google Workspace boxes, which
-    # authenticate over IMAP with the same app password as SMTP.
+    # (emails/inbox.py); authenticates with the same address + app password as SMTP.
     imap_host = models.CharField(max_length=255, default="imap.gmail.com")
     imap_port = models.PositiveIntegerField(default=993)
+    # The SMTP login — always the address itself (a mailbox you own logs in as
+    # itself), kept as its own column for the unique constraint.
     username = models.CharField(max_length=320, unique=True)
     password = models.CharField(max_length=255)
     from_address = models.EmailField(max_length=320)

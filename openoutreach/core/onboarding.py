@@ -198,45 +198,52 @@ def _verify_llm_answers(answers: dict) -> None:
 
 # ── Mailbox step (mandatory) ─────────────────────────────────────
 
-_PASTE_GUIDANCE = """\
-  Connect a sending mailbox you own (Gmail / Workspace / your own domain).
-  Paste the App-Passwords sheet (columns: Email, App Password) with its header,
-  then Ctrl+D to submit. Each box is auth-checked before it's saved; at least one
-  must succeed to continue.
+_MAILBOX_GUIDANCE = """\
+  Connect a sending mailbox you own (IceMail / Gmail / Workspace / your own domain).
+  Enter its fields one at a time; the SMTP/IMAP hosts default to IceMail's Google
+  Workspace boxes — press Enter to accept, or type your provider's values. Use the
+  app password, not the login password. The box is auth-checked before it's saved.
 """
 
 
 def _setup_mailbox_interactive() -> None:
-    """Paste app passwords → auth-check → store. Loops until ≥1 box authenticates."""
+    """Enter mailbox fields one by one → SMTP auth-check → store. Loops until ≥1 box connects."""
     import questionary
-    from openoutreach.emails.mailbox_setup import import_mailboxes
-    from openoutreach.emails.models import has_mailbox
+    from openoutreach.emails.models import Mailbox, has_mailbox
 
-    from openoutreach.core.onboarding_wizard import MultilineText, _BACK
+    from openoutreach.core.onboarding_wizard import Confirm, IntText, Password, Text, ask
 
-    while not has_mailbox():
-        print(_PASTE_GUIDANCE)
-        pasted = MultilineText("mailboxes", "Paste your App-Passwords sheet").ask("")
-        if pasted is None:
+    print(_MAILBOX_GUIDANCE)
+    while True:
+        fields = ask([
+            Text("from_address", "Email address (the From: address and SMTP login)"),
+            Password("password", "App password"),
+            Text("host", "SMTP host", default="smtp.gmail.com"),
+            IntText("port", "SMTP port", default=587),
+            Text("imap_host", "IMAP host", default="imap.gmail.com"),
+            IntText("imap_port", "IMAP port", default=993),
+        ])
+        if fields is None:  # Ctrl+C
+            if has_mailbox():
+                return
             raise SystemExit("Onboarding cancelled.")
-        if pasted == _BACK or not pasted.strip():
+
+        box, reason = Mailbox.objects.create_verified(
+            from_address=fields["from_address"],
+            password=fields["password"],
+            host=fields["host"],
+            port=fields["port"],
+            imap_host=fields["imap_host"],
+            imap_port=fields["imap_port"],
+            daily_limit=DEFAULT_EMAIL_DAILY_LIMIT,
+        )
+        if box is None:
+            questionary.print(f"  ✗ {fields['from_address']}: {reason}", style="fg:red")
             continue
-        try:
-            report = import_mailboxes(pasted, DEFAULT_EMAIL_DAILY_LIMIT)
-        except ValueError as exc:
-            questionary.print(f"  {exc}", style="fg:red")
-            continue
-        for email, reason in report.failures:
-            questionary.print(f"  ✗ {email}: {reason}", style="fg:red")
-        if report.stored:
-            questionary.print(
-                f"  ✓ {report.stored} mailbox(es) authenticated and saved.", style="fg:green",
-            )
-        else:
-            questionary.print(
-                "  No mailbox authenticated — check the app passwords and try again.",
-                style="fg:red",
-            )
+        questionary.print(f"  ✓ {box.from_address} authenticated and saved.", style="fg:green")
+
+        if not Confirm("another", "Connect another mailbox?", default=False).ask(False):
+            return
 
 
 # ── BetterContact step (mandatory) ───────────────────────────────
