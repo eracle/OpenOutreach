@@ -1,271 +1,113 @@
-"""Reusable step-by-step prompt wizard with Ctrl+B-to-go-back support.
+# openoutreach/core/onboarding_wizard.py
+"""Minimal, robust console prompts for onboarding.
 
-Navigation: Ctrl+B goes back one step, Ctrl+C cancels the wizard,
-Ctrl+D skips optional fields (cancels on required ones).
-Each question type implements ``_prompt()`` which returns the raw user
-input, the sentinel ``_BACK``, or ``None`` (cancel).  The base class
-``ask()`` handles navigation, EOF handling, and cleaning uniformly.
+First principles
+----------------
+* **A prompt returns a value, or ``None`` when the user cancels** (Ctrl+C / EOF).
+  Callers treat ``None`` as "abort this step" — there is no third state and no
+  shared sentinel to leak.
+* **Validation loops live *inside* the prompt.** A bad value re-asks the *same*
+  field with what you typed still in place; it never throws you back to an
+  earlier question. The old design had a cross-question "back" stack and a
+  ``Question`` dataclass hierarchy whose overridden field-defaults were silently
+  dropped unless every subclass was re-decorated — the source of the
+  "can't answer no, loops to the start" bug. Both are gone.
+* **No module-level mutable state.** Each call is independent.
+
+These are deliberately thin wrappers over ``questionary``; the ordering and
+idempotency of onboarding lives in ``onboarding.py``.
 """
-
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
+from typing import Callable
 
 import questionary
-from prompt_toolkit.key_binding import KeyBindings
 
-# -- Sentinels & shared state ------------------------------------------------
-
-_BACK = "__BACK__"
-_CONTROLS = "Ctrl+B: back | Ctrl+D: skip optional | Ctrl+C: cancel"
-
-# -- Key bindings (shared by all inline question types) -----------------------
-
-_kb = KeyBindings()
+Validator = Callable[[str], "bool | str"]
 
 
-@_kb.add("c-b")
-def _go_back(event):
-    event.app.exit(result=_BACK)
+def _error(message: str) -> None:
+    questionary.print(f"  {message}", style="fg:red")
 
 
-# -- Validators ---------------------------------------------------------------
+def text(
+    message: str,
+    *,
+    default: str = "",
+    required: bool = True,
+    secret: bool = False,
+    validate: Validator | None = None,
+) -> str | None:
+    """Ask for a line of text. Returns the stripped value, or ``None`` on cancel.
 
-def _required(val: str) -> bool | str:
-    return True if val.strip() else "This field is required."
-
-
-def _integer(val: str) -> bool | str:
-    try:
-        int(val)
-        return True
-    except ValueError:
-        return "Please enter a valid integer."
-
-
-# -- Helpers ------------------------------------------------------------------
-
-def _clear():
-    os.system("clear" if os.name != "nt" else "cls")
-
-
-# -- Question types -----------------------------------------------------------
-
-
-@dataclass
-class Question:
-    """Base for all question types.
-
-    Subclasses implement ``_prompt(default, answers)`` and return the raw
-    user input, ``_BACK`` to go back, or ``None`` to cancel.
+    Empty input re-asks when ``required``; an optional field returns ``""``.
+    ``secret=True`` masks the input. ``validate(value) -> True | str`` adds a
+    field-specific check whose error string is shown before re-asking.
     """
-
-    key: str
-    message: str
-    default: str | int | bool = ""
-    required: bool = True
-
-    def ask(self, default, *, answers: dict | None = None):
-        """Prompt the user.  Returns cleaned answer, ``_BACK``, or ``None``.
-
-        Ctrl-D (EOF) skips optional fields and cancels required ones, so
-        every question type behaves the same whether the underlying
-        prompt is questionary or raw prompt_toolkit.
-        """
-        try:
-            raw = self._prompt(default, answers=answers)
-        except EOFError:
-            return None if self.required else self._empty_value(default)
-        if raw is None or raw == _BACK:
-            return raw
-        return self._clean(raw)
-
-    def _prompt(self, default, *, answers: dict | None = None):
-        raise NotImplementedError
-
-    def _clean(self, raw):
-        return raw.strip() if isinstance(raw, str) else raw
-
-    def _empty_value(self, default):
-        """Value returned when Ctrl-D skips an optional question."""
-        return ""
-
-    @property
-    def _instruction(self) -> str | None:
-        return "(optional)" if not self.required else None
-
-
-class Text(Question):
-    def _prompt(self, default, **_):
-        return questionary.text(
-            self.message, default=default, key_bindings=_kb,
-            validate=_required if self.required else None,
-            instruction=self._instruction,
+    prompt = questionary.password if secret else questionary.text
+    while True:
+        raw = prompt(
+            message,
+            default=default,
+            instruction=None if required else "(optional — Enter to skip)",
         ).ask()
-
-
-class Password(Question):
-    def _prompt(self, default, **_):
-        return questionary.password(
-            self.message, default=default, key_bindings=_kb,
-            validate=_required if self.required else None,
-        ).ask()
-
-
-# NOTE: any Question subclass that overrides a dataclass field default
-# (``default``/``required``) MUST be re-decorated with ``@dataclass`` — otherwise
-# it inherits Question's generated __init__ and the overrides are silently ignored
-# (e.g. a Confirm would come out required=True).
-@dataclass
-class Confirm(Question):
-    """Yes/no confirmation prompt.
-
-    When ``required=True`` the user **must** answer yes; answering no
-    cancels the wizard (returns ``None``).
-    """
-
-    default: bool = True
-    required: bool = False
-
-    def _prompt(self, default, **_):
-        while True:
-            result = questionary.confirm(
-                self.message,
-                default=default if isinstance(default, bool) else self.default,
-            ).ask()
-            if result is None:
-                return None
-            if not self.required or result:
-                return result
-            questionary.print("  You must accept to continue.", style="fg:red")
-
-    def _empty_value(self, default):
-        return bool(default) if isinstance(default, bool) else self.default
-
-
-@dataclass
-class IntText(Question):
-    """Integer text input."""
-
-    default: int = 0
-    required: bool = False
-
-    def _prompt(self, default, **_):
-        return questionary.text(
-            self.message, default=str(default), key_bindings=_kb,
-            validate=_integer,
-        ).ask()
-
-    def _clean(self, raw):
-        return int(raw)
-
-    def _empty_value(self, default):
-        try:
-            return int(default)
-        except (TypeError, ValueError):
-            return self.default
-
-
-class Autocomplete(Question):
-    """Type-to-filter searchable select with lazily resolved choices."""
-
-    def __init__(self, key: str, message: str, *, resolver: callable, default: str = ""):
-        super().__init__(key=key, message=message, default=default)
-        self.resolver = resolver
-
-    def _prompt(self, default, *, answers: dict | None = None):
-        choices = self.resolver(answers or {})
-        if not choices:
-            return questionary.text(
-                self.message, default=default, key_bindings=_kb,
-            ).ask()
-        return questionary.autocomplete(
-            self.message, choices=choices, default=default, key_bindings=_kb,
-            validate=lambda val: val in choices or "Please select a valid option",
-        ).ask()
-
-
-class MultilineText(Question):
-    """Inline multiline text input (Enter for newline, Ctrl+D to submit).
-
-    Required fields prompt directly.
-    Optional fields first ask a yes/no gate — answer "no" to skip.
-    """
-
-    def _prompt(self, default, **_):
-        if self.required:
-            return self._inline_prompt(default)
-        proceed = questionary.confirm(
-            self.message, default=bool(default),
-        ).ask()
-        if proceed is None:
-            return proceed
-        if not proceed:
-            return ""
-        return self._inline_prompt(default)
-
-    def _inline_prompt(self, default):
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.key_binding import KeyBindings as PTKeyBindings
-
-        bindings = PTKeyBindings()
-
-        @bindings.add("c-b")
-        def _back(event):
-            event.app.exit(result=_BACK)
-
-        @bindings.add("c-d", eager=True)
-        def _submit(event):
-            event.current_buffer.validate_and_handle()
-
-        session = PromptSession(key_bindings=bindings)
-        hint = "(optional) " if not self.required else ""
-        while True:
-            try:
-                text = session.prompt(
-                    f"? {self.message} {hint}(Ctrl+D to submit):\n",
-                    default=default or "",
-                    multiline=True,
-                )
-            except KeyboardInterrupt:
-                return None
-            if text == _BACK:
-                return _BACK
-            text = text.strip()
-            if self.required and not text:
-                questionary.print("  This field is required.", style="fg:red")
-                continue
-            return text
-
-
-# -- Wizard runner ------------------------------------------------------------
-
-
-def ask(questions: list[Question]) -> dict | None:
-    """Walk through *questions* collecting answers.
-
-    Returns a ``dict`` of answers keyed by ``question.key``,
-    or ``None`` if the user cancels (Ctrl+C).
-    """
-    answers: dict = {}
-    i = 0
-    while i < len(questions):
-        q = questions[i]
-        default = answers.get(q.key, q.default)
-
-        _clear()
-        print(f"  {_CONTROLS}  ({i + 1}/{len(questions)})\n")
-
-        result = q.ask(default, answers=answers)
-
-        if result is None:
+        if raw is None:
             return None
-        if result == _BACK:
-            i = max(0, i - 1)
+        value = raw.strip()
+        if not value:
+            if required:
+                _error("This field is required.")
+                continue
+            return ""
+        if validate is not None:
+            verdict = validate(value)
+            if verdict is not True:
+                _error(verdict if isinstance(verdict, str) else "Invalid value.")
+                continue
+        return value
+
+
+def integer(message: str, *, default: int) -> int | None:
+    """Ask for a whole number, re-asking until valid. Returns ``int`` or ``None``."""
+    while True:
+        raw = questionary.text(message, default=str(default)).ask()
+        if raw is None:
+            return None
+        try:
+            return int(raw.strip())
+        except ValueError:
+            _error("Please enter a whole number.")
+
+
+def confirm(message: str, *, default: bool) -> bool | None:
+    """Yes/no prompt. Returns ``bool`` or ``None`` on cancel."""
+    return questionary.confirm(message, default=default).ask()
+
+
+def multiline(message: str, *, default: str = "", required: bool = True) -> str | None:
+    """Multi-line text (Enter inserts a newline, Ctrl+D submits).
+
+    Returns the stripped text, or ``None`` on cancel (Ctrl+C). Required input
+    re-asks on empty.
+    """
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.key_binding import KeyBindings
+
+    bindings = KeyBindings()
+
+    @bindings.add("c-d", eager=True)
+    def _submit(event):
+        event.current_buffer.validate_and_handle()
+
+    session = PromptSession(key_bindings=bindings)
+    prompt = f"? {message} (Ctrl+D to submit):\n"
+    while True:
+        try:
+            raw = session.prompt(prompt, default=default, multiline=True)
+        except (KeyboardInterrupt, EOFError):
+            return None
+        value = raw.strip()
+        if not value and required:
+            _error("This field is required.")
             continue
-
-        answers[q.key] = result
-        i += 1
-
-    return answers
+        return value

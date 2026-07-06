@@ -65,26 +65,27 @@ Docker's `start` script `exec`s `python manage.py rundaemon` (no Xvfb/VNC — th
 
 ## Onboarding (`core/onboarding.py`)
 
-Email-first and mostly imperative. `OnboardConfig` is a small dataclass of the **declarative**
-answers only (product/objective/booking link, LLM creds, country, newsletter, legal); the two
-credential steps write directly, and the operator email is read back from the stored mailbox.
-
-`onboard_interactive()` runs the ordered steps, each skipped if already satisfied (so a partial
-onboarding resumes):
+Email-first, built as an **ordered list of idempotent steps** (`STEPS`). Each `Step` is a
+`(key, is_done, run)` triple: `is_done()` reads the DB (never prompts), `run()` collects what's
+missing and **persists it the moment it succeeds**. `onboard_interactive()` runs only the steps
+whose `is_done()` is false, in order — so a partial onboarding resumes exactly where it stopped and
+a satisfied step is never revisited. There is no end-of-wizard `apply()` that could half-fail; each
+step is its own commit point.
 
 ```
-1 product description   2 campaign objective   3 LLM (live-verified via verify_llm_credentials)
-4 mailbox / SMTP   (paste an App-Passwords sheet → SMTP auth-check → Mailbox rows; loops until ≥1 authenticates)
-5 BetterContact key  (mandatory — the SAME key powers Lead Finder discovery AND enrichment)
-6 country            (timezone + email jurisdiction)
-7 newsletter (opt-in, country-dependent default) + legal (required gate)
+campaign        product description + objective + booking link → Campaign row
+llm             LLM creds, live-verified via verify_llm_credentials (retries in place on failure)
+mailbox         field-by-field SMTP box → auth-check → Mailbox row; retries with values retained
+bettercontact   API key (mandatory — the SAME key powers Lead Finder discovery AND enrichment)
+account         country → newsletter (opt-in) → legal (required gate) → operator User + subscribe
 ```
 
-- The operator's email is **not asked** — it is the connected mailbox's `from_address`, so the operator `User` is created *after* the mailbox exists (`apply()` → `_create_account`).
-- `missing_keys()` reports the declarative fields **plus** the two credential steps (`mailbox`, `bettercontact`) and the account itself, so the daemon knows onboarding is incomplete until every gate passes.
-- The newsletter opt-in **default** is jurisdiction-aware (off in GDPR/opt-in countries via `core/geo.is_gdpr_protected`), but an explicit yes always subscribes (lawful consent anywhere).
-- Single write path: `apply(config)` — idempotent; creates the missing Campaign, writes LLM config + `country_code` to `SiteConfig`, creates the operator `User` from the mailbox email, and subscribes the newsletter once (a country-dependent, one-time action — no stored flag).
-- The interactive wizard is vendored: `onboarding_wizard.py` (questionary/prompt_toolkit step engine with back/skip/cancel, `Password`/`IntText`/`MultilineText` primitives) + `onboarding_prompts.py` (`CAMPAIGN_QUESTIONS`/`LLM_QUESTIONS`/`JURISDICTION_QUESTIONS`). No external `openoutreach` package dependency.
+- Cancellation is a **single exception**: prompts return `None` on Ctrl+C, `_required()` turns that into `OnboardingCancelled` at one boundary, and the mailbox step catches it (cancel with a box already connected just stops adding more; cancel with none aborts).
+- A failed step re-asks **its own** fields (mailbox retries retain what you typed; LLM retries re-verify) — it never rewinds to an earlier step or restarts the wizard. This is what fixed the "SMTP onboarding keeps looping back" bug, together with `emails/smtp.verify_auth` now selecting the transport by port (implicit SSL on 465, STARTTLS on 587) instead of hard-coding `starttls()`.
+- The operator's email is **not asked** — it is the connected mailbox's `from_address`, so the operator `User` is created in the last step, after a mailbox exists.
+- `missing_keys()` returns the keys of unsatisfied steps (`campaign`/`llm`/`mailbox`/`bettercontact`/`account`), so the daemon knows onboarding is incomplete until every gate passes.
+- The newsletter opt-in **default** is jurisdiction-aware (off in GDPR/opt-in countries via `core/geo.is_gdpr_protected`), but an explicit yes always subscribes (lawful consent anywhere). Nothing is persisted in the `account` step until the Legal Notice is accepted.
+- The interactive wizard is vendored in `onboarding_wizard.py`: thin `text`/`integer`/`confirm`/`multiline` functions over questionary/prompt_toolkit, each owning its own validation loop and returning a value or `None` (cancel). No external `openoutreach` package dependency.
 
 ## Deal State Machine
 
