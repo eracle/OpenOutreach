@@ -46,8 +46,8 @@ class Mailbox(models.Model):
     username = models.CharField(max_length=320, unique=True)
     password = models.CharField(max_length=255)
     from_address = models.EmailField(max_length=320)
-    # Warm-safe sends/day for this box, set at email onboarding (mirrors the
-    # LinkedIn connect_daily_limit). Enforced at send time, per box.
+    # Warm-safe sends/day for this box, set at email onboarding. Enforced at
+    # send time, per box (counts this box's outgoing messages since midnight).
     daily_limit = models.PositiveIntegerField(default=DEFAULT_EMAIL_DAILY_LIMIT)
 
     objects = MailboxManager()
@@ -81,6 +81,7 @@ class Mailbox(models.Model):
 
 def has_mailbox() -> bool:
     """True when ≥1 mailbox is configured — i.e. email is a viable channel to
-    send from. Gates email enrichment: with no mailbox there's nothing to send,
-    so resolving an address is pointless and the deal should take the connect leg."""
+    send from. Gates the find-email leg: with no mailbox there's nothing to send,
+    so resolving an address (and spending a credit) is pointless — the leg stays
+    idle until a mailbox is connected."""
     return Mailbox.objects.exists()

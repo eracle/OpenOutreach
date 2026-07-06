@@ -11,9 +11,8 @@ Two public entry points:
 Why a persistent worker thread (not `Agent.run_sync`, not `asyncio.run`):
 
 - `Agent.run_sync` uses an anyio portal that leaves the caller thread's
-  running-loop slot populated. Subsequent sync Playwright calls on the
-  daemon thread then raise
-  `"using Playwright Sync API inside the asyncio loop"`.
+  running-loop slot populated, poisoning later sync code on that thread
+  (anything that checks for a running loop then wrongly sees one).
 - `asyncio.run` per call closes its loop on exit. The openai / anthropic
   SDKs wrap `httpx.AsyncClient` in a subclass whose `__del__` does
   `get_running_loop().create_task(self.aclose())`. If GC fires the

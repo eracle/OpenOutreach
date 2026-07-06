@@ -1,10 +1,10 @@
 # openoutreach/emails/inbox.py
-"""IMAP reply-reader — the email analog of ``linkedin/db/chat.py:sync_conversation``.
+"""IMAP reply-reader — feeds the agentic follow-up loop its inbound messages.
 
 Reads replies to a deal's email thread over IMAP, upserts them as incoming
 ``ChatMessage`` rows, and folds the new ones into the Deal's ``chat_summary``.
-The follow-up agent then reads the same ChatMessage rows it always has — only the
-source of inbound messages moved from Voyager to the mailbox.
+The follow-up agent then reads those ChatMessage rows — the inbound side of the
+same conversation store its outgoing replies are written to.
 
 Threading: the opener's Message-ID (``Deal.email_message_id``) is the immutable
 thread root; a reply carries it in ``References``/``In-Reply-To``, so a single

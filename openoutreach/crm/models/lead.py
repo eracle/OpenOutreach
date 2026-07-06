@@ -72,13 +72,12 @@ class Lead(models.Model):
     def to_profile_dict(self) -> dict:
         """Standard profile dict shape used by qualifiers and pools.
 
-        The rich profile is not carried — the embedding (cached at discovery) and
-        the identity key are all the ranking/lookup legs need.
+        The rich profile is not carried — the identity key (to look up the cached
+        embedding) is all the ranking/lookup legs read.
         """
         return {
             "lead_id": self.pk,
             "profile_url": self.profile_url,
-            "meta": {},
         }
 
     @property

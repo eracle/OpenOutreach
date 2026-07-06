@@ -1,4 +1,4 @@
-# openoutreach/linkedin/pipeline/ready_pool.py
+# openoutreach/core/pipeline/ready_pool.py
 """Find-email pool: GP confidence gate between QUALIFIED and READY_TO_FIND_EMAIL.
 
 The rank gate for the paid action — the browserless replacement for the old

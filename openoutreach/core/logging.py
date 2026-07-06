@@ -89,7 +89,7 @@ def brand(service: str, text: str | None = None) -> str:
 # ── Public API ──────────────────────────────────────────────────────
 
 SILENCED_LOGGERS = (
-    "urllib3", "httpx", "pydantic_ai", "openai", "playwright",
+    "urllib3", "httpx", "pydantic_ai", "openai",
     "httpcore", "fastembed", "huggingface_hub", "filelock", "asyncio",
 )
 

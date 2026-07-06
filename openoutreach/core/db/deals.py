@@ -17,17 +17,6 @@ _STATE_LOG_STYLE = {
 }
 
 
-def _deal_to_profile_dict(deal) -> dict:
-    """Convert a Deal (with select_related lead) to a profile dict for lanes."""
-    base = deal.lead.to_profile_dict()
-    base["meta"] = {
-        "connect_attempts": deal.connect_attempts,
-        "backoff_hours": deal.backoff_hours,
-        "reason": deal.reason,
-    }
-    return base
-
-
 def _deals_at_state(session, state: DealState) -> list:
     """Return profile dicts for all Deals at the given state in this campaign."""
     from openoutreach.crm.models import Deal
@@ -36,7 +25,7 @@ def _deals_at_state(session, state: DealState) -> list:
         state=state,
         campaign=session.campaign,
     ).select_related("lead")
-    return [_deal_to_profile_dict(d) for d in qs]
+    return [d.lead.to_profile_dict() for d in qs]
 
 
 def _existing_deal_or_lead(profile_url: str, campaign):
@@ -108,7 +97,7 @@ def get_qualified_profiles(session) -> list:
         state=DealState.QUALIFIED,
         campaign=session.campaign,
     ).select_related("lead")
-    return [_deal_to_profile_dict(d) for d in qs]
+    return [d.lead.to_profile_dict() for d in qs]
 
 
 def get_ready_to_find_email_profiles(session) -> list:

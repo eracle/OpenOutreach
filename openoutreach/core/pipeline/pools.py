@@ -1,4 +1,4 @@
-# openoutreach/linkedin/pipeline/pools.py
+# openoutreach/core/pipeline/pools.py
 """Pool management via composable generators.
 
 Two generators chain via ``next(upstream, None)``:
@@ -48,7 +48,7 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
 def ready_source(session, qualifier: BayesianQualifier, threshold: float | None = None) -> Generator[dict, None, None]:
     """Yield ready-to-find-email candidates, pulling from qualify when needed."""
     if threshold is None:
-        threshold = CAMPAIGN_CONFIG["min_ready_to_connect_prob"]
+        threshold = CAMPAIGN_CONFIG["min_gp_confidence"]
     qualify = qualify_source(session, qualifier)
 
     while True:

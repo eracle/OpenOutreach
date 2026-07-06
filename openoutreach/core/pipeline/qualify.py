@@ -1,4 +1,4 @@
-# openoutreach/linkedin/pipeline/qualify.py
+# openoutreach/core/pipeline/qualify.py
 """Qualify orchestration for the lazy chain."""
 from __future__ import annotations
 

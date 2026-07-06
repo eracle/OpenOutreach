@@ -3,8 +3,8 @@
 Single LLM boundary for the lazy summary pipeline. Summaries are stored as
 JSON fact lists on `Deal.profile_summary` and `Deal.chat_summary`. Both are
 campaign-scoped derived caches: deleting them and re-running the lazy path
-rebuilds them from source (a Voyager re-scrape for `profile_summary`,
-`ChatMessage` rows for `chat_summary`).
+rebuilds them from source (the lead's stored `profile_text` for
+`profile_summary`, `ChatMessage` rows for `chat_summary` — no re-scrape).
 """
 from __future__ import annotations
 

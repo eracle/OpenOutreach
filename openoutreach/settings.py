@@ -1,13 +1,14 @@
 # openoutreach/settings.py
 """
-Minimal Django settings for using DjangoCRM's ORM + admin.
+Minimal Django settings for the OpenOutreach ORM + Django Admin.
 """
 import os
 import sys
 from pathlib import Path
 
-# Playwright's sync API runs inside an async event loop, which triggers
-# Django's async-safety check. We only use the ORM synchronously, so this is safe.
+# The agents drive async pydantic-ai from a sync boundary (core/llm.py), so an
+# event loop can be live on the thread when the ORM is touched. We only use the
+# ORM synchronously, so Django's async-safety guard is safe to relax.
 os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 ROOT_DIR = Path(__file__).resolve().parent.parent

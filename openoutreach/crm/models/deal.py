@@ -4,40 +4,36 @@ from django.utils.translation import gettext_lazy as _
 
 
 class DealState(models.TextChoices):
-    """OpenOutreach-owned funnel state for a Deal.
+    """OpenOutreach-owned funnel state for a Deal — the email-only pipeline.
 
-    OpenOutreach owns these values, not linkedin_cli. The library's connect/status
-    verbs only *observe* three of them off the LinkedIn UI — QUALIFIED, PENDING,
-    CONNECTED — and hand them back as plain strings over the CLI boundary; every
-    other state is written only here: READY_TO_CONNECT (passed the GP threshold),
-    the email fork (READY_TO_EMAIL/EMAILED), and COMPLETED/FAILED (outcome). The
-    three UI-observed string values match the library's so lifting a returned
-    string into this enum is a plain ``DealState(value)`` lookup at the boundary.
+    A lead is discovered and qualified without an email in hand (Lead Finder
+    returns firmographics, not addresses), so the funnel first *finds* the email
+    and then *talks*:
 
-    Email channel: enrichment is a *router*, not a gate, and the route is an
-    explicit FSM fork — the state *is* the routing:
+        QUALIFIED ─(GP rank gate)─▶ READY_TO_FIND_EMAIL ─(find_email task)─▶
+            hit:  READY_TO_EMAIL ─(email opener)─▶ EMAILED ⟲ (agentic follow-up)
+                                                   ─▶ COMPLETED / FAILED
+            miss: FAILED (reason="no email", outcome blank → ML-skipped)
 
-        HIT  ─▶ READY_TO_EMAIL ─(EMAIL task)─▶ EMAILED   (Layer-1 quasi-terminal)
-        MISS ─▶ stays QUALIFIED ─(GP gate)─▶ READY_TO_CONNECT ─▶ … ─▶ CONNECTED
+    - **READY_TO_FIND_EMAIL** — passed the GP confidence gate; queued for the
+      *paid* BetterContact lookup (one credit per verified hit), so the gate
+      rations spend to leads the model is confident about.
+    - **READY_TO_EMAIL** — an address exists; queued for the opener. A cheap,
+      *ungated* FIFO send-queue paced only by the per-box daily cap.
+    - **EMAILED** — the opener has been sent; the agentic follow-up loop reads
+      IMAP replies and decides send/wait/complete until the deal reaches a
+      terminal COMPLETED / FAILED. Pacing is the agent's own ``follow_up_hours``.
 
-    On a finder hit the qualify router transitions QUALIFIED → READY_TO_EMAIL (a
-    cheap, *ungated* send-queue — any qualified lead with an address, FIFO, paced
-    only by the per-box cap; unlike READY_TO_CONNECT it is NOT a GP confidence
-    gate). The single Layer-1 send moves it to EMAILED, a quasi-terminal state
-    that rests until a human sets an Outcome (no inbound reading yet). A miss,
-    finder-off, or couldn't-run leaves the deal QUALIFIED so the GP gate can
-    promote it to READY_TO_CONNECT — its only door — and the connection harvests
-    contact info on acceptance. The two fork states encode the one-shot guarantee
-    in the state column: the email pool holds only READY_TO_EMAIL, so a deal is
-    sent exactly once and can never double-send.
+    A ``find_email`` *miss* is terminal (FAILED, ``reason="no email"``, outcome
+    blank so the ML labeler skips it rather than scoring it a bad fit); a
+    *couldn't-run* (no key / out of credits / API down) leaves the deal at
+    READY_TO_FIND_EMAIL to retry. The LinkedIn connect leg
+    (READY_TO_CONNECT/PENDING/CONNECTED) was removed with the channel.
     """
     QUALIFIED = "Qualified"
     READY_TO_FIND_EMAIL = "Ready to Find Email"
     READY_TO_EMAIL = "Ready to Email"
     EMAILED = "Emailed"
-    READY_TO_CONNECT = "Ready to Connect"
-    PENDING = "Pending"
-    CONNECTED = "Connected"
     COMPLETED = "Completed"
     FAILED = "Failed"
 
@@ -77,26 +73,23 @@ class Deal(models.Model):
         default="",
     )
     reason = models.TextField(blank=True, default="")
-    connect_attempts = models.IntegerField(default=0)
-    backoff_hours = models.IntegerField(default=0)
-    next_check_pending_at = models.DateTimeField(null=True, blank=True, db_index=True)
-    # Email channel (Layer 1 = single outbound touch, no follow-up cadence yet).
-    # The mailbox that sent the email, bound to the deal: it's the per-box-cap
-    # counting key (ChatMessage.filter(deal__mailbox=box)), the reply anchor, and
-    # the sticky thread box once follow-ups land with inbound reply-reading.
+    # Email channel. The mailbox that sent the opener, bound to the deal: it's the
+    # per-box-cap counting key (ChatMessage.filter(deal__mailbox=box)), the reply
+    # anchor, and the sticky thread box for the agentic follow-up loop.
     mailbox = models.ForeignKey(
         "emails.Mailbox", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="deals",
     )
-    # The email's subject — set when the single email is sent; the reuse source
-    # ("Re: …") once follow-ups land. The agent generates it once.
+    # The opener's subject, generated once by the agent; the follow-up loop reuses
+    # it as "Re: …" on every threaded reply.
     email_subject = models.CharField(max_length=300, blank=True, default="")
-    # When the single Layer-1 email was sent. The per-box daily cap counts deals
-    # sent since local midnight; also the audit timestamp. Null until sent.
+    # When the opener was sent — the audit timestamp (the per-box daily cap counts
+    # outgoing ChatMessages, not this field; see Mailbox.sent_today). Null until sent.
     email_sent_at = models.DateTimeField(null=True, blank=True, db_index=True)
-    # RFC-5322 Message-ID of the sent email. The Layer-2 correlation key: a reply's
-    # In-Reply-To/References matches it back to this exact campaign/deal (the
-    # disambiguator when one lead is emailed across two campaigns). Null until sent.
+    # RFC-5322 Message-ID of the opener — the immutable thread root. A reply's
+    # In-Reply-To/References carries it, so the IMAP reader matches replies back to
+    # this exact campaign/deal (the disambiguator when one lead is emailed across
+    # two campaigns). Null until sent.
     email_message_id = models.CharField(max_length=300, blank=True, default="")
     # When the agentic email follow-up loop should next touch this EMAILED deal
     # (read replies + let the agent decide send/wait/complete). The agent owns

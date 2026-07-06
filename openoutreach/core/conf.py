@@ -11,24 +11,13 @@ ROOT_DIR = Path(__file__).parent.parent.parent
 
 PROMPTS_DIR = Path(__file__).parent / "templates" / "prompts"
 
-DIAGNOSTICS_DIR = Path("/tmp/openoutreach-diagnostics")
-
 FASTEMBED_CACHE_DIR = ROOT_DIR / ".cache" / "fastembed"
-
-MIN_DELAY = 5
-MAX_DELAY = 8
-
-# Browser timing/launch knobs and fixture paths now live in
-# linkedin_cli/conf.py (the Django-free interaction layer).
 
 # ----------------------------------------------------------------------
 # Onboarding defaults (shown to user during interactive setup)
 # ----------------------------------------------------------------------
-DEFAULT_CONNECT_DAILY_LIMIT = 20
-DEFAULT_FOLLOW_UP_DAILY_LIMIT = 25
-
-# Per-mailbox daily email ceiling, set at email onboarding (like the LinkedIn
-# connect limit) and stored on each Mailbox. Enforced at send time: the EMAIL
+# Per-mailbox daily email ceiling, set at email onboarding and stored on each
+# Mailbox. Enforced at send time: the EMAIL
 # handler counts a box's outgoing email ChatMessages today and skips a box at
 # its cap. Pool throughput is an emergent consequence, never an enforced
 # aggregate. 30/day is conservative within the 2026 safe band for a warmed
@@ -40,17 +29,17 @@ DEFAULT_EMAIL_DAILY_LIMIT = 30
 # ----------------------------------------------------------------------
 # Active-hours schedule (daemon pauses outside this window)
 # Set to False to run 24/7. Working hours are a single contiguous window;
-# weekends are no longer special-cased (humans use LinkedIn 7 days a week).
+# weekends are not special-cased.
 #
 # ACTIVE_TIMEZONE is None by default: the window timezone is resolved at
-# runtime from the operator's LinkedIn profile country, once, after login
-# (see AccountSession.active_timezone). Set it to an IANA name here (or via
-# config) to override the profile and pin the window explicitly.
+# runtime from the operator's onboarding country (SiteConfig.country_code;
+# see OperatorSession.active_timezone). Set it to an IANA name here (or via
+# config) to pin the window explicitly.
 # ----------------------------------------------------------------------
 ENABLE_ACTIVE_HOURS = False
 ACTIVE_START_HOUR = 9   # inclusive, local time
 ACTIVE_END_HOUR = 19    # exclusive, local time
-ACTIVE_TIMEZONE = None  # None → resolve from LinkedIn profile country post-login
+ACTIVE_TIMEZONE = None  # None → resolve from the operator's onboarding country
 
 # ----------------------------------------------------------------------
 # Planner cap for find_email: at most this many BetterContact lookups per
@@ -64,15 +53,11 @@ FIND_EMAIL_DAILY_CAP = 50
 # Campaign config (timing + ML defaults — hardcoded, no YAML)
 # ----------------------------------------------------------------------
 CAMPAIGN_CONFIG = {
-    "check_pending_recheck_after_hours": 24,
-    "min_action_interval": 120,
     "qualification_n_mc_samples": 100,
-    "min_ready_to_connect_prob": 0.9,
-    "min_positive_pool_prob": 0.20,
+    # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
+    # (rations the paid BetterContact lookup to leads the model is confident about).
+    "min_gp_confidence": 0.9,
     "embedding_model": "BAAI/bge-small-en-v1.5",
-    "enrich_min_delay_seconds": 6,
-    "enrich_max_delay_seconds": 10,
-    "enrich_max_per_page": 10,
     "burst_min_seconds": 2700,   # 45 min
     "burst_max_seconds": 3900,   # 65 min
     "break_min_seconds": 600,    # 10 min

@@ -51,8 +51,8 @@ class ChatMessage(models.Model):
         max_length=300,
         verbose_name=_("External message id"),
         help_text=_(
-            "Per-channel message identity, used for dedup (per deal): the Voyager "
-            "entityUrn for a LinkedIn DM, the RFC-5322 Message-ID for an email."
+            "Message identity, used for dedup (per deal): the RFC-5322 Message-ID "
+            "of the email. (Legacy LinkedIn rows hold a Voyager entityUrn.)"
         ),
     )
     is_outgoing = models.BooleanField(
