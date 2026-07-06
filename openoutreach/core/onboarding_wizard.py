@@ -113,6 +113,11 @@ class Password(Question):
         ).ask()
 
 
+# NOTE: any Question subclass that overrides a dataclass field default
+# (``default``/``required``) MUST be re-decorated with ``@dataclass`` — otherwise
+# it inherits Question's generated __init__ and the overrides are silently ignored
+# (e.g. a Confirm would come out required=True).
+@dataclass
 class Confirm(Question):
     """Yes/no confirmation prompt.
 
@@ -139,6 +144,7 @@ class Confirm(Question):
         return bool(default) if isinstance(default, bool) else self.default
 
 
+@dataclass
 class IntText(Question):
     """Integer text input."""
 
