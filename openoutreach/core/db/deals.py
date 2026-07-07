@@ -7,9 +7,12 @@ from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)
 
+# Keep in sync with DealState: every state a Deal can transition *into* needs an
+# entry here, or set_profile_state falls back to a red "ERROR" label (see below).
 _STATE_LOG_STYLE = {
     DealState.QUALIFIED: ("QUALIFIED", "green", []),
     DealState.READY_TO_FIND_EMAIL: ("READY_TO_FIND_EMAIL", "yellow", ["bold"]),
+    DealState.FINDING_EMAIL: ("FINDING_EMAIL", "cyan", []),
     DealState.READY_TO_EMAIL: ("READY_TO_EMAIL", "blue", ["bold"]),
     DealState.EMAILED: ("EMAILED", "blue", []),
     DealState.COMPLETED: ("COMPLETED", "green", ["bold"]),

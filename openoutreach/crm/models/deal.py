@@ -44,6 +44,9 @@ class DealState(models.TextChoices):
     retry, and a job that never terminates within the poll deadline reverts
     FINDING_EMAIL → READY_TO_FIND_EMAIL for a fresh submit. The LinkedIn connect
     leg (READY_TO_CONNECT/PENDING/CONNECTED) was removed with the channel.
+
+    NOTE: when adding a state, also add it to ``_STATE_LOG_STYLE`` in
+    ``core/db/deals.py`` — an unmapped state logs as a red "ERROR" label.
     """
     QUALIFIED = "Qualified"
     READY_TO_FIND_EMAIL = "Ready to Find Email"
