@@ -31,7 +31,7 @@ def base_context(session, deal) -> dict:
     return {
         "self_name": self_name,
         "product_docs": campaign.product_docs or "",
-        "campaign_objective": campaign.campaign_objective or "",
+        "campaign_target": campaign.campaign_target or "",
         "booking_link": campaign.booking_link or "",
         "profile_summary": _format_facts(deal.profile_summary),
     }

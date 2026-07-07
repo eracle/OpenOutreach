@@ -24,7 +24,7 @@ Django Admin (`/admin/`) or created during interactive onboarding.
 | Field | Type | Description |
 |:------|:-----|:------------|
 | `product_docs` | text | Product/service description. Used by LLM qualification, follow-up agent, and search keyword generation. |
-| `campaign_objective` | text | Campaign goal. Used by LLM qualification, follow-up agent, and search keyword generation. |
+| `campaign_target` | text | Campaign target (who you're going after + the outcome). Used by LLM qualification, follow-up agent, and search keyword generation. |
 | `booking_link` | string | URL included in follow-up messages when suggesting a meeting. |
 | `is_freemium` | boolean | Whether this is a freemium campaign (uses KitQualifier instead of BayesianQualifier). |
 | `action_fraction` | float | Target fraction of total connections for freemium campaigns. |

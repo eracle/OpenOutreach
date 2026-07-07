@@ -23,8 +23,13 @@ _cache_attempted = False
 _DEFAULT_REPO_ID = "eracle/campaign-kit"
 
 
-def download_kit(revision: str = "v2") -> Optional[Path]:
-    """Download campaign kit from HuggingFace Hub to a temp directory. Returns path or None."""
+def download_kit(revision: str = "v3") -> Optional[Path]:
+    """Download campaign kit from HuggingFace Hub to a temp directory. Returns path or None.
+
+    v3 is the email-first pivot kit: config.json keys the campaign target as
+    ``campaign_target`` (renamed from ``campaign_objective``), and the product
+    description/target reflect the pivoted product.
+    """
     try:
         import huggingface_hub
         from huggingface_hub import snapshot_download
@@ -54,7 +59,7 @@ def load_kit_config(kit_dir: Path) -> Optional[dict]:
         config_path = kit_dir / "config.json"
         data = json.loads(config_path.read_text())
 
-        required = ("action_fraction", "product_docs", "campaign_objective",
+        required = ("action_fraction", "product_docs", "campaign_target",
                      "booking_link")
         for key in required:
             if key not in data:

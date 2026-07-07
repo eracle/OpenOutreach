@@ -28,11 +28,12 @@ into ``OnboardingCancelled`` at one boundary, and steps that want to treat cance
 specially (the mailbox, once one box exists) catch it.
 
 Order: campaign → LLM (live-verified) → **mailbox** (SMTP auth-checked) →
-**BetterContact key** → account (country + newsletter + legal, then the operator
-``User`` created from the connected mailbox's address). The mailbox and the
-BetterContact key are mandatory — BetterContact powers both discovery and
-enrichment, and the operator's email is *not asked*: it is the mailbox's
-``from_address``, so the account is the last step, after a mailbox exists.
+**BetterContact key** → account (your email + country + newsletter + legal, then
+the operator ``User``). The mailbox and the BetterContact key are mandatory —
+BetterContact powers both discovery and enrichment. The account step asks the
+operator's **own email** (the human's inbox — BCC-copy + newsletter target),
+deliberately distinct from the mailbox ``from_address``; the ``User`` is created
+last, after a mailbox exists.
 """
 from __future__ import annotations
 
@@ -100,14 +101,24 @@ def _campaign_done() -> bool:
 def _run_campaign() -> None:
     from openoutreach.core.models import Campaign
 
-    print("\n  Campaign — describe what you sell and who you're selling to.")
+    print(
+        "\n  Campaign — describe what you sell and who you're selling to. This\n"
+        "  trains the qualifier (which leads are a fit) and briefs the email agent\n"
+        "  (how to pitch). Be specific — a vague target yields vague targeting."
+    )
     Campaign.objects.create(
         name=DEFAULT_CAMPAIGN_NAME,
-        product_docs=_required(wiz.multiline("Product/service description")),
-        campaign_objective=_required(
-            wiz.multiline("Campaign objective (e.g. 'sell analytics platform to CTOs')")
-        ),
-        booking_link=_required(wiz.text("Booking link (e.g. https://cal.com/you)", required=False)),
+        product_docs=_required(wiz.multiline(
+            "Product/service description — what it does, who it's for, the problem it solves"
+        )),
+        campaign_target=_required(wiz.multiline(
+            "Campaign target — who you're going after and the outcome you want "
+            "(e.g. 'book demos with CTOs at Series-A SaaS')"
+        )),
+        booking_link=_required(wiz.text(
+            "Booking link the email agent can share (e.g. https://cal.com/you) — optional",
+            required=False,
+        )),
     )
     logger.info("Campaign '%s' created.", DEFAULT_CAMPAIGN_NAME)
 
@@ -167,10 +178,19 @@ def _save_llm(model: str, key: str, base: str) -> None:
 # ── Mailbox: the address you send from (SMTP auth-checked) ────────
 
 _MAILBOX_GUIDANCE = """
-  Mailbox — connect a sending inbox you own (IceMail / Gmail / Workspace / your
-  own domain). Enter its fields one at a time; use the *app password*, not the
-  login password. The box is auth-checked over SMTP before it's saved — nothing
-  is stored unless the login succeeds. Ports: 587 (STARTTLS) or 465 (SSL).
+  Mailbox — connect a sending inbox you own. This is the address your outreach
+  goes out From:, so use a real inbox you can send and receive on. Enter its
+  fields one at a time, and use an *app password*, not your login password. The
+  box is auth-checked over SMTP before anything is saved — nothing is stored
+  unless the login succeeds.
+
+  No good sending box yet? IceMail sets up a warmed, ready-to-send Google
+  Workspace inbox in minutes (~$2.50/mo): https://icemail.ai?via=openoutreach
+
+  The SMTP/IMAP host + port fields below default to Gmail / Google Workspace
+  (smtp.gmail.com:587, imap.gmail.com:993). If you're on Gmail, Workspace, or
+  IceMail, just press Enter through them. For any other provider, type its own
+  SMTP/IMAP hosts. Ports: 587 (STARTTLS) or 465 (SSL).
 """
 
 _MAILBOX_DEFAULTS = {
@@ -210,21 +230,21 @@ def _run_mailbox() -> None:
             return  # False, or None (Ctrl+C) — either way we already have a box
 
 
-def _looks_like_email(value: str) -> bool | str:
-    return True if "@" in value else "That doesn't look like an email address."
-
-
 def _prompt_mailbox_fields(entry: dict) -> dict:
     """Ask the six mailbox fields, seeded from *entry*. Raises on cancel."""
     return {
         "from_address": _required(wiz.text(
-            "Email address (the From: address and SMTP login)",
+            "Email address (your From: address and SMTP username)",
             default=entry["from_address"], validate=_looks_like_email,
         )),
-        "password": _required(wiz.text("App password", secret=True)),
-        "host": _required(wiz.text("SMTP host", default=entry["host"])),
-        "port": _required(wiz.integer("SMTP port", default=entry["port"])),
-        "imap_host": _required(wiz.text("IMAP host", default=entry["imap_host"])),
+        "password": _required(wiz.text(
+            "App password (Gmail/Workspace: myaccount.google.com → Security → "
+            "App passwords — NOT your login password)",
+            secret=True,
+        )),
+        "host": _required(wiz.text("SMTP host (Enter = Gmail/Workspace)", default=entry["host"])),
+        "port": _required(wiz.integer("SMTP port (587 STARTTLS / 465 SSL)", default=entry["port"])),
+        "imap_host": _required(wiz.text("IMAP host (Enter = Gmail/Workspace)", default=entry["imap_host"])),
         "imap_port": _required(wiz.integer("IMAP port", default=entry["imap_port"])),
     }
 
@@ -241,8 +261,13 @@ def _run_bettercontact() -> None:
     from openoutreach.core.models import SiteConfig
 
     print(
-        "\n  BetterContact — powers lead discovery and email finding "
-        "(https://bettercontact.rocks?fpr=openoutreach)."
+        "\n  BetterContact — the one paid step, and it does double duty: lead\n"
+        "  DISCOVERY (ICP search — billed nothing) and email FINDING (one credit\n"
+        "  per verified work email, top-ranked leads only). Free tier is ~50\n"
+        "  lookups to start.\n\n"
+        "  Get a key (affiliate link — supports OpenOutreach, no markup to you):\n"
+        "  https://bettercontact.rocks?fpr=openoutreach\n"
+        "  Then copy your API key from the dashboard and paste it below."
     )
     cfg = SiteConfig.load()
     cfg.bettercontact_api_key = _required(wiz.text("BetterContact API key", secret=True))

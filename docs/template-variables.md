@@ -11,7 +11,7 @@ The follow-up agent template receives these named variables (not a spread profil
 |:---------|:-----|:------------|:--------|
 | `self_name` | string | The logged-in user's name (from `/in/me/` marker) | `"Jane Doe"` |
 | `product_docs` | string | Product/service description from Campaign | |
-| `campaign_objective` | string | Campaign goal from Campaign | |
+| `campaign_target` | string | Campaign target (who + outcome) from Campaign | |
 | `booking_link` | string | Calendar link from Campaign | `"https://www.cal.eu/your-link/15min"` |
 | `full_name` | string | Lead's first + last name | `"John Smith"` |
 | `headline` | string or null | Lead's profile headline | `"VP of Engineering at Acme"` |

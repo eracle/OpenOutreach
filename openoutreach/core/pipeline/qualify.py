@@ -79,7 +79,7 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
     label, reason = qualify_with_llm(
         candidate.profile_text,
         product_docs=campaign.product_docs,
-        campaign_objective=campaign.campaign_objective,
+        campaign_target=campaign.campaign_target,
     )
     _save_qualification_result(session, qualifier, profile_url, embedding, label, reason)
     return profile_url

@@ -29,7 +29,7 @@ def test_missing_keys_starts_with_every_step():
 def test_satisfied_step_drops_out_of_missing_keys():
     from openoutreach.core.models import Campaign
 
-    Campaign.objects.create(name="C", product_docs="p", campaign_objective="o")
+    Campaign.objects.create(name="C", product_docs="p", campaign_target="o")
     assert "campaign" not in onboarding.missing_keys()
 
 
@@ -66,8 +66,8 @@ def test_mailbox_retry_retains_values_and_stores_one_box():
     assert Mailbox.objects.count() == 1
     assert Mailbox.objects.get().from_address == "a@b.com"
     # The retry re-seeded the host field with what was typed the first time.
-    host_retry = [c for c in text.call_args_list if c.args and c.args[0] == "SMTP host"][1]
-    assert host_retry.kwargs["default"] == "smtp.h"
+    host_prompts = [c for c in text.call_args_list if c.args and c.args[0].startswith("SMTP host")]
+    assert host_prompts[1].kwargs["default"] == "smtp.h"
 
 
 @pytest.mark.django_db
@@ -97,7 +97,7 @@ def test_account_created_from_operator_email_not_mailbox():
     from openoutreach.core.models import Campaign, SiteConfig
     from openoutreach.emails.models import Mailbox
 
-    Campaign.objects.create(name="C", product_docs="p", campaign_objective="o")
+    Campaign.objects.create(name="C", product_docs="p", campaign_target="o")
     Mailbox.objects.create(username="robot@acme.com", from_address="robot@acme.com", password="p")
 
     # wiz.text is asked twice now: operator email, then country.
@@ -136,7 +136,7 @@ def test_declined_legal_aborts_without_creating_account():
     from openoutreach.core.models import Campaign
     from openoutreach.emails.models import Mailbox
 
-    Campaign.objects.create(name="C", product_docs="p", campaign_objective="o")
+    Campaign.objects.create(name="C", product_docs="p", campaign_target="o")
     Mailbox.objects.create(username="joe@acme.com", from_address="joe@acme.com", password="p")
 
     # newsletter yes, then legal declined, then cancel the legal re-ask.

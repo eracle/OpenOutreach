@@ -16,7 +16,7 @@ from openoutreach.core.pipeline.icp import ICPSpec, _to_lead_finder_filters, icp
 def _campaign(**kw):
     from openoutreach.core.models import Campaign
 
-    defaults = dict(name="C", product_docs="we sell widgets", campaign_objective="book demos")
+    defaults = dict(name="C", product_docs="we sell widgets", campaign_target="book demos")
     defaults.update(kw)
     return Campaign.objects.create(**defaults)
 
@@ -73,7 +73,7 @@ class TestDiscover:
 
     def test_skips_without_product_or_objective(self, db):
         _set_key()
-        session = MagicMock(campaign=_campaign(product_docs="", campaign_objective=""))
+        session = MagicMock(campaign=_campaign(product_docs="", campaign_target=""))
         assert discover(session) == 0
 
     def test_pages_creates_and_advances_offset(self, db):

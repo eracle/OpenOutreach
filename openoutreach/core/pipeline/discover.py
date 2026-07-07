@@ -20,7 +20,7 @@ def discover(session) -> int:
     """Fetch the next ICP page and persist new Leads. Returns the count created.
 
     Gated: freemium campaigns seed from their kit (not Lead Finder); a campaign
-    with no finder key or no product/objective can't be searched. A dry page
+    with no finder key or no product/target can't be searched. A dry page
     (offset past the result set) returns 0 and stops the qualify chain.
     """
     from openoutreach.core.db.leads import create_lead
@@ -33,7 +33,7 @@ def discover(session) -> int:
         return 0
     if not bettercontact.is_configured():
         return 0
-    if not (campaign.product_docs or campaign.campaign_objective):
+    if not (campaign.product_docs or campaign.campaign_target):
         return 0
 
     spec = icp_for(campaign)

@@ -1,7 +1,7 @@
 # openoutreach/core/pipeline/icp.py
 """ICP filter generator — LLM maps a campaign to a Lead Finder search spec.
 
-A single LLM pass turns ``product_docs + campaign_objective`` into firmographic
+A single LLM pass turns ``product_docs + campaign_target`` into firmographic
 filters (title/seniority/industry/location/headcount) that Lead Finder discovery
 searches on. Generated once per campaign and cached on ``Campaign.icp_filters``
 so pagination stays coherent across cycles. Adaptive refinement (the active
@@ -61,7 +61,7 @@ def generate_icp_spec(campaign) -> dict:
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(PROMPTS_DIR)))
     prompt = env.get_template("icp_filters.j2").render(
         product_docs=campaign.product_docs,
-        campaign_objective=campaign.campaign_objective,
+        campaign_target=campaign.campaign_target,
     )
 
     agent = Agent(

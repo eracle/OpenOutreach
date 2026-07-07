@@ -102,7 +102,7 @@ def extract_facts(
 
     `seller_name` binds the [Me] tag so the LLM stops attributing seller-name
     mentions in [Lead] messages to the lead. `context` is an optional
-    preamble (campaign objective, product docs) that biases what counts as a
+    preamble (campaign target, product docs) that biases what counts as a
     relevant fact. Returns `[]` for empty inputs.
     """
     if not text or not text.strip():
@@ -132,7 +132,7 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
     """Build `deal.profile_summary` lazily on first follow-up touch.
 
     Extracts facts from the lead's stored firmographic ``profile_text`` (captured
-    at discovery — no re-scrape), conditioned on the campaign objective + product
+    at discovery — no re-scrape), conditioned on the campaign target + product
     docs, and persists them on the Deal. No-op if already built or the lead has no
     profile text.
     """
@@ -149,8 +149,8 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
 
     context_parts = []
     campaign = deal.campaign
-    if getattr(campaign, "campaign_objective", None):
-        context_parts.append(f"Campaign objective: {campaign.campaign_objective}")
+    if getattr(campaign, "campaign_target", None):
+        context_parts.append(f"Campaign target: {campaign.campaign_target}")
     if getattr(campaign, "product_docs", None):
         context_parts.append(f"Product context: {campaign.product_docs}")
     context = "\n\n".join(context_parts)
