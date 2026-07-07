@@ -98,11 +98,13 @@ def _on_hit(session, campaign, deal, public_id, email) -> None:
 
 
 def _on_miss(session, public_id) -> None:
-    """Terminal miss — FAIL with blank outcome so the ML labeler skips it."""
-    from openoutreach.core.db.deals import set_profile_state
+    """Terminal miss — enrichment found no address. Parks at FAILED with a blank
+    outcome so the ML labeler skips it (a miss is not a qualification signal),
+    but it logs as a benign miss, not an operational error."""
+    from openoutreach.core.db.deals import NO_EMAIL_REASON, set_profile_state
 
-    set_profile_state(session, public_id, DealState.FAILED.value, reason="no email")
-    logger.info("collect_email: miss %s → FAILED (no email)", public_id)
+    set_profile_state(session, public_id, DealState.FAILED.value, reason=NO_EMAIL_REASON)
+    logger.info("collect_email: no email for %s (miss)", public_id)
 
 
 def _reschedule_or_give_up(session, campaign, deal, public_id, payload, advance: bool) -> None:

@@ -7,6 +7,12 @@ from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)
 
+# The FAILED reason for an enrichment miss (found no address). A miss is an
+# expected terminal outcome, not an operational error — set_profile_state renders
+# it muted (see below), and collect_email's _on_miss stamps it. Shared here so the
+# reason string has a single source of truth.
+NO_EMAIL_REASON = "no email"
+
 # Keep in sync with DealState: every state a Deal can transition *into* needs an
 # entry here, or set_profile_state falls back to a red "ERROR" label (see below).
 _STATE_LOG_STYLE = {
@@ -79,6 +85,11 @@ def set_profile_state(session, profile_url: str, new_state: str, reason: str = "
 
     label, color, attrs = _STATE_LOG_STYLE.get(ps, ("ERROR", "red", ["bold"]))
     suffix = f" ({reason})" if reason else ""
+    if ps == DealState.FAILED and reason == NO_EMAIL_REASON:
+        # An enrichment miss is expected, not a failure — render it muted (not red
+        # bold) with a self-explanatory label, and drop the redundant reason suffix.
+        label, color, attrs = ("NO EMAIL", "yellow", [])
+        suffix = ""
     if state_changed:
         logger.info("%s %s%s", profile_url, colored(label, color, attrs=attrs), suffix)
     else:
