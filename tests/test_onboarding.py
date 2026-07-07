@@ -89,44 +89,43 @@ def test_mailbox_cancel_without_box_aborts():
 # ── Account step ─────────────────────────────────────────────────
 
 @pytest.mark.django_db
-def test_account_created_from_mailbox_address():
+def test_account_created_from_operator_email_not_mailbox():
+    """The operator's own email (asked at onboarding) becomes User.email and the
+    newsletter target — NOT the sending mailbox's from_address."""
     from django.contrib.auth.models import User
 
     from openoutreach.core.models import Campaign, SiteConfig
     from openoutreach.emails.models import Mailbox
 
     Campaign.objects.create(name="C", product_docs="p", campaign_objective="o")
-    Mailbox.objects.create(
-        username="joe.smith+sales@acme.com", from_address="joe.smith+sales@acme.com", password="p",
-    )
+    Mailbox.objects.create(username="robot@acme.com", from_address="robot@acme.com", password="p")
 
-    with patch("openoutreach.core.onboarding.wiz.text", return_value="US"), \
+    # wiz.text is asked twice now: operator email, then country.
+    with patch("openoutreach.core.onboarding.wiz.text", side_effect=["diego.r@posteo.eu", "US"]), \
          patch("openoutreach.core.onboarding.wiz.confirm", side_effect=[True, True]), \
          patch("openoutreach.emails.newsletter.subscribe_to_newsletter") as sub:
         onboarding._run_account()
 
     user = User.objects.get(is_staff=True, is_active=True)
-    # handle derives from the local-part, with '.'/'+' folded to '_'.
-    assert user.username == "joe_smith_sales" and user.email == "joe.smith+sales@acme.com"
+    # email is the human's inbox, not the mailbox; handle derives from its local-part.
+    assert user.email == "diego.r@posteo.eu"
+    assert user.username == "diego_r"
     assert SiteConfig.load().country_code == "us"
-    sub.assert_called_once_with("joe.smith+sales@acme.com")
+    # the newsletter subscribes the operator's inbox, not the sending mailbox.
+    sub.assert_called_once_with("diego.r@posteo.eu")
 
 
 @pytest.mark.django_db
-def test_account_not_done_for_legacy_user_with_mismatched_email():
-    """A pre-existing staff user whose email doesn't match the mailbox (e.g. a
-    blank-email account predating email-first onboarding) must NOT satisfy the
-    account step — else operator creation is skipped and the email never binds."""
+def test_account_not_done_for_blank_email_user():
+    """A staff user with a blank email (e.g. predating the address prompt) must NOT
+    satisfy the account step — else the address prompt is skipped and BCC/newsletter
+    have nowhere to go."""
     from django.contrib.auth.models import User
 
-    from openoutreach.emails.models import Mailbox
-
-    Mailbox.objects.create(username="joe@acme.com", from_address="joe@acme.com", password="p")
     User.objects.create(username="legacy", email="", is_staff=True, is_active=True)
-
     assert onboarding._account_done() is False
 
-    User.objects.filter(username="legacy").update(email="joe@acme.com")
+    User.objects.filter(username="legacy").update(email="me@posteo.eu")
     assert onboarding._account_done() is True
 
 

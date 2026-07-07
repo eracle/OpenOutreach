@@ -253,20 +253,13 @@ def _run_bettercontact() -> None:
 # ── Account: country + newsletter + legal, then the operator User ─
 
 def _account_done() -> bool:
-    """Done only when an operator exists *and* its email matches the connected
-    mailbox. Requiring the match (not merely 'a staff user exists') stops a legacy
-    staff account with a blank/stale email from short-circuiting operator creation;
-    the daemon's startup reconcile (`reconcile_operator_email`) keeps it true after."""
+    """Done only when an operator exists *with a non-blank email* — the operator's
+    own inbox, where send-copies (BCC) and the newsletter go. Requiring a real
+    email (not merely 'a staff user exists') stops a legacy blank-email account
+    from short-circuiting the address prompt."""
     from django.contrib.auth.models import User
 
-    from openoutreach.emails.models import Mailbox
-
-    box = Mailbox.objects.first()
-    if box is None:
-        return False
-    return User.objects.filter(
-        is_active=True, is_staff=True, email=box.from_address
-    ).exists()
+    return User.objects.filter(is_active=True, is_staff=True).exclude(email="").exists()
 
 
 def _run_account() -> None:
@@ -276,6 +269,16 @@ def _run_account() -> None:
     accepted, so a declined/cancelled step leaves no partial state behind.
     """
     from openoutreach.core.geo import is_gdpr_protected
+
+    # The operator's own inbox — where we BCC a copy of every send and, if opted
+    # in, subscribe them to the newsletter. Deliberately NOT the mailbox
+    # from_address: that is the sending robot, this is the human reading the copies.
+    operator_email = _required(wiz.text(
+        "Your email address — we'll BCC you a copy of every outreach email sent, "
+        "and (if you opt in below) send product updates here. This is your own "
+        "inbox, not the sending mailbox.",
+        validate=_looks_like_email,
+    )).strip()
 
     country = _required(wiz.text(
         "Your country (ISO 3166 alpha-2, e.g. US, GB, DE) — sets your active-hours "
@@ -290,13 +293,22 @@ def _run_account() -> None:
         default=not is_gdpr_protected(country),
     ))
     _require_legal()
-    _finalize_account(country, newsletter)
+    _finalize_account(operator_email, country, newsletter)
 
 
 def _looks_like_country(value: str) -> bool | str:
     if len(value) == 2 and value.isalpha():
         return True
     return "Enter a 2-letter country code (e.g. US, GB, DE)."
+
+
+def _looks_like_email(value: str) -> bool | str:
+    value = value.strip()
+    # Minimal shape check — a single @ with non-empty local part and a dotted domain.
+    local, _, domain = value.partition("@")
+    if local and "." in domain and not domain.startswith(".") and not domain.endswith("."):
+        return True
+    return "Enter a valid email address (e.g. you@example.com)."
 
 
 def _require_legal() -> None:
@@ -314,8 +326,12 @@ def _require_legal() -> None:
         _say("  You must accept the Legal Notice to use OpenOutreach.", "fg:red")
 
 
-def _finalize_account(country: str, newsletter: bool) -> None:
-    """Persist country, create the operator ``User`` from the mailbox, subscribe once."""
+def _finalize_account(operator_email: str, country: str, newsletter: bool) -> None:
+    """Persist country, create the operator ``User`` from their own email, subscribe once.
+
+    ``operator_email`` is the human's inbox (BCC + newsletter target), distinct
+    from the mailbox ``from_address`` used as the sending identity.
+    """
     from openoutreach.core.models import Campaign, SiteConfig
     from openoutreach.emails.models import Mailbox
     from openoutreach.emails.newsletter import subscribe_to_newsletter
@@ -328,14 +344,14 @@ def _finalize_account(country: str, newsletter: bool) -> None:
     cfg.country_code = country
     cfg.save(update_fields=["country_code"])
 
-    user = _create_operator(Campaign.objects.first(), box.from_address)
+    user = _create_operator(Campaign.objects.first(), operator_email)
     if newsletter:
-        subscribe_to_newsletter(box.from_address)
-    logger.info("Operator account '%s' created (email=%s).", user.username, box.from_address)
+        subscribe_to_newsletter(operator_email)
+    logger.info("Operator account '%s' created (email=%s).", user.username, operator_email)
 
 
 def _create_operator(campaign, email: str):
-    """Create the operator Django ``User`` from the connected mailbox address."""
+    """Create the operator Django ``User`` from their email (the human's own inbox)."""
     from django.contrib.auth.models import User
 
     handle = email.split("@")[0].lower().replace(".", "_").replace("+", "_")

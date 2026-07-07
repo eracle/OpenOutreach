@@ -13,7 +13,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self._configure_logging(verbose=options["verbosity"] >= 2)
         self._ensure_db()
-        self._reconcile_operator()
         self._ensure_onboarded()
         session = self._create_session()
 
@@ -34,15 +33,6 @@ class Command(BaseCommand):
 
         from openoutreach.core.management.setup_crm import setup_crm
         setup_crm()
-
-    def _reconcile_operator(self):
-        """Keep a legacy/stale operator email in sync with the mailbox before the
-        onboarding check reads it — otherwise a blank email would both disable the
-        BCC self-copy and (with the tightened account check) mint a duplicate
-        operator on the next onboard."""
-        from openoutreach.core.session import reconcile_operator_email
-
-        reconcile_operator_email()
 
     def _ensure_onboarded(self):
         from openoutreach.core.onboarding import missing_keys, onboard_interactive
