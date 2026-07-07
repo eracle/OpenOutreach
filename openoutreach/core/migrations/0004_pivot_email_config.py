@@ -83,6 +83,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[
                     ("find_email", "Find Email"),
+                    ("collect_email", "Collect Email"),
                     ("follow_up", "Follow Up"),
                     ("email", "Email"),
                 ],

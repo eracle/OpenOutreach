@@ -2,7 +2,9 @@
 """Lead discovery via BetterContact Lead Finder: search by ICP, embed the rows.
 
 Discovery is free and returns no email — paid enrichment lives in
-emails/bettercontact.py, whose submit_and_poll transport both calls share.
+emails/bettercontact.py. Discovery blocks on the shared ``submit_and_poll``
+transport; enrichment instead uses the non-blocking ``submit``/``poll_once``
+split so the daemon never waits on a lookup.
 """
 from __future__ import annotations
 

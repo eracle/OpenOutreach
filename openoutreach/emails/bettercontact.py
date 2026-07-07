@@ -1,12 +1,18 @@
 # openoutreach/emails/bettercontact.py
 """BetterContact email lookup — resolve a work email for a qualified lead.
 
-`resolve_email` is the public entry point: it submits the lookup and waits for
-the result over an async submit→poll HTTP contract. `is_configured()` reports
-whether an API key is set. A missing key or a miss yields None / raises
-`BetterContactUnavailable`, never a bare error, so enrichment can't take down
-the daemon. This is the *paid* finder — distinct from the free hub lookup
-(`contacts.resolve`), which is tried first.
+The paid finder is a **two-leg async handshake**, so the daemon never blocks on
+a poll: ``submit(query)`` fires one job and returns its ``request_id``, and
+``poll_once(request_id)`` checks that job exactly once (no wait), reporting
+``running`` / ``hit`` / ``miss``. The collect task owns the retry backoff between
+polls (its payload carries the ``request_id`` + deadline). ``is_configured()``
+reports whether an API key is set. A missing key or an unreachable service
+raises ``BetterContactUnavailable`` (never a bare error), so enrichment can't
+take down the daemon. This is the *paid* finder — distinct from the free hub
+lookup (``contacts.resolve``), tried first.
+
+The blocking ``submit_and_poll`` transport remains for Lead Finder *discovery*
+(``discovery.py``), which legitimately waits inside its own handler.
 """
 from __future__ import annotations
 
@@ -53,6 +59,26 @@ class BetterContactResult:
     status: str
 
 
+@dataclass(frozen=True)
+class PollOutcome:
+    """Result of a single poll of an in-flight lookup.
+
+    ``running`` — the job hasn't terminated; the collect leg backs off and polls
+    again. ``hit`` — terminated with a usable email (``email`` set). ``miss`` —
+    terminated with no usable email (a genuine, terminal miss).
+    """
+    running: bool
+    email: str = ""
+
+    @property
+    def hit(self) -> bool:
+        return not self.running and bool(self.email)
+
+    @property
+    def miss(self) -> bool:
+        return not self.running and not self.email
+
+
 def is_configured() -> bool:
     """True when the BetterContact paid finder is configured (an API key is set)."""
     from openoutreach.core.models import SiteConfig
@@ -60,33 +86,58 @@ def is_configured() -> bool:
     return bool(SiteConfig.load().bettercontact_api_key)
 
 
-def resolve_email(query: BetterContactQuery) -> BetterContactResult | None:
-    """Resolve one lead's work email via BetterContact.
+def submit(query: BetterContactQuery) -> str:
+    """Submit one lookup job to BetterContact; return its ``request_id``.
 
-    Returns the result on a hit, None on a genuine miss (it ran, found
-    nothing). Raises BetterContactUnavailable when no key is set or the service
-    is unreachable — the caller treats that differently from a real miss.
+    Does not wait for a result — the collect leg polls ``request_id`` later via
+    ``poll_once``. Raises BetterContactUnavailable when no key is set or the
+    service is unreachable (an empty submit included).
     """
+    api_key = _require_key()
+    with _session(api_key) as session:
+        try:
+            request_id = _submit(session, _ENRICH_URL, _enrich_body(query))
+        except (requests.RequestException, TimeoutError) as exc:
+            raise BetterContactUnavailable(f"BetterContact unreachable: {exc}") from exc
+    logger.info("bettercontact: submitted lookup for %s (req %s)", query.linkedin_url, request_id)
+    return request_id
+
+
+def poll_once(request_id: str) -> PollOutcome:
+    """Poll one in-flight lookup exactly once — no wait, no retry loop.
+
+    ``running`` while the job is unfinished; a ``hit`` (email set) or a terminal
+    ``miss`` once it terminates. The collect leg owns the backoff between calls.
+    Raises BetterContactUnavailable when no key is set or the service is
+    unreachable.
+    """
+    api_key = _require_key()
+    with _session(api_key) as session:
+        try:
+            resp = session.get(f"{_ENRICH_URL}/{request_id}", timeout=_HTTP_TIMEOUT_S)
+            resp.raise_for_status()
+            body = resp.json()
+        except (requests.RequestException, TimeoutError) as exc:
+            raise BetterContactUnavailable(f"BetterContact unreachable: {exc}") from exc
+
+    if body.get("status") != "terminated":
+        return PollOutcome(running=True)
+    rows = body.get("data") or []
+    result = _row_to_result(rows[0]) if rows else None
+    return PollOutcome(running=False, email=result.email if result else "")
+
+
+def _require_key() -> str:
     from openoutreach.core.models import SiteConfig
 
     api_key = SiteConfig.load().bettercontact_api_key
     if not api_key:
         raise BetterContactUnavailable("no BetterContact API key configured")
-
-    logger.info("bettercontact: looking up work email for %s …", query.linkedin_url)
-    result = find_email(api_key, query)
-    if result:
-        logger.info("bettercontact: resolved %s for %s", result.email, query.linkedin_url)
-    else:
-        logger.info("bettercontact: no email for %s", query.linkedin_url)
-    return result
+    return api_key
 
 
-def find_email(api_key: str, query: BetterContactQuery) -> BetterContactResult | None:
-    """Submit one lead, poll until done, return its email — None on a genuine
-    miss (it ran, found nothing). Raises BetterContactUnavailable on a transport
-    failure (HTTP error, network drop, poll timeout) or an empty submit."""
-    payload = {
+def _enrich_body(query: BetterContactQuery) -> dict:
+    return {
         "data": [{
             "first_name": query.first_name,
             "last_name": query.last_name,
@@ -97,9 +148,6 @@ def find_email(api_key: str, query: BetterContactQuery) -> BetterContactResult |
         "enrich_email_address": True,
         "enrich_phone_number": False,
     }
-    body = submit_and_poll(api_key, _ENRICH_URL, payload)
-    rows = body.get("data") or []
-    return _row_to_result(rows[0]) if rows else None
 
 
 # ── shared async transport (used by enrichment + Lead Finder discovery) ───

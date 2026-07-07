@@ -84,26 +84,46 @@ class Campaign(models.Model):
 
 
 class TaskQuerySet(models.QuerySet):
-    def pending(self):
-        """Pending tasks, EMAIL first, then oldest-scheduled first.
+    def _priority_order(self):
+        """Opportunity-cost rank for a single worker: value-to-funnel first.
 
-        A ready send outranks the discovery/follow-up legs so it always preempts
-        a ready find_email/follow_up — on startup and on every claim. Email slots
-        are always scheduled ``now``, so ranking them first never makes
-        ``seconds_to_next`` oversleep a sooner task."""
-        email_first = models.Case(
-            models.When(task_type=Task.TaskType.EMAIL, then=models.Value(0)),
-            default=models.Value(1),
+        Every task run defers the rest, so ready work is ranked by what it's
+        worth: a live reply (``follow_up``) and a cheap poll that unblocks a deal
+        (``collect_email``) preempt a cold opener (``email``), which preempts
+        starting new *paid* speculative work (``find_email``). This orders
+        *claiming* among ready tasks only — it must never drive the sleep clock
+        (see ``seconds_to_next``)."""
+        return models.Case(
+            models.When(task_type=Task.TaskType.FOLLOW_UP, then=models.Value(0)),
+            models.When(task_type=Task.TaskType.COLLECT_EMAIL, then=models.Value(1)),
+            models.When(task_type=Task.TaskType.EMAIL, then=models.Value(2)),
+            default=models.Value(3),
             output_field=models.IntegerField(),
         )
-        return self.filter(status=Task.Status.PENDING).order_by(email_first, "scheduled_at")
+
+    def pending(self):
+        """PENDING tasks, highest funnel-value first, then oldest-scheduled."""
+        return self.filter(status=Task.Status.PENDING).order_by(
+            self._priority_order(), "scheduled_at",
+        )
 
     def claim_next(self) -> "Task | None":
+        """The highest-priority task that is due (its ``scheduled_at`` has arrived)."""
         return self.pending().filter(scheduled_at__lte=timezone.now()).first()
 
     def seconds_to_next(self) -> float | None:
-        """Seconds until the next pending task, or None if queue is empty."""
-        next_task = self.pending().only("scheduled_at").first()
+        """Seconds until the *earliest-scheduled* pending task, or None if empty.
+
+        Ordered by ``scheduled_at`` alone — NOT by priority — so the daemon sleeps
+        to the soonest due-time and never oversleeps a sooner low-priority task
+        (a ``find_email`` due in 1m) sitting behind a far-future high-priority one
+        (a ``follow_up`` due in 6h)."""
+        next_task = (
+            self.filter(status=Task.Status.PENDING)
+            .order_by("scheduled_at")
+            .only("scheduled_at")
+            .first()
+        )
         if next_task is None:
             return None
         return max((next_task.scheduled_at - timezone.now()).total_seconds(), 0)
@@ -111,7 +131,8 @@ class TaskQuerySet(models.QuerySet):
 
 class Task(models.Model):
     class TaskType(models.TextChoices):
-        FIND_EMAIL = "find_email"
+        FIND_EMAIL = "find_email"        # submit leg — fire a paid lookup
+        COLLECT_EMAIL = "collect_email"  # poll leg — check an in-flight lookup (payload carries request_id)
         FOLLOW_UP = "follow_up"
         EMAIL = "email"
 

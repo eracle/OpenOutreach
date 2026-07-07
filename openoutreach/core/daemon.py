@@ -21,6 +21,7 @@ from openoutreach.core.conf import (
 )
 from openoutreach.core.ml.qualifier import BayesianQualifier, KitQualifier
 from openoutreach.core.models import Task
+from openoutreach.emails.tasks.collect_email import handle_collect_email
 from openoutreach.emails.tasks.find_email import handle_find_email
 from openoutreach.emails.tasks.follow_up import handle_follow_up
 from openoutreach.emails.tasks.send import handle_email
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _HANDLERS = {
     Task.TaskType.FIND_EMAIL: handle_find_email,
+    Task.TaskType.COLLECT_EMAIL: handle_collect_email,
     Task.TaskType.FOLLOW_UP: handle_follow_up,
     Task.TaskType.EMAIL: handle_email,
 }

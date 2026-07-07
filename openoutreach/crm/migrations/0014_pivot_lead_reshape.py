@@ -101,6 +101,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='deal',
             name='state',
-            field=models.CharField(choices=[('Qualified', 'Qualified'), ('Ready to Find Email', 'Ready To Find Email'), ('Ready to Email', 'Ready To Email'), ('Emailed', 'Emailed'), ('Completed', 'Completed'), ('Failed', 'Failed')], default='Qualified', max_length=20),
+            field=models.CharField(choices=[('Qualified', 'Qualified'), ('Ready to Find Email', 'Ready To Find Email'), ('Finding Email', 'Finding Email'), ('Ready to Email', 'Ready To Email'), ('Emailed', 'Emailed'), ('Completed', 'Completed'), ('Failed', 'Failed')], default='Qualified', max_length=20),
         ),
     ]

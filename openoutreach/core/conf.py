@@ -42,12 +42,17 @@ ACTIVE_END_HOUR = 19    # exclusive, local time
 ACTIVE_TIMEZONE = None  # None → resolve from the operator's onboarding country
 
 # ----------------------------------------------------------------------
-# Planner cap for find_email: at most this many BetterContact lookups per
-# 24h planning window (the paid-action spend guard, since a verified hit
-# costs one credit). Slots that find no ranked candidate no-op; overflow
-# rolls into the next planning cycle.
+# collect_email poll backoff — the bound leg that polls an in-flight paid
+# lookup. Each still-running poll doubles the delay (BASE·2^attempt, capped at
+# MAX); past DEADLINE the collect leg gives up and reverts the deal to
+# READY_TO_FIND_EMAIL for a fresh submit. A provider job resolves in
+# seconds-to-minutes, so these are short (unlike the retired LinkedIn
+# connect-accept poll, which backed off in hours). A future provider (Apollo, …)
+# would carry its own triple.
 # ----------------------------------------------------------------------
-FIND_EMAIL_DAILY_CAP = 50
+COLLECT_BACKOFF_BASE_S = 5
+COLLECT_BACKOFF_MAX_S = 60
+COLLECT_DEADLINE_S = 600  # 10 min
 
 # ----------------------------------------------------------------------
 # Campaign config (timing + ML defaults — hardcoded, no YAML)

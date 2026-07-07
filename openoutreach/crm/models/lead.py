@@ -37,37 +37,10 @@ class Lead(models.Model):
         return label
 
     # ------------------------------------------------------------------
-    # Accessors — the embedding and profile text are cached at discovery;
-    # the email is resolved via the paid finder. Nothing is fetched live.
+    # Accessors — the embedding and profile text are cached at discovery; the
+    # email is resolved via the two-leg paid finder (find_email submits, then
+    # collect_email polls the job). Nothing is fetched live.
     # ------------------------------------------------------------------
-
-    def resolve_email(self) -> bool | None:
-        """Resolve + persist a work email via BetterContact, once the lead qualifies.
-
-        Returns True on a hit (``email`` set, cached — never re-resolved →
-        caller routes the Deal QUALIFIED → READY_TO_EMAIL), False on a genuine
-        miss (BetterContact ran, found nothing → caller fails the Deal), and None
-        when it couldn't run (no key, or the service was unreachable → caller
-        leaves the Deal queued to retry). A miss is free to retry — BetterContact
-        bills only usable hits.
-        """
-        if self.email:
-            return True
-        from openoutreach.emails.bettercontact import (
-            BetterContactQuery,
-            BetterContactUnavailable,
-            resolve_email,
-        )
-
-        try:
-            result = resolve_email(BetterContactQuery(linkedin_url=self.profile_url))
-        except BetterContactUnavailable:
-            return None
-        if result:
-            self.email = result.email
-            self.save(update_fields=["email"])
-            return True
-        return False
 
     def to_profile_dict(self) -> dict:
         """Standard profile dict shape used by qualifiers and pools.

@@ -8,30 +8,46 @@ class DealState(models.TextChoices):
 
     A lead is discovered and qualified without an email in hand (Lead Finder
     returns firmographics, not addresses), so the funnel first *finds* the email
-    and then *talks*:
+    and then *talks*. The paid lookup is a two-leg async handshake (mirroring the
+    retired connect→check_pending pair): a **submit** leg (``find_email``) fires
+    the provider job and parks the deal at FINDING_EMAIL, and a **collect** leg
+    (``collect_email``) polls that job. The job handle (``request_id``), the poll
+    backoff, and the give-up deadline all live in the collect task's *payload* —
+    never on the deal — so an in-flight lookup survives a daemon restart on the
+    persisted task row, and the deal stays clean:
 
-        QUALIFIED ─(GP rank gate)─▶ READY_TO_FIND_EMAIL ─(find_email task)─▶
-            hit:  READY_TO_EMAIL ─(email opener)─▶ EMAILED ⟲ (agentic follow-up)
-                                                   ─▶ COMPLETED / FAILED
-            miss: FAILED (reason="no email", outcome blank → ML-skipped)
+        QUALIFIED ─(GP rank gate)─▶ READY_TO_FIND_EMAIL ─(find_email/submit)─▶
+            FINDING_EMAIL ─(collect_email/poll request_id)─▶
+                hit:  READY_TO_EMAIL ─(email opener)─▶ EMAILED ⟲ (agentic follow-up)
+                                                       ─▶ COMPLETED / FAILED
+                miss: FAILED (reason="no email", outcome blank → ML-skipped)
 
     - **READY_TO_FIND_EMAIL** — passed the GP confidence gate; queued for the
-      *paid* BetterContact lookup (one credit per verified hit), so the gate
-      rations spend to leads the model is confident about.
+      *paid* provider lookup (one credit per verified hit). The GP gate rations
+      spend to leads the model is confident about, and the submit leg only fires
+      when there's mailbox send-headroom for the result today (no email is
+      resolved that can't be sent).
+    - **FINDING_EMAIL** — a provider job is in flight; the deal is excluded from
+      the candidate pool (so the next submit slot can't re-select it and
+      double-charge) while the ``collect_email`` leg polls to termination. A free
+      hub-cache hit skips this state entirely (READY_TO_FIND_EMAIL →
+      READY_TO_EMAIL directly, no submit).
     - **READY_TO_EMAIL** — an address exists; queued for the opener. A cheap,
       *ungated* FIFO send-queue paced only by the per-box daily cap.
     - **EMAILED** — the opener has been sent; the agentic follow-up loop reads
       IMAP replies and decides send/wait/complete until the deal reaches a
       terminal COMPLETED / FAILED. Pacing is the agent's own ``follow_up_hours``.
 
-    A ``find_email`` *miss* is terminal (FAILED, ``reason="no email"``, outcome
-    blank so the ML labeler skips it rather than scoring it a bad fit); a
-    *couldn't-run* (no key / out of credits / API down) leaves the deal at
-    READY_TO_FIND_EMAIL to retry. The LinkedIn connect leg
-    (READY_TO_CONNECT/PENDING/CONNECTED) was removed with the channel.
+    A lookup *miss* is terminal (FAILED, ``reason="no email"``, outcome blank so
+    the ML labeler skips it rather than scoring it a bad fit); a *couldn't-run*
+    (no key / API down at submit) leaves the deal at READY_TO_FIND_EMAIL to
+    retry, and a job that never terminates within the poll deadline reverts
+    FINDING_EMAIL → READY_TO_FIND_EMAIL for a fresh submit. The LinkedIn connect
+    leg (READY_TO_CONNECT/PENDING/CONNECTED) was removed with the channel.
     """
     QUALIFIED = "Qualified"
     READY_TO_FIND_EMAIL = "Ready to Find Email"
+    FINDING_EMAIL = "Finding Email"
     READY_TO_EMAIL = "Ready to Email"
     EMAILED = "Emailed"
     COMPLETED = "Completed"
