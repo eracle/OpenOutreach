@@ -113,6 +113,24 @@ def test_account_created_from_mailbox_address():
 
 
 @pytest.mark.django_db
+def test_account_not_done_for_legacy_user_with_mismatched_email():
+    """A pre-existing staff user whose email doesn't match the mailbox (e.g. a
+    blank-email account predating email-first onboarding) must NOT satisfy the
+    account step — else operator creation is skipped and the email never binds."""
+    from django.contrib.auth.models import User
+
+    from openoutreach.emails.models import Mailbox
+
+    Mailbox.objects.create(username="joe@acme.com", from_address="joe@acme.com", password="p")
+    User.objects.create(username="legacy", email="", is_staff=True, is_active=True)
+
+    assert onboarding._account_done() is False
+
+    User.objects.filter(username="legacy").update(email="joe@acme.com")
+    assert onboarding._account_done() is True
+
+
+@pytest.mark.django_db
 def test_declined_legal_aborts_without_creating_account():
     from django.contrib.auth.models import User
 

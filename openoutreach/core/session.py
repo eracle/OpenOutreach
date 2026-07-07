@@ -87,6 +87,30 @@ def get_active_user():
     return User.objects.filter(is_active=True, is_staff=True).order_by("pk").first()
 
 
+def reconcile_operator_email() -> bool:
+    """Bind the operator's ``email`` to the mailbox ``from_address`` — the single
+    source of truth for who the daemon sends (and BCCs itself) as.
+
+    Self-heals installs whose operator ``User`` predates email-first onboarding
+    (blank email → BCC self-copy and the contacts give-back silently no-op), and
+    any later drift if the operator swaps mailbox. Returns True if it changed the
+    email. No-op (returns False) when there is no operator or no mailbox yet — a
+    fresh install still mid-onboarding derives the email at account creation.
+    """
+    from openoutreach.emails.models import Mailbox
+
+    user = get_active_user()
+    box = Mailbox.objects.first()
+    if user is None or box is None or user.email == box.from_address:
+        return False
+
+    previous = user.email or "(blank)"
+    user.email = box.from_address
+    user.save(update_fields=["email"])
+    logger.info("Reconciled operator email: %s -> %s", previous, box.from_address)
+    return True
+
+
 def get_or_create_session(user) -> "OperatorSession":
     pk = user.pk
     if pk not in _sessions:

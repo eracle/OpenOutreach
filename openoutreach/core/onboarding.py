@@ -253,9 +253,20 @@ def _run_bettercontact() -> None:
 # ── Account: country + newsletter + legal, then the operator User ─
 
 def _account_done() -> bool:
+    """Done only when an operator exists *and* its email matches the connected
+    mailbox. Requiring the match (not merely 'a staff user exists') stops a legacy
+    staff account with a blank/stale email from short-circuiting operator creation;
+    the daemon's startup reconcile (`reconcile_operator_email`) keeps it true after."""
     from django.contrib.auth.models import User
 
-    return User.objects.filter(is_active=True, is_staff=True).exists()
+    from openoutreach.emails.models import Mailbox
+
+    box = Mailbox.objects.first()
+    if box is None:
+        return False
+    return User.objects.filter(
+        is_active=True, is_staff=True, email=box.from_address
+    ).exists()
 
 
 def _run_account() -> None:

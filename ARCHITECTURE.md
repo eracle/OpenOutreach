@@ -51,9 +51,10 @@ leading flag) defaults to `rundaemon`.
 Startup sequence:
 1. **Configure logging** — level from `--verbosity`, banner, noisy third-party loggers silenced (`core/logging.py`).
 2. **Ensure DB** — `migrate --no-input` (the custom migrate; see below) + `setup_crm` (idempotent).
-3. **Onboard** — if `missing_keys()` is non-empty: interactive wizard on a TTY, else print what's missing and exit (no TTY, no silent partial start).
-4. **Create session** — validate `llm_api_key`, resolve the active operator `User`, build an `OperatorSession`, default its campaign to the first one.
-5. **Run** — `run_daemon(session)`.
+3. **Reconcile operator** — `session.reconcile_operator_email()` binds the operator `User.email` to the connected mailbox's `from_address` (the single source of truth). Self-heals a legacy/blank/stale email — an unbound email silently disables the BCC self-copy and the contacts give-back. Runs **before** onboarding so the tightened `account` gate sees the healed email and doesn't mint a duplicate operator.
+4. **Onboard** — if `missing_keys()` is non-empty: interactive wizard on a TTY, else print what's missing and exit (no TTY, no silent partial start).
+5. **Create session** — validate `llm_api_key`, resolve the active operator `User`, build an `OperatorSession`, default its campaign to the first one.
+6. **Run** — `run_daemon(session)`.
 
 Docker's `start` script `exec`s `python manage.py rundaemon` (no Xvfb/VNC — there is no browser).
 
@@ -82,7 +83,7 @@ account         country → newsletter (opt-in) → legal (required gate) → op
 
 - Cancellation is a **single exception**: prompts return `None` on Ctrl+C, `_required()` turns that into `OnboardingCancelled` at one boundary, and the mailbox step catches it (cancel with a box already connected just stops adding more; cancel with none aborts).
 - A failed step re-asks **its own** fields (mailbox retries retain what you typed; LLM retries re-verify) — it never rewinds to an earlier step or restarts the wizard. This is what fixed the "SMTP onboarding keeps looping back" bug, together with `emails/smtp.verify_auth` now selecting the transport by port (implicit SSL on 465, STARTTLS on 587) instead of hard-coding `starttls()`.
-- The operator's email is **not asked** — it is the connected mailbox's `from_address`, so the operator `User` is created in the last step, after a mailbox exists.
+- The operator's email is **not asked** — it is the connected mailbox's `from_address`, so the operator `User` is created in the last step, after a mailbox exists. `account`'s `is_done()` requires an active staff `User` **whose email matches the mailbox** (not merely "a staff user exists"), so a legacy blank-email account can't short-circuit operator creation; the daemon's startup reconcile (step 3 above) keeps that email bound thereafter.
 - `missing_keys()` returns the keys of unsatisfied steps (`campaign`/`llm`/`mailbox`/`bettercontact`/`account`), so the daemon knows onboarding is incomplete until every gate passes.
 - The newsletter opt-in **default** is jurisdiction-aware (off in GDPR/opt-in countries via `core/geo.is_gdpr_protected`), but an explicit yes always subscribes (lawful consent anywhere). Nothing is persisted in the `account` step until the Legal Notice is accepted.
 - The interactive wizard is vendored in `onboarding_wizard.py`: thin `text`/`integer`/`confirm`/`multiline` functions over questionary/prompt_toolkit, each owning its own validation loop and returning a value or `None` (cancel). No external `openoutreach` package dependency.
