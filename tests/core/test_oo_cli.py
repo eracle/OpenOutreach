@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
 from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
-from openoutreach.core.models import Campaign, Task
+from openoutreach.core.agents.email_opener import EmailDraft
+from openoutreach.core.models import ActionLog, Campaign, Task
 from openoutreach.crm.models import DealState
+from openoutreach.emails.models import Mailbox
 from tests.factories import DealFactory, LeadFactory, UserFactory
 
 pytestmark = pytest.mark.django_db
@@ -23,6 +26,42 @@ def _oo(*args: str) -> dict:
 
 def _json_value(value):
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
+
+
+def _campaign_with_operator(name="Email Campaign"):
+    user = UserFactory(email="operator@example.com")
+    campaign = Campaign.objects.create(name=name)
+    campaign.users.add(user)
+    return campaign, user
+
+
+def _box(email="sender@example.com", daily_limit=10):
+    return Mailbox.objects.create(
+        username=email,
+        password="pw",
+        from_address=email,
+        daily_limit=daily_limit,
+    )
+
+
+def _ready(campaign, email="lead@example.com"):
+    return DealFactory(
+        campaign=campaign,
+        lead=LeadFactory(email=email),
+        state=DealState.READY_TO_EMAIL,
+    )
+
+
+def _send_mocks():
+    return patch(
+        "openoutreach.core.db.summaries.materialize_profile_summary_if_missing",
+    ), patch(
+        "openoutreach.core.agents.email_opener.compose_opener_email",
+        return_value=EmailDraft(subject="Hi there", body="Short opener.", follow_up_hours=48),
+    ), patch(
+        "openoutreach.emails.sender.send_email",
+        return_value="<mid@example.com>",
+    )
 
 
 def test_status_returns_monitoring_counts():
@@ -214,3 +253,202 @@ def test_task_list_returns_recent_tasks():
             "created_at": _json_value(older.created_at),
         },
     ]
+
+
+def test_email_send_next_dry_run_plans_action_without_sending():
+    campaign, _user = _campaign_with_operator()
+    _box()
+    _ready(campaign)
+
+    summary, compose, send = _send_mocks()
+    with summary, compose as compose_mock, send as send_mock:
+        payload = _oo(
+            "email",
+            "send-next",
+            "--campaign",
+            campaign.name,
+            "--dry-run",
+            "--idempotency-key",
+            "dry-run-1",
+            "--json",
+        )
+
+    action = ActionLog.objects.get(action_type="email.send_next", idempotency_key="dry-run-1")
+    assert payload["ok"] is True
+    assert payload["command"] == "email send-next"
+    assert payload["status"] == ActionLog.Status.PLANNED.value
+    assert payload["dry_run"] is True
+    assert payload["action_id"] == action.pk
+    assert payload["result"] == {"planned": True}
+    assert action.status == ActionLog.Status.PLANNED
+    compose_mock.assert_not_called()
+    send_mock.assert_not_called()
+
+
+def test_email_send_next_non_interactive_sends_and_records_result():
+    campaign, _user = _campaign_with_operator()
+    box = _box()
+    deal = _ready(campaign, "lead@example.com")
+
+    summary, _compose, send = _send_mocks()
+    with summary, _compose, send as send_mock:
+        payload = _oo(
+            "email",
+            "send-next",
+            "--campaign",
+            campaign.name,
+            "--non-interactive",
+            "--idempotency-key",
+            "send-1",
+            "--json",
+        )
+
+    deal.refresh_from_db()
+    action = ActionLog.objects.get(action_type="email.send_next", idempotency_key="send-1")
+    assert payload["ok"] is True
+    assert payload["status"] == ActionLog.Status.SUCCEEDED.value
+    assert payload["action_id"] == action.pk
+    assert payload["result"] == {
+        "campaign": campaign.name,
+        "deal_id": deal.id,
+        "lead_id": deal.lead_id,
+        "profile_url": deal.lead.profile_url,
+        "email": "lead@example.com",
+        "mailbox": "sender@example.com",
+        "message_id": "<mid@example.com>",
+        "subject": "Hi there",
+    }
+    send_mock.assert_called_once_with(
+        box,
+        "lead@example.com",
+        "Hi there",
+        "Short opener.",
+        bcc="operator@example.com",
+    )
+    assert action.status == ActionLog.Status.SUCCEEDED
+    assert action.result == payload["result"]
+    assert deal.state == DealState.EMAILED
+    assert deal.mailbox == box
+    assert deal.email_message_id == "<mid@example.com>"
+
+
+def test_email_send_next_duplicate_idempotency_key_does_not_send_twice():
+    campaign, _user = _campaign_with_operator()
+    _box()
+    _ready(campaign, "lead@example.com")
+
+    summary, _compose, send = _send_mocks()
+    with summary, _compose, send as send_mock:
+        first = _oo(
+            "email",
+            "send-next",
+            "--campaign",
+            campaign.name,
+            "--confirm",
+            "--idempotency-key",
+            "dup-send-1",
+            "--json",
+        )
+        second = _oo(
+            "email",
+            "send-next",
+            "--campaign",
+            campaign.name,
+            "--confirm",
+            "--idempotency-key",
+            "dup-send-1",
+            "--json",
+        )
+
+    assert first["ok"] is True
+    assert second["ok"] is True
+    assert second["action_id"] == first["action_id"]
+    assert second["result"] == {
+        "duplicate": True,
+        "original_action_id": first["action_id"],
+    }
+    send_mock.assert_called_once()
+
+
+def test_email_send_next_no_eligible_email_returns_error_and_failed_action():
+    campaign, _user = _campaign_with_operator()
+    _box()
+
+    payload = _oo(
+        "email",
+        "send-next",
+        "--campaign",
+        campaign.name,
+        "--non-interactive",
+        "--idempotency-key",
+        "no-eligible-1",
+        "--json",
+    )
+
+    action = ActionLog.objects.get(
+        action_type="email.send_next",
+        idempotency_key="no-eligible-1",
+    )
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "no_eligible_email"
+    assert payload["action_id"] == action.pk
+    assert action.status == ActionLog.Status.FAILED
+    assert action.error_type == "NoEligibleEmail"
+
+
+def test_email_send_next_missing_campaign_returns_not_found():
+    payload = _oo(
+        "email",
+        "send-next",
+        "--campaign",
+        "Missing Campaign",
+        "--dry-run",
+        "--idempotency-key",
+        "missing-campaign-1",
+        "--json",
+    )
+
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("--dry-run",),
+        ("--dry-run", "--idempotency-key", ""),
+    ],
+)
+def test_email_send_next_missing_or_blank_idempotency_key_returns_invalid_argument(args):
+    campaign, _user = _campaign_with_operator()
+
+    payload = _oo(
+        "email",
+        "send-next",
+        "--campaign",
+        campaign.name,
+        *args,
+        "--json",
+    )
+
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "invalid_argument"
+
+
+def test_email_send_next_invalid_mode_returns_invalid_argument():
+    campaign, _user = _campaign_with_operator()
+
+    payload = _oo(
+        "email",
+        "send-next",
+        "--campaign",
+        campaign.name,
+        "--dry-run",
+        "--confirm",
+        "--idempotency-key",
+        "bad-mode-1",
+        "--json",
+    )
+
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "invalid_argument"

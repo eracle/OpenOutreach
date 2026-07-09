@@ -43,6 +43,20 @@ class Command(BaseCommand):
         self._add_json_flag(task_list)
         task_list.set_defaults(handler=self._task_list, command_name="task list")
 
+        email = subparsers.add_parser("email")
+        email_subparsers = email.add_subparsers(dest="email_command", required=True)
+        email_send_next = email_subparsers.add_parser("send-next")
+        email_send_next.add_argument("--campaign")
+        email_send_next.add_argument("--dry-run", action="store_true")
+        email_send_next.add_argument("--confirm", action="store_true")
+        email_send_next.add_argument("--non-interactive", action="store_true")
+        email_send_next.add_argument("--idempotency-key")
+        self._add_json_flag(email_send_next)
+        email_send_next.set_defaults(
+            handler=self._email_send_next,
+            command_name="email send-next",
+        )
+
     def handle(self, *args, **options):
         response = options["handler"](options)
         self.stdout.write(json.dumps(response, cls=DjangoJSONEncoder))
@@ -170,3 +184,114 @@ class Command(BaseCommand):
                 "limit": DEFAULT_LIMIT,
             },
         )
+
+    def _email_send_next(self, options: dict[str, Any]) -> dict[str, Any]:
+        from openoutreach.core.actions import run_logged_action
+        from openoutreach.core.models import ActionLog, Campaign
+        from openoutreach.emails.tasks.send import NoEligibleEmail, send_next_email
+
+        dry_run = bool(options.get("dry_run"))
+        confirm = bool(options.get("confirm"))
+        non_interactive = bool(options.get("non_interactive"))
+        if sum([dry_run, confirm, non_interactive]) != 1:
+            return error_response(
+                command=options["command_name"],
+                error_type="invalid_argument",
+                message="Specify exactly one of --dry-run, --confirm, or --non-interactive.",
+            )
+
+        idempotency_key = options.get("idempotency_key")
+        if not idempotency_key or not idempotency_key.strip():
+            return error_response(
+                command=options["command_name"],
+                error_type="invalid_argument",
+                message="--idempotency-key is required and cannot be blank.",
+                dry_run=dry_run,
+            )
+
+        campaign_name = options.get("campaign")
+        try:
+            campaign = Campaign.objects.get(name=campaign_name)
+        except Campaign.DoesNotExist:
+            return error_response(
+                command=options["command_name"],
+                error_type="not_found",
+                message=f"Campaign not found: {campaign_name}",
+                dry_run=dry_run,
+            )
+
+        session = self._session_for_campaign(campaign)
+        if session is None:
+            return error_response(
+                command=options["command_name"],
+                error_type="invalid_argument",
+                message=f"No active operator account found for campaign: {campaign.name}",
+                dry_run=dry_run,
+            )
+
+        payload = {
+            "campaign_id": campaign.pk,
+            "campaign": campaign.name,
+        }
+        action_type = "email.send_next"
+
+        try:
+            action, result = run_logged_action(
+                action_type=action_type,
+                target_type="campaign",
+                target_id=str(campaign.pk),
+                payload=payload,
+                idempotency_key=idempotency_key,
+                dry_run=dry_run,
+                execute=lambda: send_next_email(session),
+            )
+        except NoEligibleEmail as exc:
+            action = ActionLog.objects.filter(
+                action_type=action_type,
+                idempotency_key=idempotency_key,
+            ).first()
+            return error_response(
+                command=options["command_name"],
+                error_type="no_eligible_email",
+                message=str(exc),
+                dry_run=dry_run,
+                action_id=action.pk if action else None,
+            )
+        except ValueError as exc:
+            return error_response(
+                command=options["command_name"],
+                error_type="invalid_argument",
+                message=str(exc),
+                dry_run=dry_run,
+            )
+
+        if action.status == ActionLog.Status.FAILED:
+            return error_response(
+                command=options["command_name"],
+                error_type=action.error_type or "failed",
+                message=action.error_message or "Action failed.",
+                dry_run=dry_run,
+                action_id=action.pk,
+            )
+
+        return success_response(
+            command=options["command_name"],
+            status=action.status,
+            dry_run=dry_run,
+            action_id=action.pk,
+            result=result,
+        )
+
+    def _session_for_campaign(self, campaign):
+        from openoutreach.core.session import OperatorSession
+
+        user = (
+            campaign.users.filter(is_active=True, is_staff=True).order_by("pk").first()
+            or campaign.users.filter(is_active=True).order_by("pk").first()
+        )
+        if user is None:
+            return None
+
+        session = OperatorSession(user)
+        session.campaign = campaign
+        return session

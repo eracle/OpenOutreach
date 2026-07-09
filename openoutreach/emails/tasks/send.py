@@ -26,7 +26,22 @@ from openoutreach.crm.models import DealState
 logger = logging.getLogger(__name__)
 
 
+class NoEligibleEmail(Exception):
+    """Raised when the send queue cannot produce one safe email to send."""
+
+
 def handle_email(task, session, qualifiers):
+    try:
+        send_next_email(session)
+    except NoEligibleEmail:
+        logger.info(
+            "[%s] email: nothing to send (empty queue or every box at cap)",
+            session.campaign,
+        )
+
+
+def send_next_email(session) -> dict:
+    """Send one eligible Layer-1 opener for the active campaign."""
     from openoutreach.core.agents.email_opener import compose_opener_email
     from openoutreach.core.db.deals import get_emailable_deals
     from openoutreach.core.db.summaries import materialize_profile_summary_if_missing
@@ -38,8 +53,7 @@ def handle_email(task, session, qualifiers):
     mailbox = Mailbox.objects.least_loaded_under_cap()
     deal = get_emailable_deals(session).first() if mailbox else None
     if mailbox is None or deal is None:
-        logger.info("[%s] email: nothing to send (empty queue or every box at cap)", campaign)
-        return
+        raise NoEligibleEmail("No mailbox under cap or READY_TO_EMAIL deal available.")
 
     public_id = deal.lead.profile_url
     logger.info("[%s] %s %s via %s", campaign,
@@ -55,6 +69,17 @@ def handle_email(task, session, qualifiers):
     _record_sent_email(session, deal, mailbox, draft, message_id)
     logger.info("[%s] email sent to %s (%s): %s\n%s",
                 campaign, public_id, deal.lead.email, draft.subject, draft.body)
+
+    return {
+        "campaign": campaign.name,
+        "deal_id": deal.id,
+        "lead_id": deal.lead_id,
+        "profile_url": public_id,
+        "email": deal.lead.email,
+        "mailbox": mailbox.from_address,
+        "message_id": message_id,
+        "subject": draft.subject,
+    }
 
 
 def _record_sent_email(session, deal, mailbox, draft, message_id) -> None:
