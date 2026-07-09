@@ -4,17 +4,14 @@ services:
   app:
     build:
       context: .
-      dockerfile: ./compose/linkedin/Dockerfile
+      dockerfile: ./compose/openoutreach/Dockerfile
       args:
         - BUILD_ENV=local
     restart: unless-stopped
     stdin_open: true
     tty: true
     environment:
-      - ENABLE_VNC=true
       - HOST_UID=${HOST_UID:-1000}
       - HOST_GID=${HOST_GID:-1000}
     volumes:
       - .:/app
-    ports:
-      - "6080:6080"

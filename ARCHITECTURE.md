@@ -231,7 +231,7 @@ Paths relative to `openoutreach/`.
 ## Docker
 
 Multi-stage build from `python:3.12-slim-bookworm` using `uv` (no browser, no VNC).
-`compose/linkedin/Dockerfile` (the directory name is historical). `BUILD_ENV` arg selects
+`compose/openoutreach/Dockerfile`. `BUILD_ENV` arg selects
 requirements; data persists in a volume at `/app/data`.
 
 ## CI/CD

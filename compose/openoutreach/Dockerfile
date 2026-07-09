@@ -29,8 +29,8 @@ RUN useradd -m -u 1000 ubuntu
 ARG APP_HOME=/app
 WORKDIR ${APP_HOME}
 
-COPY ./compose/linkedin/entrypoint /entrypoint
-COPY ./compose/linkedin/start /start
+COPY ./compose/openoutreach/entrypoint /entrypoint
+COPY ./compose/openoutreach/start /start
 RUN sed -i 's/\r$//g' /entrypoint /start && chmod +x /entrypoint /start
 
 COPY --chown=ubuntu:ubuntu . ${APP_HOME}
