@@ -47,6 +47,22 @@ class TestProfileTextFor:
     def test_tolerates_missing_and_null_fields(self):
         assert discovery.profile_text_for({"contact_headline": "Hi", "company_name": None}) == "hi     "
 
+    def test_appends_extra_fields_when_present(self):
+        row = {
+            "contact_job_title": "Founder", "company_name": "Acme",
+            "contact_seniority": "Founder", "company_industry": "SaaS",
+            "contact_location_state": "California", "contact_location_country": "United States",
+            "company_keywords": ["dev tools", "api"],
+        }
+        # base slots (headline/location/industry/description absent) then the extras
+        assert discovery.profile_text_for(row) == (
+            "   founder acme  founder saas california united states dev tools api"
+        )
+
+    def test_skips_absent_extra_fields(self):
+        # a bare row gains no trailing padding for extras it never carried
+        assert discovery.profile_text_for({"contact_job_title": "CEO"}) == "   ceo  "
+
 
 class TestEmbedRow:
     def test_builds_ordered_lowercased_text(self):

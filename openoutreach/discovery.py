@@ -29,6 +29,19 @@ TEXT_FIELDS = [
     "company_description",
 ]
 
+# Extra Lead Finder fields folded in *only when the row carries them*. They
+# enrich sparse rows — ``contact_headline`` is present for barely half of leads,
+# and without it a row collapses to job title + company. Appended after
+# TEXT_FIELDS so the leading vector space is unchanged. Scalars first, then
+# list-valued fields (space-joined).
+EXTRA_TEXT_FIELDS = [
+    "contact_seniority",
+    "company_industry",
+    "contact_location_state",
+    "contact_location_country",
+]
+EXTRA_TEXT_LIST_FIELDS = ["company_keywords"]
+
 
 def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
     """Search Lead Finder by ICP filters; return the matching lead rows."""
@@ -45,8 +58,17 @@ def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
 
 def profile_text_for(row: dict) -> str:
     """Firmographic text for one lead row — the LLM qualifier's input and the
-    embedding's source, built from the same fields so both stay comparable."""
-    return " ".join(row.get(f) or "" for f in TEXT_FIELDS).lower()
+    embedding's source, built from the same fields so both stay comparable.
+
+    The base ``TEXT_FIELDS`` keep their original slots (empty when absent); the
+    extras are appended only when the row actually carries them, so a sparse row
+    gains signal without trailing padding for fields it never had.
+    """
+    parts = [row.get(f) or "" for f in TEXT_FIELDS]
+    parts += [str(row[f]) for f in EXTRA_TEXT_FIELDS if row.get(f)]
+    for field in EXTRA_TEXT_LIST_FIELDS:
+        parts += [str(v) for v in (row.get(field) or []) if v]
+    return " ".join(parts).lower()
 
 
 def embed_row(row: dict) -> np.ndarray:
