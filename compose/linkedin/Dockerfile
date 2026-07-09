@@ -15,19 +15,12 @@ FROM python:3.12-slim-bookworm AS runtime
 COPY --from=deps /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 
-# Install Playwright Chromium to a shared path accessible by any user
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 ENV EDITOR=nano
-RUN playwright install --with-deps chromium
 
-# VNC stack (started conditionally via ENABLE_VNC=true at runtime)
+# The email-first daemon is browserless — no Playwright, no Xvfb, no VNC.
+# gosu drops root → ubuntu in the entrypoint; nano backs $EDITOR.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        gosu xvfb x11vnc python3-websockify curl nano \
-    && curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz \
-        | tar -xz -C /opt \
-    && mv /opt/noVNC-1.6.0 /opt/noVNC \
-    && cp /opt/noVNC/vnc.html /opt/noVNC/index.html \
+    && apt-get install -y --no-install-recommends gosu nano \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user (slim image doesn't ship one)
