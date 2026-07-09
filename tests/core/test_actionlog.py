@@ -1,11 +1,12 @@
 import pytest
+from django.db import IntegrityError
 
 from openoutreach.core.models import ActionLog
 
 
 @pytest.mark.django_db
-def test_action_log_idempotency_is_unique_per_action_type():
-    first = ActionLog.objects.create(
+def test_action_log_duplicate_non_blank_idempotency_key_raises_integrity_error():
+    ActionLog.objects.create(
         action_type="email.send_next",
         target_type="campaign",
         target_id="1",
@@ -14,12 +15,37 @@ def test_action_log_idempotency_is_unique_per_action_type():
         status=ActionLog.Status.PLANNED,
     )
 
-    duplicate = ActionLog.objects.filter(
-        action_type="email.send_next",
-        idempotency_key="email-1",
-    ).first()
+    with pytest.raises(IntegrityError):
+        ActionLog.objects.create(
+            action_type="email.send_next",
+            target_type="campaign",
+            target_id="2",
+            payload_hash="hash-b",
+            idempotency_key="email-1",
+            status=ActionLog.Status.PLANNED,
+        )
 
-    assert duplicate == first
+
+@pytest.mark.django_db
+def test_action_log_allows_blank_idempotency_key_duplicates():
+    first = ActionLog.objects.create(
+        action_type="email.send_next",
+        target_type="campaign",
+        target_id="1",
+        payload_hash="hash-a",
+        idempotency_key="",
+        status=ActionLog.Status.PLANNED,
+    )
+    second = ActionLog.objects.create(
+        action_type="email.send_next",
+        target_type="campaign",
+        target_id="2",
+        payload_hash="hash-b",
+        idempotency_key="",
+        status=ActionLog.Status.PLANNED,
+    )
+
+    assert first.pk != second.pk
 
 
 @pytest.mark.django_db
@@ -31,22 +57,20 @@ def test_action_log_records_result_and_error():
         payload_hash="hash-b",
         idempotency_key="task-7",
         status=ActionLog.Status.PLANNED,
+        error_type="stale_error",
+        error_message="stale message",
     )
 
     action.mark_succeeded({"task_id": 7})
     action.refresh_from_db()
     assert action.status == ActionLog.Status.SUCCEEDED
     assert action.result == {"task_id": 7}
+    assert action.error_type == ""
+    assert action.error_message == ""
 
-    failed = ActionLog.objects.create(
-        action_type="email.send_next",
-        target_type="campaign",
-        target_id="1",
-        payload_hash="hash-c",
-        idempotency_key="email-2",
-        status=ActionLog.Status.PLANNED,
-    )
-    failed.mark_failed("no_eligible_email", "No eligible READY_TO_EMAIL deal exists.")
-    failed.refresh_from_db()
-    assert failed.status == ActionLog.Status.FAILED
-    assert failed.error_type == "no_eligible_email"
+    action.mark_failed("no_eligible_email", "No eligible READY_TO_EMAIL deal exists.")
+    action.refresh_from_db()
+    assert action.status == ActionLog.Status.FAILED
+    assert action.result is None
+    assert action.error_type == "no_eligible_email"
+    assert action.error_message == "No eligible READY_TO_EMAIL deal exists."

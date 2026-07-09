@@ -232,8 +232,9 @@ class ActionLog(models.Model):
 
     def mark_failed(self, error_type: str, error_message: str) -> None:
         self.status = self.Status.FAILED
+        self.result = None
         self.error_type = error_type
         self.error_message = error_message
         self.save(
-            update_fields=["status", "error_type", "error_message", "updated_at"],
+            update_fields=["status", "result", "error_type", "error_message", "updated_at"],
         )
