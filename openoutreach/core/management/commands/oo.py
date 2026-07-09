@@ -114,7 +114,7 @@ class Command(BaseCommand):
             )
 
         state = options.get("state")
-        if state and state not in DealState.values:
+        if state is not None and state not in DealState.values:
             return error_response(
                 command=options["command_name"],
                 error_type="invalid_argument",
@@ -122,7 +122,7 @@ class Command(BaseCommand):
             )
 
         deals = Deal.objects.filter(campaign=campaign).select_related("lead")
-        if state:
+        if state is not None:
             deals = deals.filter(state=state)
 
         deals = deals.order_by("lead__profile_url", "id")[:DEFAULT_LIMIT]

@@ -159,6 +159,25 @@ def test_lead_list_invalid_state_returns_invalid_argument_error():
     assert payload["result"] is None
 
 
+def test_lead_list_empty_state_returns_invalid_argument_error():
+    Campaign.objects.create(name="Filtered Campaign")
+
+    payload = _oo(
+        "lead",
+        "list",
+        "--campaign",
+        "Filtered Campaign",
+        "--state",
+        "",
+        "--json",
+    )
+
+    assert payload["ok"] is False
+    assert payload["command"] == "lead list"
+    assert payload["error"]["type"] == "invalid_argument"
+    assert payload["result"] is None
+
+
 def test_task_list_returns_recent_tasks():
     older = Task.objects.create(
         task_type=Task.TaskType.FIND_EMAIL,
