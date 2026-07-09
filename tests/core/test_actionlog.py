@@ -124,3 +124,16 @@ def test_run_logged_action_returns_duplicate_without_execution():
     assert second.pk == first.pk
     assert second_result == {"duplicate": True, "original_action_id": first.pk}
     assert calls == []
+
+
+def test_run_logged_action_rejects_whitespace_idempotency_key():
+    with pytest.raises(ValueError, match="idempotency_key is required"):
+        run_logged_action(
+            action_type="email.send_next",
+            target_type="campaign",
+            target_id="1",
+            payload={"campaign_id": 1},
+            idempotency_key="   ",
+            dry_run=True,
+            execute=lambda: {"planned": False},
+        )

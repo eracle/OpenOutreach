@@ -20,7 +20,7 @@ def run_logged_action(
     dry_run: bool,
     execute: Callable[[], dict[str, Any] | None],
 ) -> tuple[ActionLog, dict[str, Any]]:
-    if not idempotency_key:
+    if not idempotency_key or not idempotency_key.strip():
         raise ValueError("idempotency_key is required")
 
     payload_hash = _payload_hash(payload)
