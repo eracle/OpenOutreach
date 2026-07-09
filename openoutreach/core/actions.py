@@ -98,8 +98,14 @@ def _execute_planned_action(
     action: ActionLog,
     execute: Callable[[], dict[str, Any] | None],
 ) -> tuple[ActionLog, dict[str, Any]]:
+    claimed = ActionLog.objects.filter(
+        pk=action.pk,
+        status=ActionLog.Status.PLANNED,
+    ).update(status=ActionLog.Status.RUNNING)
+    if claimed == 0:
+        action.refresh_from_db()
+        return action, {"duplicate": True, "original_action_id": action.pk}
     action.status = ActionLog.Status.RUNNING
-    action.save(update_fields=["status", "updated_at"])
 
     try:
         result = execute() or {}

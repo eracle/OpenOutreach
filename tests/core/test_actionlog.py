@@ -1,7 +1,7 @@
 import pytest
 from django.db import IntegrityError
 
-from openoutreach.core.actions import run_logged_action
+from openoutreach.core.actions import _execute_planned_action, run_logged_action
 from openoutreach.core.models import ActionLog
 
 
@@ -209,6 +209,31 @@ def test_run_logged_action_marks_failed_and_reraises_execute_error():
     assert action.result is None
     assert action.error_type == "RuntimeError"
     assert action.error_message == "boom"
+
+
+@pytest.mark.django_db
+def test_execute_planned_action_returns_duplicate_when_claim_is_lost():
+    action = ActionLog.objects.create(
+        action_type="email.send_next",
+        target_type="campaign",
+        target_id="1",
+        payload_hash="hash-a",
+        idempotency_key="email-send-claim-1",
+        status=ActionLog.Status.PLANNED,
+    )
+    stale_action = ActionLog.objects.get(pk=action.pk)
+    ActionLog.objects.filter(pk=action.pk).update(status=ActionLog.Status.RUNNING)
+
+    calls = []
+    result_action, result = _execute_planned_action(
+        stale_action,
+        execute=lambda: calls.append("sent") or {"sent": True},
+    )
+
+    assert result_action.pk == action.pk
+    assert result_action.status == ActionLog.Status.RUNNING
+    assert result == {"duplicate": True, "original_action_id": action.pk}
+    assert calls == []
 
 
 def test_run_logged_action_rejects_whitespace_idempotency_key():
