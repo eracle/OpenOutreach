@@ -27,9 +27,16 @@ def test_error_response_shape():
         message="No eligible READY_TO_EMAIL deal exists.",
     )
 
-    assert payload["ok"] is False
-    assert payload["status"] == "failed"
-    assert payload["error"] == {
-        "type": "no_eligible_email",
-        "message": "No eligible READY_TO_EMAIL deal exists.",
+    assert payload == {
+        "ok": False,
+        "command": "email send-next",
+        "status": "failed",
+        "dry_run": False,
+        "action_id": None,
+        "result": None,
+        "error": {
+            "type": "no_eligible_email",
+            "message": "No eligible READY_TO_EMAIL deal exists.",
+        },
+        "warnings": [],
     }
