@@ -98,7 +98,7 @@ def populate_deal(apps, schema_editor):
             msg.save(update_fields=["deal"])
             counts["archival"] += 1
 
-    logger.info("ChatMessage→Deal populate: %s", counts)
+    logger.debug("ChatMessage→Deal populate: %s", counts)
 
 
 class Migration(migrations.Migration):

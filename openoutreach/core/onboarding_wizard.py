@@ -100,7 +100,7 @@ def multiline(message: str, *, default: str = "", required: bool = True) -> str 
         event.current_buffer.validate_and_handle()
 
     session = PromptSession(key_bindings=bindings)
-    prompt = f"? {message} (Ctrl+D to submit):\n"
+    prompt = f"? {message}\n  (Enter = new line · Ctrl+D on its own line = submit)\n> "
     while True:
         try:
             raw = session.prompt(prompt, default=default, multiline=True)

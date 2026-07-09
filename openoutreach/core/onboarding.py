@@ -48,6 +48,20 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CAMPAIGN_NAME = "Email Outreach"
 
+_INTRO = """
+  Welcome to OpenOutreach — a self-hosted AI sales agent that runs your cold
+  email funnel end to end: define your ICP, discover leads, qualify them, find a
+  verified work email, then send and follow up from a mailbox you own.
+
+  Setup takes a few minutes. Have three things ready:
+    • an LLM provider key — the agent qualifies leads and writes your emails
+    • a mailbox you own — Gmail, Workspace, or any SMTP inbox
+    • a BetterContact key — powers lead discovery and email finding (free tier to start)
+
+  OpenOutreach is free; you pay only the providers above. Stop anytime — setup
+  resumes where you left off.
+"""
+
 _T = TypeVar("_T")
 
 
@@ -109,7 +123,9 @@ def _run_campaign() -> None:
     Campaign.objects.create(
         name=DEFAULT_CAMPAIGN_NAME,
         product_docs=_required(wiz.multiline(
-            "Product/service description — what it does, who it's for, the problem it solves"
+            "Product/service description — what it does, who it's for, the problem it solves "
+            "(e.g. 'A self-hosted CI dashboard for small dev teams — replaces spreadsheet "
+            "build-tracking; cuts flaky-test triage from hours to minutes')"
         )),
         campaign_target=_required(wiz.multiline(
             "Campaign target — who you're going after and the outcome you want "
@@ -322,9 +338,18 @@ def _run_account() -> None:
 
 
 def _looks_like_country(value: str) -> bool | str:
-    if len(value) == 2 and value.isalpha():
+    """Validate an ISO 3166-1 alpha-2 code against the same table active-hours uses.
+
+    ``pytz.country_timezones`` is the country→zone authority ``timezone_for_country``
+    reads; validating against it rejects made-up codes (XX, ZZ) and guarantees the
+    accepted code resolves a timezone later.
+    """
+    import pytz
+
+    code = value.strip()
+    if len(code) == 2 and code.upper() in pytz.country_timezones:
         return True
-    return "Enter a 2-letter country code (e.g. US, GB, DE)."
+    return "Enter a valid ISO 3166 alpha-2 country code (e.g. US, GB, DE)."
 
 
 def _looks_like_email(value: str) -> bool | str:
@@ -417,6 +442,13 @@ def onboard_interactive() -> None:
     resumes where it left off. Raises ``OnboardingCancelled`` (a ``SystemExit``)
     if the operator cancels a step that isn't yet satisfiable.
     """
+    if all(step.is_done() for step in STEPS):
+        return  # nothing to do — don't print the intro on a fully-onboarded run
+
+    from openoutreach.core.logging import print_banner
+
+    print_banner()
+    print(_INTRO)
     for step in STEPS:
         if not step.is_done():
             step.run()
