@@ -20,6 +20,7 @@ _STATE_LOG_STYLE = {
     DealState.READY_TO_FIND_EMAIL: ("READY_TO_FIND_EMAIL", "yellow", ["bold"]),
     DealState.FINDING_EMAIL: ("FINDING_EMAIL", "cyan", []),
     DealState.READY_TO_EMAIL: ("READY_TO_EMAIL", "blue", ["bold"]),
+    DealState.SENDING_EMAIL: ("SENDING_EMAIL", "blue", []),
     DealState.EMAILED: ("EMAILED", "blue", []),
     DealState.COMPLETED: ("COMPLETED", "green", ["bold"]),
     DealState.FAILED: ("FAILED", "red", ["bold"]),

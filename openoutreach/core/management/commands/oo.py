@@ -210,6 +210,14 @@ class Command(BaseCommand):
             )
 
         campaign_name = options.get("campaign")
+        if not campaign_name or not campaign_name.strip():
+            return error_response(
+                command=options["command_name"],
+                error_type="invalid_argument",
+                message="--campaign is required and cannot be blank.",
+                dry_run=dry_run,
+            )
+
         try:
             campaign = Campaign.objects.get(name=campaign_name)
         except Campaign.DoesNotExist:
@@ -264,11 +272,23 @@ class Command(BaseCommand):
                 message=str(exc),
                 dry_run=dry_run,
             )
+        except Exception as exc:
+            action = ActionLog.objects.filter(
+                action_type=action_type,
+                idempotency_key=idempotency_key,
+            ).first()
+            return error_response(
+                command=options["command_name"],
+                error_type=self._action_error_type(action, exc),
+                message=action.error_message if action else str(exc),
+                dry_run=dry_run,
+                action_id=action.pk if action else None,
+            )
 
         if action.status == ActionLog.Status.FAILED:
             return error_response(
                 command=options["command_name"],
-                error_type=action.error_type or "failed",
+                error_type=self._action_error_type(action),
                 message=action.error_message or "Action failed.",
                 dry_run=dry_run,
                 action_id=action.pk,
@@ -295,3 +315,11 @@ class Command(BaseCommand):
         session = OperatorSession(user)
         session.campaign = campaign
         return session
+
+    def _action_error_type(self, action, exc: Exception | None = None) -> str:
+        error_type = action.error_type if action else ""
+        if error_type == "NoEligibleEmail":
+            return "no_eligible_email"
+        if error_type:
+            return error_type
+        return exc.__class__.__name__ if exc else "failed"

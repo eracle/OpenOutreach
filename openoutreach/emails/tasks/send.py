@@ -43,7 +43,6 @@ def handle_email(task, session, qualifiers):
 def send_next_email(session) -> dict:
     """Send one eligible Layer-1 opener for the active campaign."""
     from openoutreach.core.agents.email_opener import compose_opener_email
-    from openoutreach.core.db.deals import get_emailable_deals
     from openoutreach.core.db.summaries import materialize_profile_summary_if_missing
     from openoutreach.emails.models import Mailbox
     from openoutreach.emails.sender import send_email
@@ -51,7 +50,7 @@ def send_next_email(session) -> dict:
     campaign = session.campaign
 
     mailbox = Mailbox.objects.least_loaded_under_cap()
-    deal = get_emailable_deals(session).first() if mailbox else None
+    deal = _claim_next_emailable_deal(session) if mailbox else None
     if mailbox is None or deal is None:
         raise NoEligibleEmail("No mailbox under cap or READY_TO_EMAIL deal available.")
 
@@ -59,14 +58,21 @@ def send_next_email(session) -> dict:
     logger.info("[%s] %s %s via %s", campaign,
                 colored("▶ email", "blue", attrs=["bold"]), public_id, mailbox.from_address)
 
-    materialize_profile_summary_if_missing(deal, session)
-    draft = compose_opener_email(session, deal)
+    message_id = None
+    try:
+        materialize_profile_summary_if_missing(deal, session)
+        draft = compose_opener_email(session, deal)
 
-    message_id = send_email(
-        mailbox, deal.lead.email, draft.subject, draft.body,
-        bcc=session.django_user.email,
-    )
-    _record_sent_email(session, deal, mailbox, draft, message_id)
+        message_id = send_email(
+            mailbox, deal.lead.email, draft.subject, draft.body,
+            bcc=session.django_user.email,
+        )
+        _record_sent_email(session, deal, mailbox, draft, message_id)
+    except Exception:
+        if message_id is None:
+            _release_email_claim(deal)
+        raise
+
     logger.info("[%s] email sent to %s (%s): %s\n%s",
                 campaign, public_id, deal.lead.email, draft.subject, draft.body)
 
@@ -80,6 +86,33 @@ def send_next_email(session) -> dict:
         "message_id": message_id,
         "subject": draft.subject,
     }
+
+
+def _claim_next_emailable_deal(session):
+    """Atomically reserve one READY_TO_EMAIL deal before SMTP work starts."""
+    from openoutreach.core.db.deals import get_emailable_deals
+    from openoutreach.crm.models import Deal
+
+    while True:
+        candidate_pk = get_emailable_deals(session).values_list("pk", flat=True).first()
+        if candidate_pk is None:
+            return None
+
+        claimed = Deal.objects.filter(
+            pk=candidate_pk,
+            campaign=session.campaign,
+            state=DealState.READY_TO_EMAIL,
+        ).update(state=DealState.SENDING_EMAIL)
+        if claimed:
+            return Deal.objects.select_related("lead").get(pk=candidate_pk)
+
+
+def _release_email_claim(deal) -> None:
+    from openoutreach.crm.models import Deal
+
+    Deal.objects.filter(pk=deal.pk, state=DealState.SENDING_EMAIL).update(
+        state=DealState.READY_TO_EMAIL,
+    )
 
 
 def _record_sent_email(session, deal, mailbox, draft, message_id) -> None:

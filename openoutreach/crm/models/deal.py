@@ -52,6 +52,7 @@ class DealState(models.TextChoices):
     READY_TO_FIND_EMAIL = "Ready to Find Email"
     FINDING_EMAIL = "Finding Email"
     READY_TO_EMAIL = "Ready to Email"
+    SENDING_EMAIL = "Sending Email"
     EMAILED = "Emailed"
     COMPLETED = "Completed"
     FAILED = "Failed"

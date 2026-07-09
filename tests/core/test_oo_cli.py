@@ -396,6 +396,122 @@ def test_email_send_next_no_eligible_email_returns_error_and_failed_action():
     assert action.error_type == "NoEligibleEmail"
 
 
+def test_email_send_next_duplicate_no_eligible_error_stays_normalized():
+    campaign, _user = _campaign_with_operator()
+    _box()
+
+    first = _oo(
+        "email",
+        "send-next",
+        "--campaign",
+        campaign.name,
+        "--non-interactive",
+        "--idempotency-key",
+        "no-eligible-dup-1",
+        "--json",
+    )
+    second = _oo(
+        "email",
+        "send-next",
+        "--campaign",
+        campaign.name,
+        "--non-interactive",
+        "--idempotency-key",
+        "no-eligible-dup-1",
+        "--json",
+    )
+
+    assert first["ok"] is False
+    assert first["error"]["type"] == "no_eligible_email"
+    assert second["ok"] is False
+    assert second["error"]["type"] == "no_eligible_email"
+    assert second["action_id"] == first["action_id"]
+
+
+def test_email_send_next_send_failure_returns_json_and_failed_action():
+    campaign, _user = _campaign_with_operator()
+    _box()
+    deal = _ready(campaign, "lead@example.com")
+
+    summary, _compose, send = _send_mocks()
+    with summary, _compose, send as send_mock:
+        send_mock.side_effect = RuntimeError("smtp down")
+        payload = _oo(
+            "email",
+            "send-next",
+            "--campaign",
+            campaign.name,
+            "--non-interactive",
+            "--idempotency-key",
+            "send-fails-1",
+            "--json",
+        )
+
+    action = ActionLog.objects.get(action_type="email.send_next", idempotency_key="send-fails-1")
+    deal.refresh_from_db()
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "RuntimeError"
+    assert payload["error"]["message"] == "smtp down"
+    assert payload["action_id"] == action.pk
+    assert action.status == ActionLog.Status.FAILED
+    assert action.error_type == "RuntimeError"
+    assert deal.state == DealState.READY_TO_EMAIL
+
+
+def test_email_send_next_claim_prevents_nested_send_with_different_key():
+    campaign, _user = _campaign_with_operator()
+    _box()
+    _ready(campaign, "lead@example.com")
+    nested_payloads = []
+
+    def _send_once_then_try_nested(*args, **kwargs):
+        nested_payloads.append(
+            _oo(
+                "email",
+                "send-next",
+                "--campaign",
+                campaign.name,
+                "--non-interactive",
+                "--idempotency-key",
+                "nested-send-2",
+                "--json",
+            ),
+        )
+        return "<mid@example.com>"
+
+    summary, _compose, send = _send_mocks()
+    with summary, _compose, send as send_mock:
+        send_mock.side_effect = _send_once_then_try_nested
+        first = _oo(
+            "email",
+            "send-next",
+            "--campaign",
+            campaign.name,
+            "--non-interactive",
+            "--idempotency-key",
+            "nested-send-1",
+            "--json",
+        )
+
+    assert first["ok"] is True
+    assert nested_payloads == [
+        {
+            "ok": False,
+            "command": "email send-next",
+            "status": "failed",
+            "dry_run": False,
+            "action_id": ActionLog.objects.get(idempotency_key="nested-send-2").pk,
+            "result": None,
+            "error": {
+                "type": "no_eligible_email",
+                "message": "No mailbox under cap or READY_TO_EMAIL deal available.",
+            },
+            "warnings": [],
+        },
+    ]
+    send_mock.assert_called_once()
+
+
 def test_email_send_next_missing_campaign_returns_not_found():
     payload = _oo(
         "email",
@@ -410,6 +526,28 @@ def test_email_send_next_missing_campaign_returns_not_found():
 
     assert payload["ok"] is False
     assert payload["error"]["type"] == "not_found"
+
+
+@pytest.mark.parametrize(
+    "campaign_args",
+    [
+        (),
+        ("--campaign", ""),
+    ],
+)
+def test_email_send_next_missing_or_blank_campaign_returns_invalid_argument(campaign_args):
+    payload = _oo(
+        "email",
+        "send-next",
+        *campaign_args,
+        "--dry-run",
+        "--idempotency-key",
+        "missing-campaign-input-1",
+        "--json",
+    )
+
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "invalid_argument"
 
 
 @pytest.mark.parametrize(
