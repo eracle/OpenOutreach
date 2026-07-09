@@ -101,7 +101,7 @@ class Command(BaseCommand):
 
     def _lead_list(self, options: dict[str, Any]) -> dict[str, Any]:
         from openoutreach.core.models import Campaign
-        from openoutreach.crm.models import Deal
+        from openoutreach.crm.models import Deal, DealState
 
         campaign_name = options["campaign"]
         try:
@@ -113,9 +113,17 @@ class Command(BaseCommand):
                 message=f"Campaign not found: {campaign_name}",
             )
 
+        state = options.get("state")
+        if state and state not in DealState.values:
+            return error_response(
+                command=options["command_name"],
+                error_type="invalid_argument",
+                message=f"Invalid lead state: {state}",
+            )
+
         deals = Deal.objects.filter(campaign=campaign).select_related("lead")
-        if options.get("state"):
-            deals = deals.filter(state=options["state"])
+        if state:
+            deals = deals.filter(state=state)
 
         deals = deals.order_by("lead__profile_url", "id")[:DEFAULT_LIMIT]
 
