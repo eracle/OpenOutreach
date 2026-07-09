@@ -71,8 +71,8 @@ def flush_find_email_queue(session, campaign) -> int:
     email we couldn't send today. The GP confidence gate (``ready_pool``) rations
     *which* leads reach READY_TO_FIND_EMAIL; this gate bounds *how many* lookups
     ride the send pipeline — capped at ``remaining_today()`` minus everything
-    already heading for a send (READY_TO_EMAIL + FINDING_EMAIL). A free miss drops
-    out of the pipeline and re-opens the gate at no send-budget cost.
+    already heading for a send (READY_TO_EMAIL + SENDING_EMAIL + FINDING_EMAIL).
+    A free miss drops out of the pipeline and re-opens the gate at no send-budget cost.
 
     One slot per call, not a batch: the handler is the pipeline *pump*
     (discover→qualify→rank→submit), so fanning out slots would trigger parallel
@@ -93,7 +93,11 @@ def flush_find_email_queue(session, campaign) -> int:
     remaining = Mailbox.objects.remaining_today()
     in_pipeline = Deal.objects.filter(
         campaign_id=campaign.pk,
-        state__in=(DealState.READY_TO_EMAIL, DealState.FINDING_EMAIL),
+        state__in=(
+            DealState.READY_TO_EMAIL,
+            DealState.SENDING_EMAIL,
+            DealState.FINDING_EMAIL,
+        ),
         lead__disqualified=False,
     ).count()
     if in_pipeline >= remaining:

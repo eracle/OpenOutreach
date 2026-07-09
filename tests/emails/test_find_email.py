@@ -232,6 +232,11 @@ class TestFindEmailDrain:
         _deal(fake_session.campaign, DealState.FINDING_EMAIL)  # already fills the 1 slot
         assert self._flush(fake_session) == 0
 
+    def test_sending_email_counts_toward_pipeline(self, fake_session):
+        _box(daily_limit=1)
+        _deal(fake_session.campaign, DealState.SENDING_EMAIL)  # claimed send fills the 1 slot
+        assert self._flush(fake_session) == 0
+
     def test_no_op_when_find_email_already_pending(self, fake_session):
         _box(daily_limit=10)
         Task.objects.create(
