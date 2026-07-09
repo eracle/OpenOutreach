@@ -1,191 +1,89 @@
-# Profile Lifecycle
+# Lead & Deal Lifecycle
 
-## Overview
-
-Every LinkedIn profile flows through a fixed sequence of stages, from first
-discovery on a page to agentic follow-up conversations.
+Every lead flows from discovery on a licensed data source through qualification, a gated paid email lookup, and agentic email follow-up. OpenOutreach is browserless — there is no page navigation, no scraping, and no connect leg.
 
 ```
-Discovery → Enrichment + Embedding → Qualification (LLM) → QUALIFIED → READY_TO_CONNECT (GP gate) → PENDING → CONNECTED → COMPLETED
-  (url)       (voyager + fastembed)     (always LLM)         (Deal)     (GP prob > threshold)         (sent)    (accepted)   (agent follow-up)
+Discover (Lead Finder) → embed → Qualify (LLM) → QUALIFIED ─(GP gate)─▶ READY_TO_FIND_EMAIL
+  licensed firmographics                            (Deal)              │ find_email (submit)
+                                                                        ▼
+                                    free hub hit ─▶ READY_TO_EMAIL   FINDING_EMAIL ─(collect_email poll)─▶ hit: READY_TO_EMAIL
+                                                          │           provider job in flight              miss: FAILED (no email)
+                                                          ▼
+                                              email opener ─▶ EMAILED ⟲ (agentic follow-up) ─▶ COMPLETED / FAILED
 ```
+
+The authoritative state machine (with every transition and edge case) is in **[`../ARCHITECTURE.md`](../ARCHITECTURE.md) → Deal State Machine**. This page is the narrative summary.
 
 ---
 
-## 1. Discovery
+## 1. Discovery (licensed, free)
 
-**Where:** `browser/nav.py` — `goto_page()` → `_extract_in_urls()` → `_discover_and_enrich()`
+**Where:** `core/pipeline/icp.py` → `core/pipeline/discover.py` → `discovery.py`
 
-Every time the daemon navigates to a LinkedIn page (search results, profile
-pages, feed), all `/in/` URLs on the page are extracted. New URLs (those
-without an existing Lead) are immediately processed.
+An LLM turns the campaign's `product_docs` + `campaign_target` into a Lead Finder **ICP filter** (cached on `Campaign.icp_filters`). `discover()` pages matching firmographic profiles from BetterContact **Lead Finder** — free, no emails — advancing `Campaign.discovery_offset`. Each row is persisted as a `Lead` keyed on `profile_url` (stored, never fetched). Discovery runs when the qualification pool goes dry.
 
-LLM-generated search keywords (`pipeline/search.py:run_search()`) drive
-additional discovery when the candidate pool runs dry.
+## 2. Embedding (at discovery time)
 
-## 2. Enrichment + Embedding (eager, at discovery time)
+**Where:** `discovery.py:embed_row` → `core/db/leads.py:create_lead`
 
-**Where:** `browser/nav.py:_discover_and_enrich()` → `db/leads.py:create_enriched_lead()` → `Lead.get_embedding()`
+The lead's `profile_text` (headline, company description, title, seniority, industry, location) is built from the Lead Finder row and embedded (384-dim `BAAI/bge-small-en-v1.5`) onto `Lead.embedding`. No scrape, no re-fetch.
 
-For each new URL discovered:
+## 3. Qualification (LLM)
 
-1. **Voyager API** fetches structured profile data (name, headline, positions, education, etc.)
-2. **Lead** is created with the full profile JSON in `description`
-3. **Embedding** is computed (384-dim BAAI/bge-small-en-v1.5 via fastembed) and stored directly on the Lead's `embedding` BinaryField
+**Where:** `core/pipeline/qualify.py`, `core/ml/qualifier.py`
 
-All steps happen atomically at discovery time. Rate-limited by a randomized
-`enrich_min_delay_seconds`–`enrich_max_delay_seconds` pause (default 6–10s)
-per profile, capped at `enrich_max_per_page` (default 10) per discovered page.
+Embedded leads with no Deal are the pool. The GP selects which candidate to evaluate next — **exploit** (highest predicted probability) when negatives outnumber positives, else **explore** (highest BALD). Every decision is an LLM call over the stored `profile_text`. Cold start (<2 labels of both classes) selects in order.
 
-> **Robustness fallback:** Lazy helpers (`ensure_lead_enriched`,
-> `ensure_profile_embedded`) exist in `db/enrichment.py` for rare edge
-> cases (manual lead creation, interrupted enrichment, DB inconsistency).
-> They log a warning when triggered — this is not normal flow.
+- **Accepted** → `Lead` promoted to a `Deal` at `QUALIFIED`.
+- **Rejected** → `FAILED` Deal with `wrong_fit` outcome (campaign-scoped; not `Lead.disqualified`).
 
-## 3. Qualification (LLM only)
+## 4. Rank gate (QUALIFIED → READY_TO_FIND_EMAIL)
 
-**Where:** `pipeline/qualify.py:run_qualification()` (called from connect task backfill via `pools.py`)
+**Where:** `core/pipeline/ready_pool.py:promote_to_ready`
 
-Leads with embeddings but no Deal are the qualification pool. Candidate
-selection depends on label balance:
+A GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL` when `P(f>0.5) > min_gp_confidence` (0.9). This **rations the paid lookup** — only leads the model is confident about ever cost a credit.
 
-| Condition | Strategy | Method |
-|-----------|----------|--------|
-| `n_negatives > n_positives` | **Exploit** — pick highest predicted probability | `qualifier.predict_probs()` |
-| Otherwise | **Explore** — pick highest BALD score | `qualifier.compute_bald()` |
+## 5. Find email — two-leg async (READY_TO_FIND_EMAIL → READY_TO_EMAIL / FAILED)
 
-All qualification decisions go through the LLM via `qualify_lead.j2` prompt.
-The GP model is used only for candidate selection strategy, not for auto-decisions.
+**Where:** `emails/tasks/find_email.py` (submit) + `emails/tasks/collect_email.py` (poll)
 
-### Cold start
+`find_email` tries the free cross-operator hub cache first (`contacts.resolve`) — a hit routes straight to `READY_TO_EMAIL`. Otherwise it fires a paid BetterContact job and parks the deal at `FINDING_EMAIL`; `collect_email` polls it (self-chaining backoff):
 
-With fewer than 2 labels or a single class, the GP model returns `None`.
-The first candidate is selected in order and qualified via LLM.
+- **hit** → `READY_TO_EMAIL` (address given back to the hub)
+- **miss** (job done, no address) → `FAILED`, `reason="no email"`, **blank outcome** (ML-skipped — an unfindable address is not a fit signal)
+- **still running / couldn't-run** → chain the next poll, or past the deadline revert to `READY_TO_FIND_EMAIL` (no credit spent)
 
-### Result
+The submit leg only fires when there's mailbox send-headroom for the result today, so spend never outruns send capacity.
 
-- Accepted: Lead promoted → Deal (state=QUALIFIED). LLM reason stored in `Deal.reason`.
-- Rejected: FAILED Deal with "Disqualified" closing reason (campaign-scoped, not `Lead.disqualified`). Reason in `Deal.reason`.
+## 6. Opener (READY_TO_EMAIL → EMAILED)
 
-## 4. Ready to Connect (QUALIFIED → READY_TO_CONNECT)
+**Where:** `emails/tasks/send.py` → `core/agents/email_opener.py`
 
-**Where:** `pipeline/ready_pool.py:promote_to_ready()`
+An ungated FIFO queue (paced only by the per-box daily cap) picks the oldest `READY_TO_EMAIL` deal, composes a personalized opener, sends it over SMTP (BCC to the operator's own address), records the outgoing `ChatMessage`, and parks the deal at `EMAILED`. `next_follow_up_at` is seeded from the opener agent's own `follow_up_hours`.
 
-After qualification, profiles sit at the QUALIFIED state. Before connecting, they
-must pass a GP confidence gate:
+## 7. Agentic follow-up (EMAILED ⟲ → COMPLETED / FAILED)
 
-- `promote_to_ready()` loads all QUALIFIED profiles, computes P(f > 0.5) via the GP model
-- Profiles with probability above `min_ready_to_connect_prob` (default 0.9) are promoted to READY_TO_CONNECT
-- During cold start (GP not fitted), no profiles are promoted — the connect task keeps triggering qualifications until enough labels accumulate
-
-## 5. Connect (READY_TO_CONNECT → PENDING)
-
-**Where:** `tasks/connect.py:handle_connect()`
-
-The connect handler picks the top READY_TO_CONNECT profile from the pool
-(`pipeline/pools.py:find_candidate()` → `pipeline/ready_pool.py:find_ready_candidate()`).
-
-If the pool is empty, the **backfill chain** runs via composable generators:
-1. `ready_source()` — check if any QUALIFIED profiles pass the GP gate via `promote_to_ready()`
-2. `qualify_source()` — qualify the next unlabeled profile via `run_qualification()`
-3. `search_source()` — discover new profiles via `run_search()`
-
-Each generator pulls from the next when empty. Each `qualify_source` iteration
-produces exactly one label, preventing infinite-search-without-qualifying.
-
-Connection request is sent without a note. Deal moves to PENDING state.
-Rate-limited by `LinkedInProfile.can_execute()` / `record_action()`.
-
-**Unreachable profile detection**: when `send_connection_request` returns
-QUALIFIED (no Connect button), `connect_attempts` is incremented; after
-`MAX_CONNECT_ATTEMPTS` (3), the lead is disqualified (`lead.disqualified=True`)
-and the Deal is marked FAILED.
-
-## 6. Check Pending (PENDING → CONNECTED)
-
-**Where:** `tasks/check_pending.py:handle_check_pending()`
-
-Checks **one** PENDING profile per task execution via `get_connection_status()`.
-Uses **exponential backoff** with multiplicative jitter per profile:
-
-- Initial interval: `check_pending_recheck_after_hours` (default 24h)
-- Doubles each time the profile is still pending
-- Stored in `deal.backoff_hours`
-
-On acceptance → enqueues `follow_up` task.
-
-## 7. Follow Up (CONNECTED → COMPLETED)
-
-**Where:** `tasks/follow_up.py:handle_follow_up()` → `agents/follow_up.py:run_follow_up_agent()`
+**Where:** `emails/tasks/follow_up.py` → `core/agents/follow_up.py`
 
 **Full documentation:** [`docs/follow_up_agent.md`](follow_up_agent.md)
 
-Runs an agentic follow-up conversation as a **self-rescheduling loop**: each
-invocation syncs the conversation, builds context from profile/chat fact
-summaries plus a verbatim message window, and asks the LLM for a structured
-`FollowUpDecision`:
+A self-rescheduling loop: each due invocation reads IMAP replies (`emails/inbox.py`), folds them into the conversation summary, and asks the LLM for a structured `FollowUpDecision`:
 
 | Action | Effect |
 |--------|--------|
-| `send_message` | Send DM (3 fallback strategies), record action, re-enqueue |
-| `wait` | Re-enqueue without sending (check back in `follow_up_hours`) |
-| `mark_completed` | Close the Deal (booked, declined, or gone cold) |
+| `send_message` | Threaded SMTP reply (`In-Reply-To` = latest, `References` = root); re-arm `next_follow_up_at` |
+| `wait` | Push `next_follow_up_at` out, no send |
+| `mark_completed` | Close the Deal with the agent's `Outcome` |
 
-The loop continues until the agent returns `mark_completed`. Default re-check
-interval is 72 hours if the agent doesn't specify one. Rate-limited to
-`follow_up_daily_limit` (default 30) per LinkedIn account.
+The LLM owns pacing via its own `follow_up_hours`. Paced by the per-box daily cap.
 
-## 8. Terminal States
+## 8. Terminal states
 
-- **COMPLETED** — conversation completed by the agent (booked, declined, or went cold)
-- **FAILED** — unrecoverable error at any state, or LLM rejection (campaign-scoped "Disqualified" closing reason)
+- **COMPLETED** — the agent closed the conversation (booked, declined, or went cold), with an `Outcome`.
+- **FAILED** — an unfindable email (`reason="no email"`, blank outcome, ML-skipped) or an LLM qualification rejection (`wrong_fit`, campaign-scoped).
 
----
+`Lead.disqualified=True` is a separate, permanent account-level exclusion (never given a new deal in any campaign).
 
-## State Diagram
+## Freemium campaigns
 
-```
-                    ┌─────────────┐
-                    │  Discovered │  Lead created (url-only or enriched)
-                    │  (implicit) │  Embedding stored on Lead
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐
-                    │ Qualification│  LLM query (always)
-                    └──┬───────┬──┘
-                       │       │
-              rejected │       │ accepted
-                       │       │
-            ┌──────────▼┐  ┌───▼────────┐
-            │  FAILED    │  │  QUALIFIED │  Deal created
-            │(Disqualif.)│  └────┬───────┘
-            └────────────┘       │
-                                 │ GP confidence gate (P(f>0.5) > threshold)
-                          ┌──────▼──────────────┐
-                          │  READY_TO_CONNECT   │  GP model confident
-                          └──────┬──────────────┘
-                                 │ send_connection_request()
-                          ┌──────▼──────┐
-                          │   PENDING   │  Waiting for acceptance
-                          └──────┬──────┘
-                                 │ connection accepted
-                          ┌──────▼──────┐
-                          │  CONNECTED  │  Ready for follow-up
-                          └──────┬──────┘
-                                 │ run_follow_up_agent()
-                          ┌──────▼──────┐
-                          │  COMPLETED  │  Done
-                          └─────────────┘
-
-                          ┌─────────────┐
-                          │   FAILED    │  Error at any state
-                          └─────────────┘
-```
-
-## Freemium Campaigns
-
-Freemium campaigns skip qualification, READY_TO_CONNECT, and search entirely.
-They query `Lead` for any embedded lead without a Deal in their
-campaign (excluding permanently disqualified leads), ranked by `KitQualifier`.
-Profiles go straight to connect, with delay scaled by `action_fraction` to
-maintain a target ratio of freemium vs regular connections.
+Freemium campaigns draw candidates from a kit-ranked pool (`KitQualifier`) instead of the per-campaign GP, mint the Deal on the fly, and run the **email** funnel like any other campaign. A fraction (`action_fraction`) of activity is devoted to the maintainer-configured promotional campaign.

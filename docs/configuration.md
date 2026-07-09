@@ -1,127 +1,73 @@
 # Configuration
 
-Configuration is split between environment variables (`.env` file), Django models (managed via interactive
-onboarding or Django Admin), and hardcoded defaults in `linkedin/conf.py`.
+Configuration lives in two places: the **`SiteConfig`** DB singleton and per-campaign **`Campaign`** rows (both managed via interactive onboarding or Django Admin), plus a few hardcoded defaults in **`core/conf.py`**. There are no social-network credentials — OpenOutreach is browserless and uses no such account.
 
-## LLM Configuration (`.env`)
+## Operator / LLM / keys (`SiteConfig` singleton, pk=1)
 
-LLM settings are stored in `.env` (project root). Any
-OpenAI-compatible provider works. These are prompted during interactive onboarding if missing.
+Set during onboarding, editable in Django Admin. `SiteConfig` is the single source of truth for keys and the one persisted operator setting (country).
 
-| Variable | Description | Default |
-|:---------|:------------|:--------|
-| `LLM_API_KEY` | API key for an OpenAI-compatible provider. | (required) |
-| `AI_MODEL` | Model identifier for qualification, follow-up, and search keyword generation. | (required) |
-| `LLM_API_BASE` | Base URL for the API endpoint. | (none) |
+| Field | Description | Default |
+|:------|:------------|:--------|
+| `ai_model` | pydantic-ai `provider:model` id (e.g. `anthropic:claude-sonnet-4-5-...`); bare `gpt-*`/`claude-*`/`gemini-*` are auto-prefixed. Providers: openai/anthropic/google/groq/mistral/cohere/openai_compatible. | (required) |
+| `llm_api_key` | API key for the chosen provider. Live-verified at onboarding. | (required) |
+| `llm_api_base` | Base URL — **only** for `openai_compatible:*`. | (none) |
+| `bettercontact_api_key` | [BetterContact](https://bettercontact.rocks?fpr=openoutreach) key. Powers **both** Lead Finder discovery **and** work-email enrichment. **Blank disables discovery + enrichment.** | (empty) |
+| `contacts_api_token` / `contacts_api_url` | Cross-operator contacts-store token (earned on first contribution) and URL (blank → default hub). | (empty) |
+| `country_code` | ISO-3166 alpha-2. The only persisted operator setting — drives the active-hours timezone and the email/GDPR jurisdiction rules. | (from onboarding) |
 
-These can also be set as environment variables directly.
+The operator's own email and name live on the Django `User` (created at onboarding), not on `SiteConfig`.
 
-## Campaign Settings (Django Model)
+## Campaign Settings (`Campaign` model)
 
-Campaign data is stored in the `Campaign` Django model (with `name` and `users` M2M), managed via
-Django Admin (`/admin/`) or created during interactive onboarding.
+Managed via Django Admin (`/admin/`) or created during onboarding.
 
 | Field | Type | Description |
 |:------|:-----|:------------|
-| `product_docs` | text | Product/service description. Used by LLM qualification, follow-up agent, and search keyword generation. |
-| `campaign_target` | text | Campaign target (who you're going after + the outcome). Used by LLM qualification, follow-up agent, and search keyword generation. |
-| `booking_link` | string | URL included in follow-up messages when suggesting a meeting. |
-| `is_freemium` | boolean | Whether this is a freemium campaign (uses KitQualifier instead of BayesianQualifier). |
-| `action_fraction` | float | Target fraction of total connections for freemium campaigns. |
+| `product_docs` | text | Product/service description. Feeds ICP generation, qualification, and the outreach agents. |
+| `campaign_target` | text | Who you're going after + the outcome. Feeds the same. |
+| `booking_link` | string | URL the agent can offer when suggesting a meeting. |
+| `is_freemium` | boolean | Freemium campaign (uses `KitQualifier` instead of the per-campaign GP). |
+| `action_fraction` | float | Fraction of activity a freemium campaign devotes to the maintainer-configured promotional email campaign. |
+| `icp_filters` | JSON | Cached Lead Finder filter spec (`{"filters": …, "country_code": …}`), generated once by an LLM pass. Clear it to regenerate. |
+| `discovery_offset` | integer | Page cursor — how far discovery has paged the ICP; advances across cycles/restarts. |
+| `model_blob` | binary | The per-campaign trained GP model (joblib). |
 
-## Account Settings (Django Model)
+## Sending mailboxes (`Mailbox` model)
 
-Account data is stored in the `LinkedInProfile` Django model (1:1 with `auth.User`), managed via
-Django Admin or created during interactive onboarding.
-
-| Field | Type | Description | Default |
-|:------|:-----|:------------|:--------|
-| `linkedin_username` | string | LinkedIn login email. | (required) |
-| `linkedin_password` | string | LinkedIn password. | (required) |
-| `active` | boolean | Enable/disable this account. | `true` |
-| `subscribe_newsletter` | boolean | Receive OpenOutreach updates. | `true` |
-| `connect_daily_limit` | integer | Max connection requests per day. | `20` |
-| `follow_up_daily_limit` | integer | Max follow-up messages per day. | `30` |
-| `legal_accepted` | boolean | Whether the user accepted the legal notice. | `false` |
-
-Rate limiting is enforced by `LinkedInProfile` methods (`can_execute()`, `record_action()`,
-`mark_exhausted()`) backed by the `ActionLog` model, surviving daemon restarts.
-
-### GDPR Location Detection
-
-On the first run, the daemon checks the logged-in user's LinkedIn country code against a static set of
-ISO-2 codes for jurisdictions with opt-in email marketing laws (EU/EEA, UK, Switzerland, Canada, Brazil,
-Australia, Japan, South Korea, New Zealand).
-
-- **Non-GDPR location**: `subscribe_newsletter` is auto-set to `true` for that account.
-- **GDPR-protected location**: the existing value is preserved (no override).
-- **Unknown/empty location**: defaults to GDPR-protected (errs on the side of caution).
-
-This check runs once per account (a database marker record prevents re-runs).
-
-## Email Channel Settings
-
-The email channel (LinkedIn for discovery, email for outreach) is **optional** — with nothing
-configured, every qualified lead routes to the LinkedIn connection channel. A per-launch onboarding
-nudge (`emails/nudge.py`) walks you through the two pieces below until both exist.
-
-### Finder key (`SiteConfig` singleton)
-
-The email finder is configured by a single key on the `SiteConfig` DB singleton, editable via Django
-Admin or captured by the onboarding nudge.
+Each `Mailbox` is one SMTP/IMAP box you own. Boxes are added during onboarding by pasting an **app password** for a mailbox you control (Gmail / Workspace / own-domain SMTP, or a cold-email provider like [IceMail](https://icemail.ai?via=openoutreach)); each is auth-checked (`emails/smtp.py`) before it is stored. A connected mailbox is required — it gates enrichment and is where outreach is sent from.
 
 | Field | Type | Description | Default |
 |:------|:-----|:------------|:--------|
-| `bettercontact_api_key` | string | [BetterContact](https://bettercontact.rocks?fpr=openoutreach) API key for LinkedIn→work-email resolution. **Blank disables the paid finder.** | (empty) |
+| `host` / `port` | string / int | SMTP host/port. | `smtp.gmail.com` / `587` |
+| `imap_host` / `imap_port` | string / int | IMAP host/port — the read side for the reply loop (same app password). | `imap.gmail.com` / `993` |
+| `username` | string | SMTP/IMAP login (unique). | (required) |
+| `password` | string | App password. | (required) |
+| `from_address` | string | The `From:` / sending identity. | (required) |
+| `daily_limit` | integer | Warm-safe sends/day, enforced per box at send time. | `DEFAULT_EMAIL_DAILY_LIMIT` (30) |
 
-When set, a qualified lead's work email is resolved on demand (`emails/bettercontact.py`); a hit forks
-the deal onto the email channel, a miss leaves it on the LinkedIn channel. Misses are free to retry —
-the provider bills only usable hits. The first 50 lookups are free with the subscription, so you can
-try enrichment at no cost. **Enrichment only runs when a sending mailbox exists** — with no
-mailbox to send from, qualified leads route straight to LinkedIn and neither the hub lookup nor the
-paid finder is called.
+Sending is raw `smtplib` (`emails/sender.py`); reply-reading is IMAP (`emails/inbox.py`). The email queue drains eagerly, capped only by the pool-wide per-box daily headroom.
 
-### Sending mailboxes (`Mailbox` Django model)
+## Newsletter jurisdiction default
 
-Each `Mailbox` is one SMTP outbox. Boxes are imported by pasting the [IceMail](https://icemail.ai?via=openoutreach)
-*Export Mailboxes* sheet during onboarding (`emails/icemail.py`); each is auth-checked
-(`emails/smtp.py`) before it is stored.
+At onboarding you enter your `country_code`. If it is **not** an opt-in jurisdiction (EU/EEA, UK, Switzerland, Canada, Brazil, Australia, Japan, South Korea, New Zealand), the newsletter default is on; otherwise it is off. An explicit yes always subscribes. The check reads `core/geo.is_gdpr_protected` — country comes from onboarding, never from any account lookup.
 
-| Field | Type | Description | Default |
-|:------|:-----|:------------|:--------|
-| `host` | string | SMTP host. | `smtp.gmail.com` |
-| `port` | integer | SMTP port. | `587` |
-| `username` | string | SMTP login (unique). | (required) |
-| `password` | string | SMTP password. | (required) |
-| `from_address` | string | Envelope/from address for outgoing mail. | (required) |
-| `daily_limit` | integer | Warm-safe sends per day for this box, enforced per box at send time. | `DEFAULT_EMAIL_DAILY_LIMIT` |
+## Hardcoded Defaults (`core/conf.py`)
 
-Sending is raw `smtplib` (`emails/sender.py`); the email queue drains eagerly, capped only by the
-pool-wide per-box daily headroom.
-
-## Hardcoded Defaults (`conf.py:CAMPAIGN_CONFIG`)
-
-Timing and ML defaults are hardcoded in `linkedin/conf.py`. These are not user-configurable.
+Not user-configurable per campaign; edit the source to change.
 
 | Key | Value | Description |
 |:----|:------|:------------|
-| `check_pending_recheck_after_hours` | `24` | Base interval (hours) before first pending check. Doubles per profile via exponential backoff. |
-| `enrich_min_delay_seconds` | `6` | Min pause (seconds) between enrichment API calls during auto-discovery. |
-| `enrich_max_delay_seconds` | `10` | Max pause (seconds) — actual delay is `random.uniform(min, max)`. |
-| `enrich_max_per_page` | `10` | Max profiles enriched per discovered page (DOM order, LinkedIn relevance). |
-| `burst_min_seconds` | `2700` | Min work burst (45 min) before the daemon takes a human-rhythm break. |
-| `burst_max_seconds` | `3900` | Max work burst (65 min). Actual burst is `random.uniform(min, max)`. |
-| `break_min_seconds` | `600` | Min break length (10 min) after each burst. |
-| `break_max_seconds` | `1200` | Max break length (20 min). |
-| `min_action_interval` | `120` | Minimum seconds between major actions. |
-| `qualification_n_mc_samples` | `100` | Monte Carlo samples for BALD computation. |
-| `min_ready_to_connect_prob` | `0.9` | GP probability threshold for promoting QUALIFIED to READY_TO_CONNECT. |
-| `min_positive_pool_prob` | `0.20` | P(f > 0.5) threshold for positive pool check in exploit mode. |
-| `embedding_model` | `BAAI/bge-small-en-v1.5` | FastEmbed model for 384-dim profile embeddings. |
-| `connect_delay_seconds` | `10` | Delay between connect tasks. |
-| `connect_no_candidate_delay_seconds` | `300` | Delay when candidate pool is empty. |
-| `check_pending_jitter_factor` | `0.2` | Multiplicative jitter factor for backoff. |
+| `ENABLE_ACTIVE_HOURS` | `True` | `False` → run 24/7. |
+| `ACTIVE_START_HOUR` / `ACTIVE_END_HOUR` | `9` / `19` | Single contiguous active-hours window (no weekend handling). |
+| `ACTIVE_TIMEZONE` | `None` | `None` → resolved at runtime from the operator's country; set an IANA name to pin it. |
+| `COLLECT_BACKOFF_BASE_S` / `COLLECT_BACKOFF_MAX_S` / `COLLECT_DEADLINE_S` | `5` / `60` / `600` | The `collect_email` poll doubles its delay each still-running attempt (capped at MAX), giving up past DEADLINE. |
+| `DEFAULT_EMAIL_DAILY_LIMIT` | `30` | Per-mailbox warm-safe send ceiling stored on each `Mailbox`. |
+| `CAMPAIGN_CONFIG.min_gp_confidence` | `0.9` | GP probability threshold for promoting `QUALIFIED → READY_TO_FIND_EMAIL` (rations the paid lookup). |
+| `CAMPAIGN_CONFIG.qualification_n_mc_samples` | `100` | Monte Carlo samples for BALD. |
+| `CAMPAIGN_CONFIG.embedding_model` | `BAAI/bge-small-en-v1.5` | FastEmbed model for 384-dim embeddings. |
+| `CAMPAIGN_CONFIG.burst_min/max_seconds` | `2700` / `3900` | Human-rhythm work burst (45–65 min) before a break. |
+| `CAMPAIGN_CONFIG.break_min/max_seconds` | `600` / `1200` | Break length (10–20 min) after each burst. |
 
-Other constants: `MIN_DELAY` (5s) / `MAX_DELAY` (8s) for human-like wait timing.
+There is **no spend cap and no Poisson pacing** — paid `find_email` spend is gated by mailbox send-headroom, so a lookup only fires when its result could be sent today.
 
 See [Templating](./templating.md) for follow-up messaging configuration.

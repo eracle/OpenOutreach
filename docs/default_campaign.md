@@ -1,7 +1,7 @@
-# LinkedIn Leads OpenOutreach
+# Default Campaign — OpenOutreach ICP
 
 This document outlines the target customer and keyword strategy for acquiring new users for OpenOutreach, the
-open-source LinkedIn automation tool.
+open-source B2B outreach automation tool.
 
 ## Ideal Customer Profile: The Indie Hacker
 
@@ -19,16 +19,16 @@ building their businesses from the ground up.
   test, and optimize their outreach with scientific rigor.
 * **Ambitious & Growth-Oriented:** They are looking for a "secret weapon" to level the playing field and compete with
   larger, better-funded companies. They need a scalable solution that can grow with them, from simple automated outreach
-  to a sophisticated, multi-account "bot farm" for lead generation.
+  to a sophisticated, multi-mailbox lead-generation engine.
 * **Value-Driven:** They feel smart and empowered by choosing a free, powerful tool over an expensive, black-box
   service. They are not just looking for a cheap solution; they are looking for a *better* one.
 
 They are building the next generation of software and businesses, and they need a marketing and growth engine that
 reflects their own values: open, powerful, and intelligent.
 
-## LinkedIn Search Keywords
+## Discovery / ICP Keywords
 
-To find these individuals on LinkedIn, we will use a combination of keywords targeting their roles, interests, and pain
+To find these individuals, we will use a combination of keywords targeting their roles, interests, and pain
 points.
 
 ### 1. Job Titles & Roles
@@ -60,12 +60,12 @@ points.
 * Lead Generation
 * Marketing Automation
 
-### 3. Pain Points & Goals (keywords in their posts or summaries)
+### 3. Pain Points & Goals
 
-* "LinkedIn automation"
+* "outreach automation"
 * "lead generation"
 * "sales outreach"
-* "recruiting tool"
+* "cold email"
 * "marketing tool"
 * "growth hacking"
 * "customer acquisition"
