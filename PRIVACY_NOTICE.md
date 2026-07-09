@@ -14,7 +14,7 @@ The store is **minimised**. For each person it holds these core fields:
 
 | Field | Example | Why it is kept |
 | --- | --- | --- |
-| LinkedIn public identifier | `jane-doe` | The lookup key for contribution and resolution. |
+| Profile identifier | `https://…/in/jane-doe` | A stored profile URL — held as an opaque key, never fetched — used for contribution and resolution. |
 | Country code | `in` | Drives the geographic exclusion below. |
 | Work email address(es) | `jane@acme.com` | The contact detail the store exists to serve. |
 
@@ -22,7 +22,7 @@ The store also records, for internal operation, which operator token contributed
 
 **Profile vector.** Where an operator has opted in to contribute it (see the operator notice), the store may also hold a **384-dimension numeric profile vector** (an "embedding") for a person: a compact mathematical representation derived from their public professional profile, **computed on the operator's own machine** so the **raw profile text is never sent or stored**. The vector exists to support the similarity search described under *How data is used and disclosed* below.
 
-**What is _not_ collected:** no name, headline, job title, company, phone number, postal address, or raw LinkedIn profile text.
+**What is _not_ collected:** no name, headline, job title, company, phone number, postal address, or raw profile text.
 
 Only **professional, business-context (B2B)** contact data is in scope. Consumer contact details and any special-category data are out of scope and are not collected.
 
@@ -32,12 +32,9 @@ Any person located in the **EU/EEA, the UK, or Switzerland** — or whose locati
 
 ## How data is collected
 
-Data reaches the store from OpenOutreach operators at the two moments a real contact comes into existence:
+Data reaches the store from OpenOutreach operators at the one moment a real contact comes into existence: **after an operator's paid email-finder lookup returns a verified work email.**
 
-1. after an operator's paid email-finder lookup returns a work email, and
-2. after an operator's 1st-degree LinkedIn connection exposes their contact info.
-
-The maintainer does **not** scrape LinkedIn or buy data to populate the store; it is filled only by operators' own contributions, subject to the geographic exclusion above.
+The maintainer does **not** scrape any website or buy data to populate the store; it is filled only by operators' own paid-finder contributions, subject to the geographic exclusion above.
 
 ## How data is used and disclosed
 
