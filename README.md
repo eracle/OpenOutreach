@@ -98,7 +98,23 @@ make run
 ```
 The interactive onboarding prompts for your LLM key, mailbox, BetterContact key, and campaign details on first run. Fully resumable — stop/restart anytime without losing progress.
 
-### 3. View Your Data (CRM Admin)
+### 3. Optional Agent/Script Controls
+
+OpenOutreach also exposes a JSON management command for local operators and agents:
+
+```bash
+.venv/bin/python manage.py oo status --json
+.venv/bin/python manage.py oo campaign list --json
+.venv/bin/python manage.py oo lead list --campaign "Campaign" --json
+.venv/bin/python manage.py oo task list --json
+.venv/bin/python manage.py oo email send-next --campaign "Campaign" --dry-run --idempotency-key key-1 --json
+.venv/bin/python manage.py oo email send-next --campaign "Campaign" --non-interactive --idempotency-key key-2 --json
+.venv/bin/python manage.py oo audit list --json
+```
+
+Every command returns one stable JSON envelope so an external agent can monitor state, dry-run a send, execute a single idempotent opener send, and inspect the audit log without scraping daemon logs. This control plane manages an already-onboarded operator account; it does not create accounts or bypass onboarding.
+
+### 4. View Your Data (CRM Admin)
 
 OpenOutreach includes a full CRM web interface via Django Admin:
 ```bash
@@ -120,7 +136,8 @@ Then open:
 | 🎯 **Bayesian Active Learning**    | Gaussian Process model on profile embeddings learns your ideal customer via explore/exploit, selecting the most informative candidates for LLM qualification. |
 | 🔒 **Licensed Discovery**          | Firmographic profiles come from a paid, licensed provider (BetterContact Lead Finder) — no scraping, no browser, no account. |
 | 📧 **Agentic Email Outreach**      | Resolves a work email per best-fit lead (one credit per hit), sends an AI-written opener from your own mailbox over SMTP, then reads replies (IMAP) and runs multi-turn follow-up. |
-| 🔄 **Stateful Pipeline**          | Tracks deal states (`QUALIFIED` → `READY_TO_FIND_EMAIL` → `FINDING_EMAIL` → `READY_TO_EMAIL` → `EMAILED` → `COMPLETED`/`FAILED`) in a local DB — fully resumable. |
+| 🔄 **Stateful Pipeline**          | Tracks deal states (`QUALIFIED` → `READY_TO_FIND_EMAIL` → `FINDING_EMAIL` → `READY_TO_EMAIL` → `SENDING_EMAIL` → `EMAILED` → `COMPLETED`/`FAILED`) in a local DB — fully resumable. |
+| 🧾 **Agent Control Plane**        | JSON CLI commands let local agents monitor campaigns/tasks, execute idempotent one-send actions, and read an audit log. |
 | ⏱️ **Send-Gated Spend**           | Paid email lookups ride on send capacity — a per-mailbox daily cap bounds how many leads enter the pipeline, so you never resolve more than you can send. |
 | 💾 **Built-in CRM**               | Full data ownership via Django Admin — browse Leads, Deals, and conversations.                                     |
 | 🐳 **One-Command Deployment**      | Dockerized setup with interactive onboarding; a slim runtime with no browser and no VNC.                            |
@@ -137,7 +154,7 @@ The daemon runs a continuous **task queue** backed by a persistent `Task` model.
 | **find_email** | Submits a work-email lookup for a ranked, qualified lead — a free hub-cache hit resolves immediately; otherwise it fires a paid provider job and parks the deal at `FINDING_EMAIL`. |
 | **collect_email** | Polls the in-flight lookup (self-chaining backoff): hit → `READY_TO_EMAIL`, miss → `FAILED` (blank outcome, ML-skipped), couldn't-run/timeout → back to the queue. |
 | **follow_up** | Runs the AI agent over an emailed deal — reads replies, decides send/wait/complete, and re-arms the next follow-up. |
-| **email** | Sends one AI-written opener to a `READY_TO_EMAIL` lead from your mailbox pool, then parks the deal at `EMAILED`. |
+| **email** | Claims one `READY_TO_EMAIL` deal as `SENDING_EMAIL`, sends an AI-written opener from your mailbox pool, then parks the deal at `EMAILED`. |
 
 **Discover → qualify → gate → find email → email.** An LLM turns your campaign into an ICP filter (cached on the Campaign); discovery pages matching profiles into embedded `Lead`s. Qualification runs the GP + LLM loop over the stored firmographic text. The GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL`, **rationing the paid lookup** so only the best-fit leads cost a credit. A hit sends an opener; a miss ends the deal as `FAILED` with a blank outcome (so the ML labeler skips it — an unfindable address is not a fit signal).
 
