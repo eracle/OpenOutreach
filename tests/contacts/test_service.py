@@ -128,7 +128,7 @@ class TestContribute:
             # the empty string is filtered out
             service.contribute(_session(), lead, ["jane@acme.com", ""], service.ORIGIN_PROFILE_INFO)
         url, kwargs = post.call_args.args[0], post.call_args.kwargs
-        assert url.endswith("/api/contribute/")
+        assert url.endswith("/api/v2/contribute/")
         assert kwargs["headers"] == {"Authorization": "Bearer tok"}
         assert kwargs["json"] == {
             "public_identifier": "jane-doe",
@@ -145,9 +145,8 @@ class TestContribute:
         ) as post:
             service.contribute(_session(), lead, ["jane@acme.com"], service.ORIGIN_BETTERCONTACT)
         url, kwargs = post.call_args.args[0], post.call_args.kwargs
-        assert url.endswith("/api/register/")
-        assert kwargs["json"]["linkedin_public_id"] == "me"
-        assert kwargs["json"]["subscriber_email"] == "me@x.com"
+        assert url.endswith("/api/v2/register/")
+        assert kwargs["json"]["operator_email"] == "me@x.com"
         assert kwargs["json"]["origin"] == "bettercontact"  # origin rides the folded register
         assert SiteConfig.load().contacts_api_token == "NEW"
 

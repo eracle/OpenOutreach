@@ -122,12 +122,11 @@ def _attach_embedding(lead, record: dict) -> None:
 def _register(config: SiteConfig, session, record: dict, lead) -> None:
     """Mint + persist the operator token via the folded first contribution.
 
-    Keyed to the operator's own LinkedIn account; ``subscriber_email`` is the
-    provenance / revocation handle.
+    Keyed to the operator's own email — the single operator identity the hub uses
+    for "one token per operator" and as the provenance / revocation handle.
     """
     body = {
-        "linkedin_public_id": session.self_profile.get("public_identifier"),
-        "subscriber_email": session.django_user.email,
+        "operator_email": session.django_user.email,
         **record,
     }
     response = _send(config, "register", body, lead)
@@ -156,7 +155,7 @@ def _send(config: SiteConfig, path: str, body: dict, lead, headers: dict | None 
 
 def _endpoint(config: SiteConfig, path: str) -> str:
     base = config.contacts_api_url or DEFAULT_API_URL
-    return f"{base.rstrip('/')}/api/{path}/"
+    return f"{base.rstrip('/')}/api/v2/{path}/"
 
 
 def _auth(token: str) -> dict:

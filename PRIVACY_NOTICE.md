@@ -55,7 +55,7 @@ A legitimate-interest assessment balances that interest against the rights of th
 
 If your work email is in the store, you may request **access, correction, or erasure**, and you may **object** to the processing. To exercise any of these, or to be excluded from the store entirely:
 
-- **Suppression / opt-out:** a request submitted to `POST /api/suppress/` (or via the contact route below) removes the record and **blocks the email and public identifier from re-entering** the store. Suppression is honoured across the whole store, including against future re-contribution, and applies to both the resolution and the similarity-search purposes.
+- **Suppression / opt-out:** a request submitted to `POST /api/v2/suppress/` (or via the contact route below) removes the record and **blocks the email and public identifier from re-entering** the store. Suppression is honoured across the whole store, including against future re-contribution, and applies to both the resolution and the similarity-search purposes.
 
 Suppression is recorded immediately as a request; the suppressed identifiers are excluded from the data served to operators, and the underlying records are erased on the store's maintenance cycle.
 
