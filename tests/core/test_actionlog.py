@@ -126,6 +126,91 @@ def test_run_logged_action_returns_duplicate_without_execution():
     assert calls == []
 
 
+@pytest.mark.django_db
+def test_run_logged_action_rejects_conflicting_idempotency_key_without_execution():
+    calls = []
+
+    original, original_result = run_logged_action(
+        action_type="email.send_next",
+        target_type="campaign",
+        target_id="1",
+        payload={"campaign_id": 1},
+        idempotency_key="email-send-conflict-1",
+        dry_run=False,
+        execute=lambda: {"sent": True},
+    )
+
+    with pytest.raises(ValueError, match="idempotency_key conflicts with an existing action"):
+        run_logged_action(
+            action_type="email.send_next",
+            target_type="campaign",
+            target_id="2",
+            payload={"campaign_id": 2},
+            idempotency_key="email-send-conflict-1",
+            dry_run=False,
+            execute=lambda: calls.append("sent"),
+        )
+
+    original.refresh_from_db()
+    assert original.status == ActionLog.Status.SUCCEEDED
+    assert original_result == {"sent": True}
+    assert calls == []
+
+
+@pytest.mark.django_db
+def test_run_logged_action_executes_existing_planned_action_once():
+    calls = []
+
+    planned, planned_result = run_logged_action(
+        action_type="email.send_next",
+        target_type="campaign",
+        target_id="1",
+        payload={"campaign_id": 1},
+        idempotency_key="email-send-plan-1",
+        dry_run=True,
+        execute=lambda: calls.append("planned"),
+    )
+
+    executed, executed_result = run_logged_action(
+        action_type="email.send_next",
+        target_type="campaign",
+        target_id="1",
+        payload={"campaign_id": 1},
+        idempotency_key="email-send-plan-1",
+        dry_run=False,
+        execute=lambda: calls.append("sent") or {"sent": True},
+    )
+
+    assert planned_result == {"planned": True}
+    assert executed.pk == planned.pk
+    assert executed.status == ActionLog.Status.SUCCEEDED
+    assert executed_result == {"sent": True}
+    assert calls == ["sent"]
+
+
+@pytest.mark.django_db
+def test_run_logged_action_marks_failed_and_reraises_execute_error():
+    with pytest.raises(RuntimeError, match="boom"):
+        run_logged_action(
+            action_type="email.send_next",
+            target_type="campaign",
+            target_id="1",
+            payload={"campaign_id": 1},
+            idempotency_key="email-send-fail-1",
+            dry_run=False,
+            execute=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+
+    action = ActionLog.objects.get(
+        action_type="email.send_next",
+        idempotency_key="email-send-fail-1",
+    )
+    assert action.status == ActionLog.Status.FAILED
+    assert action.result is None
+    assert action.error_type == "RuntimeError"
+    assert action.error_message == "boom"
+
+
 def test_run_logged_action_rejects_whitespace_idempotency_key():
     with pytest.raises(ValueError, match="idempotency_key is required"):
         run_logged_action(
