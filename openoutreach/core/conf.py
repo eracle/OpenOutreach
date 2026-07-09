@@ -63,10 +63,6 @@ CAMPAIGN_CONFIG = {
     # (rations the paid BetterContact lookup to leads the model is confident about).
     "min_gp_confidence": 0.9,
     "embedding_model": "BAAI/bge-small-en-v1.5",
-    "burst_min_seconds": 2700,   # 45 min
-    "burst_max_seconds": 3900,   # 65 min
-    "break_min_seconds": 600,    # 10 min
-    "break_max_seconds": 1200,   # 20 min
 }
 
 

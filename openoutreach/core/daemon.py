@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import random
 import time
 from datetime import timedelta
 from typing import Callable
@@ -37,6 +36,7 @@ _HANDLERS = {
 
 HEARTBEAT_INTERVAL = 300  # 5 minutes
 HEARTBEAT_SLICE = 60      # wake every minute during long sleeps
+READ_PACE_SECONDS = 15    # pause between actions so each status line is readable
 
 
 # ── Heartbeat ────────────────────────────────────────────────────────
@@ -89,50 +89,6 @@ def sleep_with_heartbeat(
             heartbeat.maybe_log(lambda: context(max(0.0, end - time.monotonic())))
         else:
             heartbeat.maybe_log(context)
-
-
-# ── Human-rhythm pacing ──────────────────────────────────────────────
-
-
-class _HumanRhythmBreak:
-    """Wall-clock burst timer that injects a random break between bursts.
-
-    Call ``reset()`` after idle sleeps (active-hours pause, waiting for
-    the next scheduled task) so the burst timer tracks real work, not
-    wall-clock. Call ``maybe_break()`` after each successful task —
-    it sleeps a random break duration when the current burst is done.
-    """
-
-    def __init__(self, heartbeat: Heartbeat):
-        self._heartbeat = heartbeat
-        self._new_burst()
-
-    def _new_burst(self):
-        self._burst_start = time.monotonic()
-        self._burst_duration = random.uniform(
-            CAMPAIGN_CONFIG["burst_min_seconds"],
-            CAMPAIGN_CONFIG["burst_max_seconds"],
-        )
-
-    def reset(self):
-        """Start a fresh burst without taking a break. Use after idle gaps."""
-        self._new_burst()
-
-    def maybe_break(self):
-        """Sleep a random break and start a new burst if the current one is done."""
-        if time.monotonic() - self._burst_start < self._burst_duration:
-            return
-        break_seconds = random.uniform(
-            CAMPAIGN_CONFIG["break_min_seconds"],
-            CAMPAIGN_CONFIG["break_max_seconds"],
-        )
-        logger.info("Taking a %dm break", int(break_seconds // 60))
-        sleep_with_heartbeat(
-            break_seconds,
-            self._heartbeat,
-            f"on break, {int(break_seconds // 60)}m total",
-        )
-        self._new_burst()
 
 
 def _build_qualifiers(campaigns, cfg, kit_model=None):
@@ -253,7 +209,6 @@ def run_daemon(session):
         logger.info("Active hours disabled — running 24/7")
 
     heartbeat = Heartbeat()
-    rhythm = _HumanRhythmBreak(heartbeat)
 
     # Startup reconcile: recover any tasks a prior crash left RUNNING and flush
     # every ready email into an immediate slot before serving the queue. Paired
@@ -276,7 +231,6 @@ def run_daemon(session):
                 pause, heartbeat,
                 lambda left: f"outside active hours, {_hm(left)} left",
             )
-            rhythm.reset()
             continue
 
         task = Task.objects.claim_next()
@@ -291,14 +245,12 @@ def run_daemon(session):
             if wait is None:
                 logger.info("Queue empty after reconcile — sleeping 1h")
                 sleep_with_heartbeat(3600, heartbeat, "queue empty")
-                rhythm.reset()
                 continue
             if wait > 0:
                 logger.info("Next task in %s — sleeping", _hm(wait))
                 sleep_with_heartbeat(
                     wait, heartbeat, lambda left: f"next task in {_hm(left)}",
                 )
-                rhythm.reset()
             continue
 
         campaign = Campaign.objects.filter(pk=task.payload.get("campaign_id")).first()
@@ -331,4 +283,6 @@ def run_daemon(session):
             continue
 
         task.mark_completed()
-        rhythm.maybe_break()
+        # Pace back-to-back actions so each colored status line stays on screen
+        # long enough to read before the next one scrolls in.
+        time.sleep(READ_PACE_SECONDS)
