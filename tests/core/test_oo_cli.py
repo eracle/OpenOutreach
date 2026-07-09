@@ -255,6 +255,89 @@ def test_task_list_returns_recent_tasks():
     ]
 
 
+def _action_log(action_type: str, **kwargs) -> ActionLog:
+    return ActionLog.objects.create(
+        action_type=action_type,
+        target_type=kwargs.pop("target_type", "campaign"),
+        target_id=kwargs.pop("target_id", "1"),
+        payload_hash=kwargs.pop("payload_hash", action_type.replace(".", "")),
+        idempotency_key=kwargs.pop("idempotency_key", f"{action_type}-key"),
+        status=kwargs.pop("status", ActionLog.Status.PLANNED),
+        result=kwargs.pop("result", None),
+        error_type=kwargs.pop("error_type", ""),
+        error_message=kwargs.pop("error_message", ""),
+        **kwargs,
+    )
+
+
+def test_audit_list_returns_default_recent_action_logs():
+    actions = [
+        _action_log(
+            f"audit.default.{index}",
+            target_id=str(index),
+            idempotency_key=f"audit-default-{index}",
+            result={"index": index},
+        )
+        for index in range(51)
+    ]
+
+    payload = _oo("audit", "list", "--json")
+
+    assert payload["ok"] is True
+    assert payload["command"] == "audit list"
+    assert payload["result"]["limit"] == 50
+    assert len(payload["result"]["actions"]) == 50
+    assert [action["id"] for action in payload["result"]["actions"]] == [
+        action.id for action in reversed(actions[1:])
+    ]
+    assert payload["result"]["actions"][0] == {
+        "id": actions[-1].id,
+        "action_type": "audit.default.50",
+        "target_type": "campaign",
+        "target_id": "50",
+        "idempotency_key": "audit-default-50",
+        "status": ActionLog.Status.PLANNED.value,
+        "result": {"index": 50},
+        "error_type": "",
+        "error_message": "",
+        "created_at": _json_value(actions[-1].created_at),
+        "updated_at": _json_value(actions[-1].updated_at),
+    }
+
+
+def test_audit_list_honors_explicit_limit_and_id_desc_tie_breaker():
+    first = _action_log("audit.limit.first", idempotency_key="audit-limit-first")
+    second = _action_log("audit.limit.second", idempotency_key="audit-limit-second")
+    created_at = timezone.now()
+    ActionLog.objects.filter(pk__in=[first.pk, second.pk]).update(
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+    payload = _oo("audit", "list", "--limit", "1", "--json")
+
+    assert payload["ok"] is True
+    assert payload["command"] == "audit list"
+    assert payload["result"]["limit"] == 1
+    assert [action["id"] for action in payload["result"]["actions"]] == [second.id]
+
+
+@pytest.mark.parametrize("limit", ["", "0", "201", "not-a-number"])
+def test_audit_list_invalid_limit_returns_invalid_argument(limit):
+    args = (
+        ("audit", "list", "--limit", limit, "--json")
+        if limit
+        else ("audit", "list", "--limit", "--json")
+    )
+
+    payload = _oo(*args)
+
+    assert payload["ok"] is False
+    assert payload["command"] == "audit list"
+    assert payload["error"]["type"] == "invalid_argument"
+    assert payload["result"] is None
+
+
 def test_email_send_next_dry_run_plans_action_without_sending():
     campaign, _user = _campaign_with_operator()
     _box()

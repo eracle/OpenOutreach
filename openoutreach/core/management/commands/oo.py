@@ -11,6 +11,7 @@ from openoutreach.core.agent_contract import error_response, success_response
 
 
 DEFAULT_LIMIT = 50
+MAX_AUDIT_LIMIT = 200
 
 
 class Command(BaseCommand):
@@ -42,6 +43,13 @@ class Command(BaseCommand):
         task_list = task_subparsers.add_parser("list")
         self._add_json_flag(task_list)
         task_list.set_defaults(handler=self._task_list, command_name="task list")
+
+        audit = subparsers.add_parser("audit")
+        audit_subparsers = audit.add_subparsers(dest="audit_command", required=True)
+        audit_list = audit_subparsers.add_parser("list")
+        audit_list.add_argument("--limit", nargs="?", default=str(DEFAULT_LIMIT), const="")
+        self._add_json_flag(audit_list)
+        audit_list.set_defaults(handler=self._audit_list, command_name="audit list")
 
         email = subparsers.add_parser("email")
         email_subparsers = email.add_subparsers(dest="email_command", required=True)
@@ -185,6 +193,42 @@ class Command(BaseCommand):
             },
         )
 
+    def _audit_list(self, options: dict[str, Any]) -> dict[str, Any]:
+        from openoutreach.core.models import ActionLog
+
+        limit = self._parse_audit_limit(options.get("limit"))
+        if limit is None:
+            return error_response(
+                command=options["command_name"],
+                error_type="invalid_argument",
+                message=f"--limit must be an integer from 1 to {MAX_AUDIT_LIMIT}.",
+            )
+
+        actions = ActionLog.objects.order_by("-created_at", "-id")[:limit]
+
+        return success_response(
+            command=options["command_name"],
+            result={
+                "actions": [
+                    {
+                        "id": action.id,
+                        "action_type": action.action_type,
+                        "target_type": action.target_type,
+                        "target_id": action.target_id,
+                        "idempotency_key": action.idempotency_key,
+                        "status": action.status,
+                        "result": action.result,
+                        "error_type": action.error_type,
+                        "error_message": action.error_message,
+                        "created_at": action.created_at,
+                        "updated_at": action.updated_at,
+                    }
+                    for action in actions
+                ],
+                "limit": limit,
+            },
+        )
+
     def _email_send_next(self, options: dict[str, Any]) -> dict[str, Any]:
         from openoutreach.core.actions import run_logged_action
         from openoutreach.core.models import ActionLog, Campaign
@@ -323,3 +367,13 @@ class Command(BaseCommand):
         if error_type:
             return error_type
         return exc.__class__.__name__ if exc else "failed"
+
+    def _parse_audit_limit(self, value: Any) -> int | None:
+        try:
+            limit = int(value)
+        except (TypeError, ValueError):
+            return None
+
+        if limit < 1 or limit > MAX_AUDIT_LIMIT:
+            return None
+        return limit
