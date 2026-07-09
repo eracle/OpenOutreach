@@ -176,3 +176,64 @@ class Task(models.Model):
     def mark_failed(self):
         self.status = self.Status.FAILED
         self.save(update_fields=["status"])
+
+
+class ActionLog(models.Model):
+    class Status(models.TextChoices):
+        PLANNED = "planned"
+        RUNNING = "running"
+        SUCCEEDED = "succeeded"
+        FAILED = "failed"
+        DUPLICATE = "duplicate"
+
+    action_type = models.CharField(max_length=80)
+    target_type = models.CharField(max_length=80, blank=True, default="")
+    target_id = models.CharField(max_length=120, blank=True, default="")
+    payload_hash = models.CharField(max_length=64)
+    idempotency_key = models.CharField(max_length=160, blank=True, default="")
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PLANNED,
+    )
+    result = models.JSONField(null=True, blank=True, default=None)
+    error_type = models.CharField(max_length=80, blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["action_type", "status"],
+                name="core_action_type_status_idx",
+            ),
+            models.Index(
+                fields=["created_at"],
+                name="core_action_created_idx",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["action_type", "idempotency_key"],
+                condition=~models.Q(idempotency_key=""),
+                name="unique_action_idempotency_key",
+            ),
+        ]
+
+    def mark_succeeded(self, result: dict) -> None:
+        self.status = self.Status.SUCCEEDED
+        self.result = result
+        self.error_type = ""
+        self.error_message = ""
+        self.save(
+            update_fields=["status", "result", "error_type", "error_message", "updated_at"],
+        )
+
+    def mark_failed(self, error_type: str, error_message: str) -> None:
+        self.status = self.Status.FAILED
+        self.error_type = error_type
+        self.error_message = error_message
+        self.save(
+            update_fields=["status", "error_type", "error_message", "updated_at"],
+        )
