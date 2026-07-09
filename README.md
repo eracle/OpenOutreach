@@ -1,6 +1,6 @@
 ![OpenOutreach Logo](docs/logo.png)
 
-> **Describe your product. Define your target market. The AI finds the leads for you.**
+> **Describe your product. Define your target market. The AI finds the leads and emails them for you.**
 
 <div align="center">
 
@@ -21,26 +21,26 @@
 
 ### 🚀 What is OpenOutreach?
 
-OpenOutreach is a **self-hosted, open-source outreach tool** for B2B lead generation that uses **LinkedIn for discovery and email for outreach**. Unlike other tools, **you don't need a list of profiles to contact** — you describe your product and your target market, and the system autonomously discovers, qualifies, and contacts the right people.
+OpenOutreach is a **self-hosted, open-source, email-first AI sales agent** for B2B lead generation. It discovers leads from a **licensed data provider**, qualifies them on your own machine, and runs **agentic email outreach from a mailbox you own** — with **zero platform-ToS surface**: it is browserless, uses no social-network account, and does no scraping. Unlike other tools, **you don't need a list of profiles to contact** — you describe your product and your target market, and the system autonomously discovers, qualifies, and emails the right people.
 
 **How it works:**
 
 1. **You provide** a product description and a campaign objective (e.g. "SaaS analytics platform" targeting "VP of Engineering at Series B startups")
-2. **The AI generates** LinkedIn search queries to discover candidate profiles
-3. **A Bayesian ML model** (Gaussian Process Regressor on profile embeddings) learns which profiles match your ideal customer — using an explore/exploit strategy to balance finding the best leads now vs. learning what makes a good lead
-4. **An LLM classifies** each profile selected by the model; the GP learns from every decision to select better candidates over time
-5. **Qualified leads are routed by channel.** OpenOutreach resolves a work email for each qualified lead: if one is found, an AI agent emails them directly (the high-volume channel); if not, it falls back to a LinkedIn connection request and agentic multi-turn follow-up after acceptance.
+2. **An LLM turns that into an ICP filter** and pages matching firmographic profiles from a **licensed discovery source** (BetterContact **Lead Finder**) — no emails yet, billed nothing
+3. **A Bayesian ML model** (Gaussian Process Regressor on profile embeddings) learns which profiles match your ideal customer — an explore/exploit strategy balancing finding the best leads now vs. learning what makes a good lead
+4. **An LLM classifies** each candidate the model selects; the GP learns from every decision to pick better candidates over time
+5. **Only the best-fit leads get a paid email lookup.** A confidence gate rations a work-email resolution (one credit per verified hit); a hit routes the lead into **agentic email** — an AI agent sends a personalized opener from your mailbox, then reads replies and runs multi-turn follow-up
 
-The system gets smarter with every decision. It starts by exploring broadly, then progressively focuses on the highest-value profiles as it learns your ideal customer profile from its own classification history.
+The system gets smarter with every decision: it explores broadly, then progressively focuses on the highest-value profiles as it learns your ideal customer profile from its own classification history.
 
 **Why choose OpenOutreach?**
 
-- 🧠 **Autonomous lead discovery** — No contact lists needed; AI finds your ideal customers
-- 📧 **Email-first outreach** — Resolves a work email per qualified lead and sends from your own mailbox; LinkedIn is the discovery engine, email is the volume channel
-- 🛡️ **Undetectable** — Playwright + stealth plugins mimic real user behavior
-- 💾 **Self-hosted + full data ownership** — Everything runs locally, browse your CRM in a web UI
+- 🧠 **Autonomous lead discovery** — No contact lists needed; AI finds your ideal customers from licensed data
+- 📧 **Email-first outreach** — Resolves a work email per qualified lead and sends from **your own mailbox**, at email volume
+- 🛡️ **Zero platform-ToS surface** — Browserless, no social-network account, no scraping — nothing to get banned
+- 💾 **Self-hosted + full data ownership** — Everything runs locally; browse your CRM in a web UI
 - 🐳 **One-command setup** — Dockerized deployment, interactive onboarding
-- ✨ **AI-powered messaging** — LLM-generated personalized outreach (bring your own model)
+- ✨ **AI-powered messaging** — LLM-generated personalized outreach and agentic replies (bring your own model)
 
 Perfect for founders, sales teams, and agencies who want powerful automation **without account bans or subscription lock-in**.
 
@@ -50,38 +50,24 @@ Perfect for founders, sales teams, and agencies who want powerful automation **w
 
 | # | What | Example |
 |---|------|---------|
-| 1 | **A LinkedIn account** | Your email + password |
-| 2 | **An LLM API key** | OpenAI, Anthropic, or any OpenAI-compatible endpoint |
-| 3 | **A product description + target market** | "We sell cloud cost optimization for DevOps teams at mid-market SaaS companies" |
+| 1 | **An LLM API key** | OpenAI, Anthropic, or any OpenAI-compatible endpoint |
+| 2 | **An email-finder API key** ([BetterContact](https://bettercontact.rocks?fpr=openoutreach)) | Powers **both** discovery (Lead Finder) and enrichment (work-email resolution) |
+| 3 | **A sending mailbox** | An app password for a mailbox you own (Gmail / Workspace / own-domain SMTP), or cold-email infra like [IceMail](https://icemail.ai?via=openoutreach) |
+| 4 | **A product description + target market** | "We sell cloud cost optimization for DevOps teams at mid-market SaaS companies" |
 
-That's it. No spreadsheets, no lead databases, no scraping setup.
-
-**To turn on the email channel** (optional — LinkedIn-only outreach works without it), the onboarding nudge also asks for:
-
-| What | Why |
-|------|-----|
-| **An email-finder API key** ([BetterContact](https://bettercontact.rocks?fpr=openoutreach)) | Resolves a work email for each qualified lead |
-| **A sending mailbox** (cold-email infra — [IceMail](https://icemail.ai?via=openoutreach)) | Sends from your own SMTP box, paced under a per-box daily cap |
-
-If neither is configured, every qualified lead simply routes to the LinkedIn connection channel.
+That's it. No social-network account, no spreadsheets, no lead databases, no scraping setup. The BetterContact key and a connected mailbox are both required — the key drives discovery *and* enrichment, and the mailbox is where outreach is sent from.
 
 ---
 
 ## ⚡ Quick Start (Docker — Recommended)
 
-Pre-built images are published to GitHub Container Registry on every push to `master`.
+Pre-built images are published to GitHub Container Registry.
 
 ```bash
-docker run --pull always -it -e ENABLE_VNC=true -p 5900:5900 -p 6080:6080 -v ~/.openoutreach/data:/app/data ghcr.io/eracle/openoutreach:latest
-
-# Open http://localhost:6080/vnc.html in your browser to watch the automation live
+docker run --pull always -it -v ~/.openoutreach/data:/app/data ghcr.io/eracle/openoutreach:latest
 ```
 
-The interactive onboarding walks you through the three inputs above on first run. All data persists in `~/.openoutreach/data` on your host across restarts.
-
-Once the container is running, open **http://localhost:6080/vnc.html** in your browser to watch the browser live (noVNC). Alternatively, connect a native VNC client to `localhost:5900`.
-
-> **`-e ENABLE_VNC=true` is required for the viewer.** The VNC stack (Xvfb + x11vnc + noVNC) is installed in the image but only started when `ENABLE_VNC=true`. Without it, nothing listens on 5900/6080, so the published ports accept then instantly drop the connection (`End of stream`).
+The interactive onboarding walks you through the inputs above on first run — product/objective → LLM key (live-verified) → mailbox (paste an app password → SMTP auth-check) → BetterContact key → your email → country → newsletter/legal. All data persists in `~/.openoutreach/data` on your host across restarts. The image is a slim Python runtime — **no browser, no VNC**.
 
 For Docker Compose, build-from-source, and more options see the **[Docker Guide](./docs/docker.md)**.
 
@@ -101,7 +87,7 @@ For contributors or if you prefer running directly on your machine.
 git clone https://github.com/eracle/OpenOutreach.git
 cd OpenOutreach
 
-# Install deps, Playwright browsers, run migrations, and bootstrap CRM
+# Install deps, run migrations, and bootstrap CRM
 make setup
 ```
 
@@ -110,11 +96,11 @@ make setup
 ```bash
 make run
 ```
-The interactive onboarding will prompt for LinkedIn credentials, LLM API key, and campaign details on first run. Fully resumable — stop/restart anytime without losing progress.
+The interactive onboarding prompts for your LLM key, mailbox, BetterContact key, and campaign details on first run. Fully resumable — stop/restart anytime without losing progress.
 
 ### 3. View Your Data (CRM Admin)
 
-OpenOutreach includes a full CRM web interface powered by DjangoCRM:
+OpenOutreach includes a full CRM web interface via Django Admin:
 ```bash
 # Create an admin account (first time only)
 python manage.py createsuperuser
@@ -130,91 +116,60 @@ Then open:
 
 | Feature                            | Description                                                                                                          |
 |------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| 🧠 **Autonomous Lead Discovery**   | No contact lists needed — LLM generates search queries from your product description and campaign objective.         |
+| 🧠 **Autonomous Lead Discovery**   | No contact lists needed — an LLM turns your product + objective into an ICP filter and pages matching profiles from a licensed discovery source. |
 | 🎯 **Bayesian Active Learning**    | Gaussian Process model on profile embeddings learns your ideal customer via explore/exploit, selecting the most informative candidates for LLM qualification. |
-| 🤖 **Stealth Browser Automation**  | Playwright + stealth plugins mimic real user behavior for undetectable interactions.                                 |
-| 🛡️ **Voyager API Scraping**       | Uses LinkedIn's internal API for accurate, structured profile data (no fragile HTML parsing).                        |
-| 📧 **Email Outreach Channel**      | Resolves a work email per qualified lead (BetterContact) and sends an AI-written opener from your own mailbox over SMTP — the high-volume channel. Leads with no email fall back to LinkedIn. |
-| 🔄 **Stateful Pipeline**          | Tracks profile states (`QUALIFIED` → email fork `READY_TO_EMAIL` → `EMAILED`, or LinkedIn `READY_TO_CONNECT` → `PENDING` → `CONNECTED` → `COMPLETED`) in a local DB — fully resumable. |
-| ⏱️ **Smart Rate Limiting**        | Configurable daily/weekly limits per action type — respects LinkedIn's own caps, and paces email under a per-mailbox daily cap.   |
-| 💾 **Built-in CRM**               | Full data ownership via DjangoCRM with Django Admin UI — browse Leads, Contacts, Companies, and Deals.              |
-| 🐳 **One-Command Deployment**      | Dockerized setup with interactive onboarding and a live browser view in your browser (noVNC at `http://localhost:6080/vnc.html`). |
-| ✍️ **AI-Powered Messaging**        | Agentic multi-turn follow-up conversations — the AI agent reads history, sends messages, and schedules future follow-ups. |
+| 🔒 **Licensed Discovery**          | Firmographic profiles come from a paid, licensed provider (BetterContact Lead Finder) — no scraping, no browser, no account. |
+| 📧 **Agentic Email Outreach**      | Resolves a work email per best-fit lead (one credit per hit), sends an AI-written opener from your own mailbox over SMTP, then reads replies (IMAP) and runs multi-turn follow-up. |
+| 🔄 **Stateful Pipeline**          | Tracks deal states (`QUALIFIED` → `READY_TO_FIND_EMAIL` → `FINDING_EMAIL` → `READY_TO_EMAIL` → `EMAILED` → `COMPLETED`/`FAILED`) in a local DB — fully resumable. |
+| ⏱️ **Send-Gated Spend**           | Paid email lookups ride on send capacity — a per-mailbox daily cap bounds how many leads enter the pipeline, so you never resolve more than you can send. |
+| 💾 **Built-in CRM**               | Full data ownership via Django Admin — browse Leads, Deals, and conversations.                                     |
+| 🐳 **One-Command Deployment**      | Dockerized setup with interactive onboarding; a slim runtime with no browser and no VNC.                            |
+| ✍️ **AI-Powered Messaging**        | Agentic multi-turn follow-up conversations — the AI agent reads the thread, composes replies, and schedules future follow-ups. |
 
 ---
 
-## 🤖 Drive LinkedIn from Your Own LLM
-
-OpenOutreach's LinkedIn layer is also published as a standalone, Django-free package —
-[**`linkedin-agent-cli`**](https://github.com/eracle/linkedin-cli) — so you can let *your own*
-LLM agent drive LinkedIn directly, no OpenOutreach install required. Every verb prints a human
-summary or the full result dict with `--json`, and errors go to stderr with stable types — a
-clean tool-use contract any agent (or any language) can call:
-
-```bash
-pip install linkedin-agent-cli
-python -m playwright install chromium
-
-linkedin-cli session open --session work   # launch + bind a browser (this process owns it)
-linkedin-cli login   --session work         # authenticate in that session
-linkedin-cli search "head of growth" --network first --json   # → handles your LLM can parse
-linkedin-cli profile alice-smith --json                       # → full profile dict
-linkedin-cli message alice-smith --session work --text "Hi Alice"
-```
-
-Point your agent at the `--json` output and the per-verb `--help`; see the
-[`linkedin-cli` README](https://github.com/eracle/linkedin-cli#readme) for the full verb surface
-and output contract.
-
----
-
-## 📖 How the ML Pipeline Works
+## 📖 How the Pipeline Works
 
 The daemon runs a continuous **task queue** backed by a persistent `Task` model. Four task types self-schedule follow-on work:
 
 | Task Type | What it does |
 |-----------|-------------|
-| **Connect** | Ranks qualified profiles by GP model probability, sends connection requests (daily + weekly limits). Triggers qualification and search via composable generators when the pool is empty. |
-| **Check Pending** | Checks if a pending request was accepted (exponential backoff per profile) |
-| **Follow Up** | Runs an AI agent that manages multi-turn conversations with connected profiles |
-| **Email** | Sends one AI-written opener to a lead with a resolved work email, from your mailbox pool (single-shot, paced by per-mailbox daily cap) |
+| **find_email** | Submits a work-email lookup for a ranked, qualified lead — a free hub-cache hit resolves immediately; otherwise it fires a paid provider job and parks the deal at `FINDING_EMAIL`. |
+| **collect_email** | Polls the in-flight lookup (self-chaining backoff): hit → `READY_TO_EMAIL`, miss → `FAILED` (blank outcome, ML-skipped), couldn't-run/timeout → back to the queue. |
+| **follow_up** | Runs the AI agent over an emailed deal — reads replies, decides send/wait/complete, and re-arms the next follow-up. |
+| **email** | Sends one AI-written opener to a `READY_TO_EMAIL` lead from your mailbox pool, then parks the deal at `EMAILED`. |
 
-**Channel routing at qualification:** when a profile is qualified, OpenOutreach tries to resolve a work email (BetterContact finder, gated by a configured key). A **hit** forks the lead onto the email channel (`READY_TO_EMAIL` → one opener → `EMAILED`, where it rests until you set an outcome — Layer 1 sends one opener and does not yet read replies). A **miss** (or no finder key) leaves the lead on the LinkedIn path, where the GP confidence gate promotes it to `READY_TO_CONNECT`. The fork is encoded in the Deal state, so each lead is contacted on exactly one channel and emailed at most once.
+**Discover → qualify → gate → find email → email.** An LLM turns your campaign into an ICP filter (cached on the Campaign); discovery pages matching profiles into embedded `Lead`s. Qualification runs the GP + LLM loop over the stored firmographic text. The GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL`, **rationing the paid lookup** so only the best-fit leads cost a credit. A hit sends an opener; a miss ends the deal as `FAILED` with a blank outcome (so the ML labeler skips it — an unfindable address is not a fit signal).
 
 **The qualification loop in detail:**
 
-Profiles discovered during navigation are automatically scraped and embedded (384-dim FastEmbed vectors). The connect task's backfill chain decides which profile to evaluate next using a balance-driven strategy:
+Discovered profiles are embedded (384-dim FastEmbed vectors) from the licensed firmographic payload. The backfill chain decides which profile to evaluate next using a balance-driven strategy:
 
-- **When negatives outnumber positives** → **exploit**: pick the profile with highest predicted qualification probability (seek likely positives to fill the pipeline)
-- **Otherwise** → **explore**: pick the profile with highest BALD (Bayesian Active Learning by Disagreement) score (seek the most informative label to improve the model)
+- **When negatives outnumber positives** → **exploit**: pick the profile with highest predicted qualification probability (fill the pipeline with likely positives)
+- **Otherwise** → **explore**: pick the profile with highest BALD (Bayesian Active Learning by Disagreement) score (seek the most informative label)
 
-All qualification decisions go through the LLM. The GP model selects which candidate to evaluate next and gates promotion from QUALIFIED to READY_TO_CONNECT (confidence threshold). Every LLM decision feeds back into the model, making candidate selection progressively smarter.
+All qualification decisions go through the LLM. The GP model selects which candidate to evaluate next and gates promotion from `QUALIFIED` to `READY_TO_FIND_EMAIL`. Every LLM decision feeds back into the model, making candidate selection progressively smarter.
 
-**Cold start:** With fewer than 2 labelled profiles, the model can't fit — candidates are selected in order and qualified via LLM. As labels accumulate, the GP becomes better at selecting high-value candidates.
+**Cold start:** With fewer than 2 labelled profiles, the model can't fit — candidates are selected in order and qualified via LLM. As labels accumulate, the GP gets better at selecting high-value candidates. When the unlabelled pool empties, discovery pages a fresh batch.
 
-Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign models).
+Configure behavior via Django Admin (`SiteConfig` + `Campaign`).
 
 ---
 
 ## 📂 Project Structure
 
 ```
-├── docs/
-│   ├── architecture.md              # System architecture
-│   ├── configuration.md             # Configuration reference
-│   ├── docker.md                    # Docker setup guide
-│   ├── templating.md                # Follow-up messaging guide
-│   └── testing.md                   # Testing strategy
+├── docs/                             # architecture, configuration, docker, templating, testing
 ├── openoutreach/                    # single source package; Django apps nested inside
-│   ├── settings.py                  # Django/CRM settings (SQLite at data/db.sqlite3)
+│   ├── settings.py                  # Django settings (SQLite at data/db.sqlite3)
 │   ├── core/                        # engine app: daemon, task queue + scheduler,
 │   │                                #   Campaign/SiteConfig/Task, LLM factory, onboarding,
-│   │                                #   follow-up agent, db helpers, management commands
-│   ├── linkedin/                    # LinkedIn channel app: browser, discovery pipeline,
-│   │                                #   ML qualifier, task handlers, channel models
-│   ├── emails/                      # email channel app (Layer 1 of the email-first pivot)
+│   │                                #   ML + discovery/qualify pipeline, the two agents
+│   ├── emails/                      # discovery/enrichment client, Mailbox + SMTP/IMAP,
+│   │                                #   sender, the four task handlers
 │   ├── crm/                         # Lead + Deal models
-│   └── chat/                        # ChatMessage model
+│   ├── chat/                        # ChatMessage (per-Deal conversation)
+│   └── legacy/                      # model-less migration-history anchor (retired channel)
 ├── manage.py                         # Django management (no args defaults to rundaemon)
 ├── local.yml                        # Docker Compose
 └── Makefile                         # Shortcuts (setup, run, admin, test)
@@ -226,7 +181,6 @@ Configure rate limits and behavior via Django Admin (LinkedInProfile + Campaign 
 
 - [Architecture](./docs/architecture.md)
 - [Configuration](./docs/configuration.md)
-- [Profile Lifecycle](./docs/profile_lifecycle.md)
 - [Docker Installation](./docs/docker.md)
 - [Follow-up Messaging](./docs/templating.md)
 - [Template Variables](./docs/template-variables.md)
@@ -284,9 +238,7 @@ This project is built in spare time to provide powerful, **free** open-source gr
 
 ## 📜 Legal Notice
 
-**Not affiliated with LinkedIn.**
-
-By using this software you accept the [Legal Notice](LEGAL_NOTICE.md). It covers LinkedIn ToS risks, built-in self-promotional actions, automatic newsletter subscription for non-GDPR accounts, and liability disclaimers.
+By using this software you accept the [Legal Notice](LEGAL_NOTICE.md). It covers the third-party services you connect (data provider, email-finder, mailbox), your responsibilities as data controller and sender under data-protection and anti-spam law, the optional freemium promotional campaign, automatic newsletter subscription for non-opt-in jurisdictions, the central contacts store, and liability disclaimers.
 
 **Use at your own risk — no liability assumed.**
 
