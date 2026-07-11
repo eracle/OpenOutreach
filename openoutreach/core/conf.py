@@ -62,6 +62,12 @@ CAMPAIGN_CONFIG = {
     # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
     # (rations the paid BetterContact lookup to leads the model is confident about).
     "min_gp_confidence": 0.9,
+    # Discovery-interleave gate: base of the adaptive probability threshold that
+    # decides whether to page in fresh leads before qualifying. In exploit mode,
+    # if no unlabelled candidate clears max(0, base - 1/sqrt(n_obs)) the chain
+    # discovers another page rather than spending LLM calls on an unpromising
+    # pool — so search stays interleaved instead of qualifying the whole page first.
+    "min_positive_pool_prob": 0.20,
     "embedding_model": "BAAI/bge-small-en-v1.5",
 }
 

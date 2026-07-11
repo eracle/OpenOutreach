@@ -1,13 +1,17 @@
 # tests/test_pools.py
-"""Pool generators: qualify_source (qualify → discover backfill), ready_source
-(GP rank gate), and find_candidate (top of the chain). Mock run_qualification,
-discover, find_ready_candidate, and promote_to_ready at the pools import site."""
-from unittest.mock import patch
+"""Pool generators: qualify_source (discovery interleaved with qualify),
+ready_source (GP rank gate), and find_candidate (top of the chain). Mock
+fetch_qualification_candidates, run_qualification, discover, find_ready_candidate,
+and promote_to_ready at the pools import site."""
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
 from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.core.pipeline.pools import (
+    _needs_more_discovery,
     find_candidate,
     qualify_source,
     ready_source,
@@ -15,13 +19,25 @@ from openoutreach.core.pipeline.pools import (
 
 PROFILE_URL = "https://www.linkedin.com/in/alice/"
 CANDIDATE = {"lead_id": 1, "profile_url": PROFILE_URL, "meta": {}}
+# A non-empty pool sentinel; _needs_more_discovery short-circuits (cold
+# start/explore) before ever touching a candidate's attributes.
+POOL = ["lead"]
+
+
+@contextmanager
+def _pool(candidates=POOL):
+    """Patch fetch_qualification_candidates at the pools import site."""
+    with patch("openoutreach.core.pipeline.pools.fetch_qualification_candidates",
+               return_value=candidates):
+        yield
 
 
 class TestQualifySource:
     def test_yields_until_pool_dry_then_dry_discovery_ends(self):
-        """Yields each run_qualification hit; a dry pool + dry discovery ends it."""
+        """Yields each run_qualification hit; a dry run + dry discovery ends it."""
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(),
             patch("openoutreach.core.pipeline.pools.run_qualification",
                   side_effect=[PROFILE_URL, PROFILE_URL, None]),
             patch("openoutreach.core.pipeline.pools.discover", return_value=0) as mock_discover,
@@ -32,9 +48,10 @@ class TestQualifySource:
         mock_discover.assert_called_once()  # one dry discover page ends the generator
 
     def test_backfills_via_discovery_then_qualifies(self):
-        """When the pool goes dry, a non-empty discovery page lets qualify retry."""
+        """When run_qualification comes up dry, a non-empty discovery page lets it retry."""
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(),
             patch("openoutreach.core.pipeline.pools.run_qualification",
                   side_effect=[None, PROFILE_URL, None]),
             patch("openoutreach.core.pipeline.pools.discover",
@@ -45,19 +62,94 @@ class TestQualifySource:
         assert results == [PROFILE_URL]
         assert mock_discover.call_count == 2  # first backfills, second is dry → stop
 
-    def test_empty_pool_and_no_discovery_stops_immediately(self):
+    def test_empty_pool_pages_in_then_stops_when_dry(self):
+        """An empty pool discovers a page; a dry page ends the generator."""
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(candidates=[]),
             patch("openoutreach.core.pipeline.pools.run_qualification", return_value=None),
             patch("openoutreach.core.pipeline.pools.discover", return_value=0),
         ):
             assert list(qualify_source("session", scorer)) == []
+
+    def test_interleaves_discovery_before_qualifying_in_exploit_mode(self):
+        """When the pool holds nothing promising, page in fresh leads before
+        spending an LLM call — instead of qualifying the whole page first."""
+        scorer = BayesianQualifier(seed=42)
+        with (
+            _pool(),
+            patch("openoutreach.core.pipeline.pools._needs_more_discovery",
+                  side_effect=[True, False, False]),
+            patch("openoutreach.core.pipeline.pools.discover",
+                  side_effect=[5, 0]) as mock_discover,
+            patch("openoutreach.core.pipeline.pools.run_qualification",
+                  side_effect=[PROFILE_URL, None]),
+        ):
+            results = list(qualify_source("session", scorer))
+
+        assert results == [PROFILE_URL]
+        # first discover pages in fresh leads (gate True), second is the dry
+        # end-of-stream page after run_qualification returns None.
+        assert mock_discover.call_count == 2
+
+
+def _fake_qualifier(class_counts, probs, n_obs=100):
+    """A qualifier stubbed at the boundary _needs_more_discovery reads from."""
+    q = MagicMock(spec=BayesianQualifier)
+    q.class_counts = class_counts
+    q.n_obs = n_obs
+    q.predict_probs.return_value = None if probs is None else np.array(probs, dtype=float)
+    return q
+
+
+def _cands(n=2):
+    return [MagicMock(embedding_array=np.zeros(4, dtype=np.float32)) for _ in range(n)]
+
+
+class TestNeedsMoreDiscovery:
+    def test_false_on_empty_candidates(self):
+        assert _needs_more_discovery(BayesianQualifier(seed=42), []) is False
+
+    def test_false_on_cold_start(self):
+        """A fresh (unfitted, explore-mode) qualifier never forces discovery."""
+        assert _needs_more_discovery(BayesianQualifier(seed=42), POOL) is False
+
+    def test_true_when_exploit_pool_all_below_threshold(self):
+        """Exploit mode + no candidate above the adaptive threshold → discover."""
+        # n_obs=100 → threshold = 0.20 - 1/sqrt(100) = 0.10; both probs are below it.
+        q = _fake_qualifier(class_counts=(10, 3), probs=[0.01, 0.02], n_obs=100)
+        assert _needs_more_discovery(q, _cands()) is True
+
+    def test_false_when_a_candidate_clears_threshold(self):
+        q = _fake_qualifier(class_counts=(10, 3), probs=[0.01, 0.5], n_obs=100)
+        assert _needs_more_discovery(q, _cands()) is False
+
+    def test_false_in_explore_mode_even_with_low_probs(self):
+        """More positives than negatives → explore; never force discovery."""
+        q = _fake_qualifier(class_counts=(3, 10), probs=[0.01, 0.02], n_obs=100)
+        assert _needs_more_discovery(q, _cands()) is False
+
+    def test_false_when_gp_predictions_degenerate(self):
+        """Identical predictions → discovering won't help; qualify from the pool."""
+        q = _fake_qualifier(class_counts=(10, 3), probs=[0.05, 0.05], n_obs=100)
+        assert _needs_more_discovery(q, _cands()) is False
+
+    def test_false_when_probs_unavailable(self):
+        q = _fake_qualifier(class_counts=(10, 3), probs=None, n_obs=100)
+        assert _needs_more_discovery(q, _cands()) is False
+
+    def test_false_early_when_threshold_floors_at_zero(self):
+        """Small n_obs floors the threshold at 0, so any prob clears it → no forced discovery."""
+        # n_obs=9 → 0.20 - 1/sqrt(9) = 0.20 - 0.33 < 0 → threshold clamps to 0.
+        q = _fake_qualifier(class_counts=(6, 2), probs=[0.0, 0.0], n_obs=9)
+        assert _needs_more_discovery(q, _cands()) is False
 
 
 class TestReadySource:
     def test_yields_ready_candidates(self):
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(),
             patch("openoutreach.core.pipeline.pools.find_ready_candidate",
                   side_effect=[CANDIDATE, None]),
             patch("openoutreach.core.pipeline.pools.promote_to_ready", return_value=0),
@@ -70,6 +162,7 @@ class TestReadySource:
     def test_promotes_from_qualified_when_ready_pool_empty(self):
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(),
             patch("openoutreach.core.pipeline.pools.find_ready_candidate",
                   side_effect=[None, CANDIDATE]),
             patch("openoutreach.core.pipeline.pools.promote_to_ready",
@@ -83,6 +176,7 @@ class TestReadySource:
     def test_exhausts_when_all_upstream_dry(self):
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(),
             patch("openoutreach.core.pipeline.pools.find_ready_candidate", return_value=None),
             patch("openoutreach.core.pipeline.pools.promote_to_ready", return_value=0),
             patch("openoutreach.core.pipeline.pools.run_qualification", return_value=None),
@@ -95,6 +189,7 @@ class TestFindCandidate:
     def test_backfills_then_returns(self):
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(),
             patch("openoutreach.core.pipeline.pools.find_ready_candidate",
                   side_effect=[None, CANDIDATE]),
             patch("openoutreach.core.pipeline.pools.promote_to_ready", side_effect=[0, 1]),
@@ -106,6 +201,7 @@ class TestFindCandidate:
     def test_exhausted_returns_none(self):
         scorer = BayesianQualifier(seed=42)
         with (
+            _pool(),
             patch("openoutreach.core.pipeline.pools.find_ready_candidate", return_value=None),
             patch("openoutreach.core.pipeline.pools.promote_to_ready", return_value=0),
             patch("openoutreach.core.pipeline.pools.run_qualification", return_value=None),
