@@ -70,18 +70,13 @@ class Campaign(models.Model):
     action_fraction = models.FloatField(default=0.2)
     seed_public_ids = models.JSONField(default=list, blank=True)
     model_blob = models.BinaryField(null=True, blank=True)
-    # Legacy single-ICP discovery state — both columns are dead code, kept only so
-    # the frontier-seed data migration can read them, and dropped in the following
-    # migration. Discovery is now a graph search over ``DiscoveryQuery`` nodes: the
-    # LLM-generated ICP spec seeds one node (its filters → ``DiscoveryQuery.params``
-    # at ``discovery_offset``) and the frontier explores outward. Do not read these
-    # in new code — use the seed node.
-    icp_filters = models.JSONField(default=dict, blank=True)
-    discovery_offset = models.IntegerField(default=0)
     # ISO-3166 alpha-2 target country for this campaign's leads — the contacts
     # geo-gate stamp put on every discovered Lead. A stable ICP attribute (one
     # country per campaign), so it lives here rather than duplicated on each query
-    # node. Migrated out of the old ``icp_filters["country_code"]``.
+    # node. Set by ``frontier.ensure_seed`` from the LLM's ICP spec. (Discovery is
+    # a graph search over ``DiscoveryQuery`` nodes — the retired
+    # ``icp_filters``/``discovery_offset`` single-cursor state was migrated into a
+    # seed node and dropped in migration 0007.)
     country_code = models.CharField(max_length=2, blank=True, default="")
 
     def __str__(self):
@@ -189,7 +184,8 @@ class DiscoveryQuery(models.Model):
     A node is ``(params, offset)``: a Lead Finder filter dict at a pagination
     depth. Discovery is a best-first search over these nodes (see
     ``core/pipeline/frontier.py``), replacing the old single
-    ``(Campaign.icp_filters, discovery_offset)`` cursor.
+    ``(Campaign.icp_filters, discovery_offset)`` cursor (retired in migration
+    0007, which seeded each campaign's first node from that cursor).
 
     Lifecycle (``status``):
 

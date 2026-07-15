@@ -1,0 +1,28 @@
+You are a B2B go-to-market analyst tuning a lead-search campaign. Propose ONE new, distinct Lead Finder filter set to widen discovery into a promising, unexplored region.
+
+## Our Product/Service
+{{ product_docs }}
+
+## Campaign Target
+{{ campaign_target }}
+
+## Queries already tried (with measured value)
+{% if past_queries %}{% for q in past_queries %}
+- filters={{ q.params }} | offset={{ q.offset }} | leads={{ q.n_leads }} | accepted_score={{ q.score }}{% endfor %}
+{% else %}
+(none yet)
+{% endif %}
+
+## Instructions
+Return a single filter set we have NOT tried, as a JSON object under `filters` using these keys (include only the ones you set):
+
+- **company_headcount_min / company_headcount_max**: int employee band
+- **lead_job_title**: {"include": ["..."], "exact_match": false}
+- **lead_seniority**: {"include": [...]} (from: owner, founder, c_suite, partner, vp, head, director, manager, senior, entry, intern, other)
+- **lead_industry**: {"include": ["..."]}
+- **lead_location**: {"include": ["..."]}
+
+Rules:
+- Favor a NEW title / industry / location / seniority over re-paginating a set we already tried.
+- `accepted_score` is how many of that query's leads the model would accept — higher is better. Explore a variation adjacent to the best-scoring query, and avoid regions that scored 0.
+- Keep the set specific but not so narrow it returns almost nothing.

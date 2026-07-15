@@ -3,21 +3,18 @@
 
 A single LLM pass turns ``product_docs + campaign_target`` into firmographic
 filters (title/seniority/industry/location/headcount) that Lead Finder discovery
-searches on. Generated once per campaign and cached on ``Campaign.icp_filters``
-so pagination stays coherent across cycles. Adaptive refinement (the active
-learner tightening the spec from outcomes) is a future redesign — see the
-off-linkedin-leadfinder-pivot roadmap card.
+searches on. Called once per campaign by ``frontier.ensure_seed`` to seed the
+discovery graph's root node — the seed ``DiscoveryQuery`` *is* the cache now, so
+this no longer persists onto the campaign. Adaptive refinement is realized by the
+frontier itself (best-first search over mutated queries) — see the
+discovery-query-graph-search roadmap card.
 """
 from __future__ import annotations
-
-import logging
 
 import jinja2
 from pydantic import BaseModel, Field
 
 from openoutreach.core.conf import PROMPTS_DIR
-
-logger = logging.getLogger(__name__)
 
 
 class ICPSpec(BaseModel):
@@ -71,14 +68,3 @@ def generate_icp_spec(campaign) -> dict:
     )
     spec = run_agent_sync(agent.run(prompt)).output
     return {"filters": _to_lead_finder_filters(spec), "country_code": spec.country_code.lower()}
-
-
-def icp_for(campaign) -> dict:
-    """Return the campaign's cached ICP spec, generating and persisting it once."""
-    if campaign.icp_filters:
-        return campaign.icp_filters
-    spec = generate_icp_spec(campaign)
-    campaign.icp_filters = spec
-    campaign.save(update_fields=["icp_filters"])
-    logger.info("[%s] ICP generated: %s", campaign, spec["filters"])
-    return spec

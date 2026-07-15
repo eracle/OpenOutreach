@@ -95,14 +95,14 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
 
         # Empty pool → bring leads in, or stop if discovery is exhausted.
         if not candidates:
-            if discover(session) <= 0:
+            if discover(session, qualifier) <= 0:
                 return
             continue
 
         # Exploit mode with no promising candidate → page in fresh leads before
         # spending an LLM call, until a promising lead appears or discovery dries up.
         while _needs_more_discovery(qualifier, candidates):
-            if discover(session) <= 0:
+            if discover(session, qualifier) <= 0:
                 break
             candidates = fetch_qualification_candidates(session)
 
@@ -113,7 +113,7 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
 
         # No qualifiable candidate this pass (e.g. all lacked profile text) →
         # one more page before giving up.
-        if discover(session) > 0:
+        if discover(session, qualifier) > 0:
             continue
         return
 

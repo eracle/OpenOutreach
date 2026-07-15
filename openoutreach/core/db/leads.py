@@ -32,15 +32,18 @@ def promote_lead_to_deal(session, profile_url: str, reason: str = ""):
     return deal
 
 
-def create_lead(row: dict, country_code: str = "") -> bool:
+def create_lead(row: dict, country_code: str = "", discovered_by=None) -> bool:
     """Persist one Lead Finder row as an embedded Lead awaiting qualification.
 
     Keyed on ``profile_url`` (the provider's per-person URL). Stamps the
     embedding and the firmographic ``profile_text`` from the same row fields, so
     qualification never re-fetches anything. ``country_code`` is the ICP's target
     country (Lead Finder rows carry no ISO code) — blank means unknown, which the
-    contacts-store geo-gate treats conservatively. Returns True when a new Lead
-    was created, False when one already existed (idempotent re-discovery).
+    contacts-store geo-gate treats conservatively. ``discovered_by`` is the query
+    node that surfaced this row; it lands only on first touch (a profile another
+    query already created keeps its original node), so it records who *found* the
+    lead — the frontier's steering signal. Returns True when a new Lead was
+    created, False when one already existed (idempotent re-discovery).
     """
     from openoutreach.crm.models import Lead
     from openoutreach.discovery import embed_row, profile_text_for
@@ -55,6 +58,7 @@ def create_lead(row: dict, country_code: str = "") -> bool:
             "embedding": np.asarray(embed_row(row), dtype=np.float32).tobytes(),
             "profile_text": profile_text_for(row),
             "country_code": country_code,
+            "discovered_by": discovered_by,
         },
     )
     return created
