@@ -12,6 +12,7 @@ import logging
 
 import numpy as np
 
+from openoutreach.core.conf import CAMPAIGN_CONFIG
 from openoutreach.core.db.deals import (
     get_qualified_profiles,
     get_ready_to_find_email_profiles,
@@ -21,6 +22,34 @@ from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)
+
+
+def acceptance_threshold() -> float:
+    """The GP confidence a lead's P(f>0.5) must clear to be worth a paid lookup.
+
+    One definition, shared by the promotion gate (QUALIFIED → READY_TO_FIND_EMAIL)
+    and the discovery frontier (which scores a query node by how many of its leads
+    would clear this same gate). Tunable via ``CAMPAIGN_CONFIG["min_gp_confidence"]``.
+    """
+    return CAMPAIGN_CONFIG["min_gp_confidence"]
+
+
+def count_accepted(qualifier: BayesianQualifier, embeddings: np.ndarray,
+                   threshold: float | None = None) -> int | None:
+    """How many of ``embeddings`` clear the GP acceptance gate (P(f>0.5) > threshold).
+
+    The frontier's per-node score: the number of a query's leads the GP would
+    accept for the paid pipeline. Returns None on cold start (GP not fitted).
+    """
+    if threshold is None:
+        threshold = acceptance_threshold()
+    X = np.asarray(embeddings, dtype=np.float64)
+    if X.size == 0:
+        return 0
+    probs = qualifier.predict_probs(X)
+    if probs is None:
+        return None
+    return int(np.count_nonzero(probs > threshold))
 
 
 def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) -> int:

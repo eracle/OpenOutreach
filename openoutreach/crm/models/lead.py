@@ -27,6 +27,18 @@ class Lead(models.Model):
     # resolved. Written by the find-email leg once the lead is rank-gated.
     email = models.EmailField(null=True, blank=True, default=None)
     disqualified = models.BooleanField(default=False)
+    # First-touch discovery provenance: the query node that first surfaced this
+    # profile. A profile re-surfaced by a later node keeps its original node here
+    # (creation is deduped by profile_url), so this records who *found* it, not
+    # everyone who saw it. Null for pre-frontier leads. Seeds the future
+    # cluster→query association; on_delete keeps the Lead if its node is pruned.
+    #
+    # Provenance + discovery-steering ONLY — never read by qualify/promote/enrich.
+    # A lead advances on its own P over the global pool, independent of its node.
+    discovered_by = models.ForeignKey(
+        "core.DiscoveryQuery", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="leads",
+    )
     creation_date = models.DateTimeField(default=timezone.now)
     update_date = models.DateTimeField(auto_now=True)
 
