@@ -4,6 +4,7 @@
 Drives the discovery→qualify→rank chain to surface one top-ranked
 READY_TO_FIND_EMAIL deal, then starts resolving its work email:
 
+    already has email → READY_TO_EMAIL directly (no lookup, no credit)
     free hub-cache hit → READY_TO_EMAIL directly (no provider job, no credit)
     hub miss           → submit a provider job, park the deal at FINDING_EMAIL,
                          and hand off to the collect leg (``collect_email``),
@@ -82,6 +83,15 @@ def handle_find_email(task, session, qualifiers):
         return
 
     logger.info("[%s] %s %s", campaign, colored("▶ find_email", "cyan", attrs=["bold"]), public_id)
+
+    # Already have the address (resolved in another campaign, imported, or an
+    # earlier hub give-back — Lead is account-level, Deal is campaign-scoped) —
+    # promote straight to send. No lookup, no credit.
+    if deal.lead.email:
+        logger.info("[%s] find_email: %s already has an email — skipping paid lookup", campaign, public_id)
+        set_profile_state(session, public_id, DealState.READY_TO_EMAIL.value)
+        _mint_email_slot(session, campaign)
+        return
 
     # Free hub cache first — a hit skips the provider job (and the credit) entirely.
     if _try_hub_cache(session, deal.lead):

@@ -130,6 +130,27 @@ def test_account_not_done_for_blank_email_user():
 
 
 @pytest.mark.django_db
+def test_account_shows_funding_notice_before_legal_gate():
+    """The plain-language funding-behaviour notice (Legal Notice §4/§6) is shown
+    during the account step, before the Legal Notice acceptance prompt."""
+    from openoutreach.core.models import Campaign
+    from openoutreach.emails.models import Mailbox
+
+    Campaign.objects.create(name="C", product_docs="p", campaign_target="o")
+    Mailbox.objects.create(username="robot@acme.com", from_address="robot@acme.com", password="p")
+
+    with patch("openoutreach.core.onboarding.wiz.text", side_effect=["me@posteo.eu", "US"]), \
+         patch("openoutreach.core.onboarding.wiz.confirm", side_effect=[True, True]), \
+         patch("openoutreach.emails.newsletter.subscribe_to_newsletter"), \
+         patch("openoutreach.core.onboarding._say") as say, \
+         patch("openoutreach.core.onboarding._require_legal") as legal:
+        onboarding._run_account()
+
+    say.assert_called_once_with(onboarding._INFORMATION_NOTICE, "fg:yellow")
+    legal.assert_called_once()  # the acceptance gate still runs after the notice
+
+
+@pytest.mark.django_db
 def test_declined_legal_aborts_without_creating_account():
     from django.contrib.auth.models import User
 

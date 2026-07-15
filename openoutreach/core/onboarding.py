@@ -62,6 +62,30 @@ _INTRO = """
   resumes where you left off.
 """
 
+# Plain-language summary of the two funding behaviours (Legal Notice §4 and §6),
+# shown at onboarding so they are seen up front rather than only via the link.
+_INFORMATION_NOTICE = """
+  ── Before you accept: how OpenOutreach funds itself ──
+
+  OpenOutreach is free and open source. Two behaviours help sustain it. Both are
+  covered in full by the Legal Notice (sections 4 and 6) — in plain terms:
+
+  1. Freemium promotional campaign — only if you run a freemium campaign.
+     A fraction of your sending goes to a maintainer-configured promotional
+     campaign, sent from your own mailbox to recipients unrelated to your leads.
+     Your own qualified leads are never used for it. Disable it by editing the source.
+
+  2. Shared contacts store (the hub).
+     When a paid lookup resolves a work email, a minimal record — the profile URL,
+     country, the email (and, if enabled, an on-device profile vector) — is
+     contributed to a shared store, so other operators can skip paying for a contact
+     you already resolved and you can resolve theirs for free. Outside the EU/EEA, UK
+     and Switzerland this is on by default; inside, it is opt-out. Disable it by
+     editing the source, or turn off contribution later in the Django Admin.
+
+  Full detail, your responsibilities, and how to opt out are in the Legal Notice.
+"""
+
 _T = TypeVar("_T")
 
 
@@ -291,7 +315,7 @@ def _run_bettercontact() -> None:
     _say("  ✓ BetterContact key saved.", "fg:green")
 
 
-# ── Account: country + newsletter + legal, then the operator User ─
+# ── Account: country + newsletter + information notice + legal, then the operator User ─
 
 def _account_done() -> bool:
     """Done only when an operator exists *with a non-blank email* — the operator's
@@ -304,7 +328,8 @@ def _account_done() -> bool:
 
 
 def _run_account() -> None:
-    """Collect jurisdiction, gate on the Legal Notice, then create the operator.
+    """Collect jurisdiction, show the funding-behaviour notice, gate on the Legal
+    Notice, then create the operator.
 
     Nothing is persisted until every answer is in and the Legal Notice is
     accepted, so a declined/cancelled step leaves no partial state behind.
@@ -333,6 +358,7 @@ def _run_account() -> None:
         "Subscribe to the OpenOutreach newsletter?",
         default=not is_gdpr_protected(country),
     ))
+    _say(_INFORMATION_NOTICE, "fg:yellow")
     _require_legal()
     _finalize_account(operator_email, country, newsletter)
 

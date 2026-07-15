@@ -64,6 +64,20 @@ class TestSubmitLeg:
             handle_find_email(task, session, qualifiers={})
         return submit_mock
 
+    def test_known_email_routes_to_ready_without_hub_or_submit(self, fake_session):
+        _box()
+        deal = _deal(fake_session.campaign, DealState.READY_TO_FIND_EMAIL, email="known@acme.com")
+        with patch("openoutreach.contacts.service.resolve") as resolve:
+            submit = self._run(fake_session, deal.lead.profile_url)
+
+        submit.assert_not_called()
+        resolve.assert_not_called()  # own DB checked before the hub round-trip
+        deal.refresh_from_db()
+        assert deal.state == DealState.READY_TO_EMAIL
+        assert deal.lead.email == "known@acme.com"
+        assert _email_tasks(fake_session.campaign).count() == 1  # opener queued
+        assert not _collect_tasks().exists()
+
     def test_hub_hit_routes_to_ready_to_email_without_submit(self, fake_session):
         _box()
         deal = _deal(fake_session.campaign, DealState.READY_TO_FIND_EMAIL)
