@@ -27,13 +27,13 @@ class DiscoveryQueryAdmin(admin.ModelAdmin):
     to expose: which queries we ran, how deep, and which actually pay."""
 
     list_display = (
-        "id", "campaign", "status", "offset", "score", "lead_yield",
-        "accepted_leads", "parent_id", "updated_at",
+        "id", "campaign", "offset", "score", "exhausted", "lead_yield",
+        "accepted_leads", "updated_at",
     )
-    list_filter = ("status", "campaign")
+    list_filter = ("exhausted", "campaign")
     readonly_fields = (
-        "campaign", "params", "params_hash", "offset", "status", "score",
-        "parent", "lead_yield", "accepted_leads", "created_at", "updated_at",
+        "campaign", "params", "params_hash", "offset", "exhausted", "score",
+        "lead_yield", "accepted_leads", "created_at", "updated_at",
     )
     date_hierarchy = "created_at"
 

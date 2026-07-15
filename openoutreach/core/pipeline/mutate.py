@@ -41,13 +41,17 @@ class _FilterSet(BaseModel):
 
 
 def _past_query_stats(campaign) -> list[dict]:
-    """Recent fetched/retired nodes with their measured value, newest first."""
+    """Recent fetched nodes with their measured value, newest first.
+
+    Every persisted node is a fetched query (the walk stores only fetched pages),
+    so the LLM sees exactly what we have already tried and how it paid — its cue to
+    propose something genuinely new.
+    """
     from openoutreach.core.models import DiscoveryQuery
 
     nodes = (
         DiscoveryQuery.objects
         .filter(campaign=campaign)
-        .exclude(status=DiscoveryQuery.Status.PENDING)
         .order_by("-updated_at")[:PAST_QUERY_LIMIT]
     )
     return [

@@ -1,20 +1,17 @@
 # tests/test_frontier.py
-"""Discovery frontier — the best-first search primitives over DiscoveryQuery
-nodes: params identity + dedup, seeding, per-move re-rank/scoring, the
-breadth-vs-exploit pick, expansion, retirement, and the size cap.
+"""Discovery frontier — the lazy best-first walk over DiscoveryQuery nodes:
+params identity + dedup, seeding, per-move re-rank/scoring, the
+bootstrap/deepen/wall selector, node persistence, and reactive exhaustion.
 
 The qualifier is stubbed at its ``class_counts`` / ``predict_probs`` boundary so
 these tests never fit a GP."""
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.core.models import Campaign, DiscoveryQuery
 from openoutreach.core.pipeline import frontier
-
-Status = DiscoveryQuery.Status
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -25,10 +22,10 @@ def _campaign(**kw):
     return Campaign.objects.create(**defaults)
 
 
-def _node(campaign, params, offset=0, parent=None, status=Status.PENDING, score=None):
+def _node(campaign, params, offset=0, score=None, exhausted=False):
     return DiscoveryQuery.objects.create(
         campaign=campaign, params=params, params_hash=frontier.params_hash(params),
-        offset=offset, parent=parent, status=status, score=score,
+        offset=offset, score=score, exhausted=exhausted,
     )
 
 
@@ -71,215 +68,151 @@ class TestParamsIdentity:
         assert frontier.params_hash({"x": 1}) != frontier.params_hash({"x": 2})
 
 
-# ── enqueue / seed ───────────────────────────────────────────────────
+# ── seed ─────────────────────────────────────────────────────────────
 
-class TestEnqueue:
-    def test_dedups_on_params_and_offset(self, db):
-        c = _campaign()
-        assert frontier.enqueue(c, {"x": 1}, offset=0) is not None
-        assert frontier.enqueue(c, {"x": 1}, offset=0) is None  # exact twin
-        assert frontier.enqueue(c, {"x": 1}, offset=100) is not None  # deeper is distinct
-
-    def test_dedups_against_fetched_twin(self, db):
-        c = _campaign()
-        _node(c, {"x": 1}, status=Status.FETCHED)
-        assert frontier.enqueue(c, {"x": 1}, offset=0) is None  # already visited
-
-
-class TestEnsureSeed:
-    def test_seeds_one_node_and_folds_country(self, db):
+class TestGenerateSeed:
+    def test_returns_filters_and_folds_country_no_node(self, db):
         c = _campaign()
         spec = {"filters": {"lead_seniority": {"include": ["vp"]}}, "country_code": "gb"}
         with patch("openoutreach.core.pipeline.icp.generate_icp_spec", return_value=spec):
-            frontier.ensure_seed(c)
+            filters = frontier.generate_seed(c)
         c.refresh_from_db()
+        assert filters == {"lead_seniority": {"include": ["vp"]}}
         assert c.country_code == "gb"
-        nodes = DiscoveryQuery.objects.filter(campaign=c)
-        assert nodes.count() == 1
-        seed = nodes.get()
-        assert seed.status == Status.PENDING and seed.offset == 0 and seed.parent is None
+        # the seed isn't cached and no node is created — its first fetch makes one
+        assert not DiscoveryQuery.objects.filter(campaign=c).exists()
 
-    def test_noop_when_frontier_already_seeded(self, db):
-        c = _campaign()
-        _node(c, {"x": 1})
-        with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
-                   side_effect=AssertionError("must not regenerate")):
-            frontier.ensure_seed(c)
-        assert DiscoveryQuery.objects.filter(campaign=c).count() == 1
-
-    def test_empty_spec_seeds_nothing(self, db):
+    def test_empty_spec_returns_empty(self, db):
         c = _campaign()
         with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
                    return_value={"filters": {}, "country_code": ""}):
-            frontier.ensure_seed(c)
-        assert not DiscoveryQuery.objects.filter(campaign=c).exists()
+            assert frontier.generate_seed(c) == {}
 
 
-# ── scoring: mark_fetched / rerank ───────────────────────────────────
+# ── persist / exhaust ────────────────────────────────────────────────
 
-class TestScoring:
-    def test_mark_fetched_scores_from_leads_in_exploit(self, db):
+class TestPersistAndExhaust:
+    def test_persist_is_deduped_on_triple(self, db):
         c = _campaign()
-        node = _node(c, {"x": 1})
+        a = frontier.persist_fetched(c, {"x": 1}, offset=0)
+        b = frontier.persist_fetched(c, {"x": 1}, offset=0)  # exact twin
+        assert a.pk == b.pk
+        assert DiscoveryQuery.objects.filter(campaign=c).count() == 1
+        # a deeper page of the same params is a distinct node
+        frontier.persist_fetched(c, {"x": 1}, offset=100)
+        assert DiscoveryQuery.objects.filter(campaign=c).count() == 2
+
+    def test_persist_leaves_score_null(self, db):
+        c = _campaign()
+        node = frontier.persist_fetched(c, {"x": 1}, offset=0)
+        assert node.score is None and node.exhausted is False
+
+    def test_mark_exhausted_flags_whole_params_line(self, db):
+        c = _campaign()
+        p0 = _node(c, {"x": 1}, offset=0)
+        p1 = _node(c, {"x": 1}, offset=100)
+        other = _node(c, {"y": 1}, offset=0)
+        frontier.mark_exhausted(c, {"x": 1})
+        p0.refresh_from_db(); p1.refresh_from_db(); other.refresh_from_db()
+        assert p0.exhausted and p1.exhausted  # every offset of the line
+        assert not other.exhausted             # a different query is untouched
+
+
+# ── scoring: rerank ──────────────────────────────────────────────────
+
+class TestRerank:
+    def test_rerank_scores_from_leads_in_exploit(self, db):
+        c = _campaign()
+        node = _node(c, {"x": 1}, score=99)
         _lead(c, node, 1)
         _lead(c, node, 2)
-        frontier.mark_fetched(node, _exploit_qualifier(probs=[0.95, 0.10]))
+        frontier.rerank(c, _exploit_qualifier(probs=[0.95, 0.10]))
         node.refresh_from_db()
-        assert node.status == Status.FETCHED
         assert node.score == 1  # one lead clears the 0.9 acceptance gate
-
-    def test_mark_fetched_leaves_score_null_pre_exploit(self, db):
-        c = _campaign()
-        node = _node(c, {"x": 1})
-        _lead(c, node, 1)
-        frontier.mark_fetched(node, _explore_qualifier())
-        node.refresh_from_db()
-        assert node.status == Status.FETCHED and node.score is None
-
-    def test_rerank_updates_fetched_scores_in_exploit(self, db):
-        c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED, score=99)
-        _lead(c, node, 1)
-        frontier.rerank(c, _exploit_qualifier(probs=[0.95]))
-        node.refresh_from_db()
-        assert node.score == 1
 
     def test_rerank_is_noop_pre_exploit(self, db):
         c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED, score=7)
+        node = _node(c, {"x": 1}, score=7)
         frontier.rerank(c, _explore_qualifier())
         node.refresh_from_db()
         assert node.score == 7  # untouched — ranking untrusted pre-exploit
 
-
-# ── pick ─────────────────────────────────────────────────────────────
-
-class TestPick:
-    def test_none_when_no_pending(self, db):
+    def test_rerank_skips_exhausted_nodes(self, db):
         c = _campaign()
-        _node(c, {"x": 1}, status=Status.FETCHED)
-        assert frontier.pick(c, _explore_qualifier()) is None
+        node = _node(c, {"x": 1}, score=42, exhausted=True)
+        _lead(c, node, 1)
+        frontier.rerank(c, _exploit_qualifier(probs=[0.95]))
+        node.refresh_from_db()
+        assert node.score == 42  # exhausted lines drop out of the re-rank
 
-    def test_explore_is_breadth_first_mutations_before_deepens(self, db):
+
+# ── selection: bootstrap / deepen / wall ─────────────────────────────
+
+class TestBootstrap:
+    def test_cold_start_generates_seed_at_zero(self, db):
+        c = _campaign()  # no nodes yet
+        with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
+                   return_value={"filters": {"seed": 1}, "country_code": ""}):
+            q = frontier.next_query(c, _explore_qualifier())
+        assert q == frontier.NextQuery({"seed": 1}, 0, "bootstrap")
+
+    def test_deepens_seed_node_without_regenerating(self, db):
         c = _campaign()
-        parent = _node(c, {"seed": 1}, status=Status.FETCHED)
-        deepen = _node(c, {"seed": 1}, offset=100, parent=parent)   # a depth move
-        mutation = _node(c, {"new": 1}, offset=0, parent=parent)    # a breadth move
-        picked = frontier.pick(c, _explore_qualifier())
-        assert picked.pk == mutation.pk  # offset 0 (breadth) wins over the deepen
+        _node(c, {"seed": 1}, offset=0)
+        _node(c, {"seed": 1}, offset=100)
+        with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
+                   side_effect=AssertionError("seed node exists — must not regenerate")):
+            q = frontier.next_query(c, _explore_qualifier())
+        assert q == frontier.NextQuery({"seed": 1}, 200, "bootstrap")  # max offset + one page
 
-    def test_exploit_picks_highest_parent_score(self, db):
+    def test_none_when_icp_empty(self, db):
         c = _campaign()
-        hot = _node(c, {"a": 1}, status=Status.FETCHED, score=9)
-        cold = _node(c, {"b": 1}, status=Status.FETCHED, score=1)
-        child_cold = _node(c, {"b": 1}, offset=100, parent=cold)
-        child_hot = _node(c, {"a": 1}, offset=100, parent=hot)
-        with patch.object(frontier, "EXPLORE_EVERY", 999):  # disable the explore reservation
-            picked = frontier.pick(c, _exploit_qualifier())
-        assert picked.pk == child_hot.pk
+        with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
+                   return_value={"filters": {}, "country_code": ""}):
+            assert frontier.next_query(c, _explore_qualifier()) is None
 
-    def test_exploit_reserves_explore_pick(self, db):
+    def test_none_when_seed_exhausted(self, db):
         c = _campaign()
-        hot = _node(c, {"a": 1}, status=Status.FETCHED, score=9)
-        top_exploit = _node(c, {"a": 1}, offset=100, parent=hot)  # best exploit candidate
-        fresh = _node(c, {"new": 1}, offset=0, parent=hot)        # a brand-new region
-        # 1 fetched node → n_fetched % EXPLORE_EVERY(1) == 0 → the reserved explore pick
-        with patch.object(frontier, "EXPLORE_EVERY", 1):
-            picked = frontier.pick(c, _exploit_qualifier())
-        assert picked.pk == fresh.pk  # newest unexplored (offset-0) region, not the deepen
+        _node(c, {"seed": 1}, offset=0, exhausted=True)
+        assert frontier.next_query(c, _explore_qualifier()) is None
 
-    def test_exploit_falls_back_to_top_when_no_fresh_region(self, db):
+
+class TestDeepen:
+    def test_exploit_deepens_highest_scoring_node(self, db):
         c = _campaign()
-        hot = _node(c, {"a": 1}, status=Status.FETCHED, score=9)
-        cold = _node(c, {"b": 1}, status=Status.FETCHED, score=1)
-        top_exploit = _node(c, {"a": 1}, offset=100, parent=hot)
-        low = _node(c, {"b": 1}, offset=100, parent=cold)
-        # explore move, but no offset-0 node exists → exploit the top-ranked instead
-        with patch.object(frontier, "EXPLORE_EVERY", 1):
-            picked = frontier.pick(c, _exploit_qualifier())
-        assert picked.pk == top_exploit.pk
+        _node(c, {"a": 1}, offset=0, score=2)
+        hot = _node(c, {"b": 1}, offset=0, score=9)
+        _node(c, {"b": 1}, offset=100, score=5)  # deepest page of the hot line
+        q = frontier.next_query(c, _exploit_qualifier())
+        assert q == frontier.NextQuery({"b": 1}, 200, "deepen")  # deepen the hot line
 
-
-# ── expand ───────────────────────────────────────────────────────────
-
-class TestExpand:
-    def test_mutates_by_default_pre_exploit(self, db):
+    def test_exploit_skips_exhausted_positive_node(self, db):
         c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED)
+        _node(c, {"a": 1}, offset=0, score=3)
+        _node(c, {"b": 1}, offset=0, score=9, exhausted=True)  # higher, but dried up
+        q = frontier.next_query(c, _exploit_qualifier())
+        assert q.params == {"a": 1} and q.move == "deepen"
+
+
+class TestWall:
+    def test_all_zero_asks_llm_for_new_query(self, db):
+        c = _campaign()
+        _node(c, {"a": 1}, offset=0, score=0)
         with patch("openoutreach.core.pipeline.mutate.generate_mutation",
                    return_value={"new": 1}) as gen:
-            frontier.expand(c, node, _explore_qualifier())
+            q = frontier.next_query(c, _exploit_qualifier())
         gen.assert_called_once()
-        assert DiscoveryQuery.objects.filter(campaign=c, params={"new": 1}, offset=0).exists()
-        # breadth is the whole move — no deepen child (one node in, one out)
-        assert not DiscoveryQuery.objects.filter(campaign=c, params={"x": 1}, offset=100).exists()
+        assert q == frontier.NextQuery({"new": 1}, 0, "wall")
 
-    def test_adds_at_most_one_node(self, db):
+    def test_none_when_llm_dry(self, db):
         c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED)
-        before = DiscoveryQuery.objects.filter(campaign=c).count()
-        with patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value={"new": 1}):
-            frontier.expand(c, node, _explore_qualifier())
-        assert DiscoveryQuery.objects.filter(campaign=c).count() == before + 1
-
-    def test_deepens_as_fallback_when_llm_dry_pre_exploit(self, db):
-        c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED)
+        _node(c, {"a": 1}, offset=0, score=0)
         with patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value={}):
-            frontier.expand(c, node, _explore_qualifier())
-        assert DiscoveryQuery.objects.filter(campaign=c, params={"x": 1}, offset=100).exists()
+            assert frontier.next_query(c, _exploit_qualifier()) is None
 
-    def test_exploit_deepens_productive_node(self, db):
+    def test_none_when_llm_reproposes_tried_query(self, db):
         c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED, score=3)
-        with patch("openoutreach.core.pipeline.mutate.generate_mutation") as gen:
-            frontier.expand(c, node, _exploit_qualifier())
-        gen.assert_not_called()  # productive vein → mine depth, don't spend an LLM call
-        assert DiscoveryQuery.objects.filter(campaign=c, params={"x": 1}, offset=100).exists()
-
-    def test_exploit_barren_node_mutates_instead_of_deepening(self, db):
-        c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED, score=0)
-        with patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value={"new": 1}):
-            frontier.expand(c, node, _exploit_qualifier())
-        assert DiscoveryQuery.objects.filter(campaign=c, params={"new": 1}, offset=0).exists()
-        assert not DiscoveryQuery.objects.filter(campaign=c, params={"x": 1}, offset=100).exists()
-
-    def test_exploit_barren_node_llm_dry_adds_nothing(self, db):
-        c = _campaign()
-        node = _node(c, {"x": 1}, status=Status.FETCHED, score=0)
-        with patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value={}):
-            frontier.expand(c, node, _exploit_qualifier())
-        # barren region, no fresh idea, and depth isn't worth it → no new node
-        assert not DiscoveryQuery.objects.filter(campaign=c, offset=100).exists()
-        assert DiscoveryQuery.objects.filter(campaign=c).count() == 1
-
-
-# ── retire / size-cap ────────────────────────────────────────────────
-
-class TestRetireAndCap:
-    def test_retire(self, db):
-        c = _campaign()
-        node = _node(c, {"x": 1})
-        frontier.retire(node)
-        node.refresh_from_db()
-        assert node.status == Status.RETIRED
-
-    def test_size_cap_evicts_lowest_scored_fetched(self, db):
-        c = _campaign()
-        keep = _node(c, {"a": 1}, status=Status.FETCHED, score=9)
-        drop = _node(c, {"b": 1}, status=Status.FETCHED, score=1)
-        fringe = _node(c, {"c": 1}, status=Status.PENDING)  # never evicted
-        with patch.object(frontier, "FRONTIER_SIZE_CAP", 2):
-            frontier.enforce_size_cap(c)
-        keep.refresh_from_db(); drop.refresh_from_db(); fringe.refresh_from_db()
-        assert drop.status == Status.RETIRED
-        assert keep.status == Status.FETCHED
-        assert fringe.status == Status.PENDING
-
-    def test_size_cap_noop_under_budget(self, db):
-        c = _campaign()
-        _node(c, {"a": 1}, status=Status.FETCHED, score=1)
-        with patch.object(frontier, "FRONTIER_SIZE_CAP", 200):
-            frontier.enforce_size_cap(c)
-        assert DiscoveryQuery.objects.filter(campaign=c, status=Status.FETCHED).count() == 1
+        _node(c, {"a": 1}, offset=0, score=0)  # already tried, scored 0
+        with patch("openoutreach.core.pipeline.mutate.generate_mutation",
+                   return_value={"a": 1}):
+            assert frontier.next_query(c, _exploit_qualifier()) is None

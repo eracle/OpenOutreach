@@ -3,11 +3,11 @@
 
 A single LLM pass turns ``product_docs + campaign_target`` into firmographic
 filters (title/seniority/industry/location/headcount) that Lead Finder discovery
-searches on. Called once per campaign by ``frontier.ensure_seed`` to seed the
-discovery graph's root node — the seed ``DiscoveryQuery`` *is* the cache now, so
-this no longer persists onto the campaign. Adaptive refinement is realized by the
-frontier itself (best-first search over mutated queries) — see the
-discovery-query-graph-search roadmap card.
+searches on. Called on a campaign's cold start by ``frontier.generate_seed`` to
+seed the discovery walk — the seed isn't cached; its first fetched page becomes the
+node that carries its params thereafter. Adaptive refinement is realized by the
+frontier itself (a lazy best-first walk that deepens productive veins and mutates
+into new ones) — see the discovery-query-graph-search roadmap card.
 """
 from __future__ import annotations
 

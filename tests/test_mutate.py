@@ -8,28 +8,27 @@ from openoutreach.core.models import Campaign, DiscoveryQuery
 from openoutreach.core.pipeline import mutate
 from openoutreach.core.pipeline.frontier import params_hash
 
-Status = DiscoveryQuery.Status
-
 
 def _campaign():
     return Campaign.objects.create(name="C", product_docs="widgets", campaign_target="demos")
 
 
-def _node(c, params, status=Status.FETCHED, score=None):
+def _node(c, params, offset=0, score=None):
     return DiscoveryQuery.objects.create(
         campaign=c, params=params, params_hash=params_hash(params),
-        offset=0, status=status, score=score,
+        offset=offset, score=score,
     )
 
 
 class TestPastQueryStats:
-    def test_excludes_pending_and_reports_value(self, db):
+    def test_reports_every_fetched_node_with_value(self, db):
         c = _campaign()
-        _node(c, {"a": 1}, status=Status.FETCHED, score=3)
-        _node(c, {"b": 1}, status=Status.PENDING)  # not yet measured → excluded
+        _node(c, {"a": 1}, score=3)
+        _node(c, {"b": 1}, offset=100, score=0)
         stats = mutate._past_query_stats(c)
-        assert len(stats) == 1
-        assert stats[0]["params"] == {"a": 1} and stats[0]["score"] == 3
+        assert {s["params"]["a"] if "a" in s["params"] else s["params"]["b"] for s in stats} == {1}
+        assert {s["score"] for s in stats} == {3, 0}
+        assert len(stats) == 2
 
 
 class TestGeneratorInterface:

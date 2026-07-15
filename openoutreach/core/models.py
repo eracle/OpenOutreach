@@ -73,10 +73,11 @@ class Campaign(models.Model):
     # ISO-3166 alpha-2 target country for this campaign's leads — the contacts
     # geo-gate stamp put on every discovered Lead. A stable ICP attribute (one
     # country per campaign), so it lives here rather than duplicated on each query
-    # node. Set by ``frontier.ensure_seed`` from the LLM's ICP spec. (Discovery is
-    # a graph search over ``DiscoveryQuery`` nodes — the retired
-    # ``icp_filters``/``discovery_offset`` single-cursor state was migrated into a
-    # seed node and dropped in migration 0007.)
+    # node. Set by ``frontier.generate_seed`` from the LLM's ICP spec on the first
+    # discovery move. (Discovery is a best-first walk over ``DiscoveryQuery`` nodes
+    # — the retired ``icp_filters``/``discovery_offset`` single-cursor state was
+    # dropped in migration 0007; the seed is regenerated on cold start and then
+    # embodied by the fetched seed nodes, not cached.)
     country_code = models.CharField(max_length=2, blank=True, default="")
 
     def __str__(self):
@@ -179,34 +180,33 @@ class Task(models.Model):
 
 
 class DiscoveryQuery(models.Model):
-    """One node in a campaign's discovery graph — a Lead Finder query.
+    """One **fetched** node in a campaign's discovery walk — a Lead Finder query.
 
     A node is ``(params, offset)``: a Lead Finder filter dict at a pagination
-    depth. Discovery is a best-first search over these nodes (see
-    ``core/pipeline/frontier.py``), replacing the old single
-    ``(Campaign.icp_filters, discovery_offset)`` cursor (retired in migration
-    0007, which seeded each campaign's first node from that cursor).
+    depth that has already been pulled once. Discovery is a lazy best-first walk
+    over these nodes (see ``core/pipeline/frontier.py``), replacing the old single
+    ``(Campaign.icp_filters, discovery_offset)`` cursor (dropped in migration 0007).
 
-    Lifecycle (``status``):
+    **Only fetched nodes are persisted** — the next query is computed lazily from
+    them, so there is no pending queue and no ``parent`` provenance to inherit rank
+    from. The seed itself isn't cached either: on the first move it is regenerated
+    from the ICP and, once its page is fetched, embodied by the resulting node(s).
+    A node is fetched exactly once (dedup on the unique
+    ``(campaign, params_hash, offset)`` triple) and never re-fetched: the per-move
+    re-rank re-scores its leads against the current GP with no API call and no
+    stored embedding matrix (the embeddings already live on each ``Lead``).
 
-    - ``PENDING`` — enqueued by the seed or an expansion, not yet fetched. The
-      only fetchable state; picked by its parent's rank (it has no leads of its
-      own yet).
-    - ``FETCHED`` — its Lead Finder page has been pulled once; its leads exist
-      (linked back via ``Lead.discovered_by``) and ``score`` is stored. Never
-      re-fetched — the per-move re-rank re-scores this node's leads against the
-      current GP, no API call and no stored embedding matrix (the embeddings
-      already live on each ``Lead``). Stays on the frontier as a scored reference
-      its ``PENDING`` children inherit rank from, and as an expansion origin,
-      until retired.
-    - ``RETIRED`` — a dry page, or evicted by the frontier size-cap. Off the
-      frontier.
+    ``exhausted`` marks a ``params`` line whose deepen returned an empty page (the
+    reactive end-of-depth signal). All nodes sharing that ``params_hash`` are
+    flagged together and excluded from selection, so an exhausted query is never
+    re-picked.
 
     ``score`` is the node's value: the **number of its leads the GP would accept**
     for the paid pipeline — i.e. how many clear the acceptance gate
     ``P(f>0.5) > min_gp_confidence`` (see ``ready_pool.count_accepted``). It is
     meaningful only once the qualifier is in exploit mode (``n_neg > n_pos``);
-    before that the frontier expands broad and unranked and ``score`` stays null.
+    before that the walk pages the seed linearly (bootstrap) and ``score`` stays
+    null.
 
     This score **steers discovery only** — it decides which query region to
     explore next. It never gates a lead: every saved lead advances through
@@ -215,31 +215,22 @@ class DiscoveryQuery(models.Model):
     acceptance threshold merely as a yardstick for a query's promise.
     """
 
-    class Status(models.TextChoices):
-        PENDING = "pending"    # enqueued, not yet fetched — the fetchable state
-        FETCHED = "fetched"    # page pulled once; embeddings + score stored
-        RETIRED = "retired"    # dry page, or evicted by the size-cap
-
     campaign = models.ForeignKey(
         Campaign, on_delete=models.CASCADE, related_name="discovery_queries",
     )
     # The Lead Finder filter dict (the same shape as the old icp_filters["filters"]).
     params = models.JSONField(default=dict)
     # sha256 of the canonicalized params — the node-identity key for dedup, so two
-    # equivalent filter dicts (key order aside) never both enter the frontier.
+    # equivalent filter dicts (key order aside) never both enter the walk.
     params_hash = models.CharField(max_length=64)
     offset = models.IntegerField(default=0)
-    status = models.CharField(
-        max_length=10, choices=Status.choices, default=Status.PENDING,
-    )
+    # A ``params`` line whose deepen hit an empty page (reactive end-of-depth).
+    # Set on every node of that params_hash at once; excluded from selection.
+    exhausted = models.BooleanField(default=False)
     # The node's value: count of its leads the GP would accept (P(f>0.5) >
     # min_gp_confidence), recomputed each re-rank from the leads' embeddings. Null
-    # before the node is fetched or while the qualifier is pre-exploit (untrusted).
+    # while the qualifier is pre-exploit (untrusted) or before the node is scored.
     score = models.FloatField(null=True, blank=True)
-    # The node this was deepened or mutated from; null for a seed node.
-    parent = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children",
-    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -253,11 +244,12 @@ class DiscoveryQuery(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["campaign", "status"], name="discovery_camp_status_idx"),
+            models.Index(fields=["campaign", "exhausted"], name="discovery_camp_exhausted_idx"),
         ]
 
     def __str__(self):
-        return f"DiscoveryQuery#{self.pk} [{self.status}] offset={self.offset} score={self.score}"
+        flag = " exhausted" if self.exhausted else ""
+        return f"DiscoveryQuery#{self.pk}{flag} offset={self.offset} score={self.score}"
 
     @property
     def lead_embeddings(self) -> np.ndarray:

@@ -1,12 +1,13 @@
 # openoutreach/core/pipeline/discover.py
-"""Discovery leg — one best-first move over the campaign's query frontier.
+"""Discovery leg — one best-first move over the campaign's query walk.
 
 The top of the funnel: a page of ICP-matched rows becomes ``Lead`` rows (embedded
 + profile_text) awaiting qualification. Free (Lead Finder bills nothing) and
 browserless. The qualify chain calls ``discover`` whenever its candidate pool runs
-dry; each call fetches the single most promising query node on the frontier — not
-a fixed cursor — so successive calls steer toward the region of the query graph
-that feeds qualification best. See ``frontier.py`` and the roadmap card
+dry; each call fetches the single most promising query — the deeper page of a
+productive vein, or a fresh region when the current ones stop paying — so
+successive calls steer toward the region of the query space that feeds
+qualification best. See ``frontier.py`` and the roadmap card
 ``p2-e3-discovery-query-graph-search``.
 """
 from __future__ import annotations
@@ -19,16 +20,19 @@ DISCOVERY_PAGE_SIZE = 100
 
 
 def discover(session, qualifier) -> int:
-    """Fetch one frontier node's page and persist its first-touch Leads.
+    """Fetch one query's page and persist its first-touch Leads. Returns the count.
 
-    One move: re-rank the fetched nodes against the current GP, pick the next
-    PENDING node, fetch its Lead Finder page, persist new Leads (first-touch
-    stamped via ``Lead.discovered_by``), then expand the node into new PENDING
-    children. Returns the count of Leads created.
+    One move: re-rank the fetched nodes against the current GP, then ask the
+    frontier for the next query (generating the ICP seed on a cold start) and fetch
+    its Lead Finder page. A page with rows is persisted (leads first-touch-stamped
+    via ``Lead.discovered_by``) and the count returned. An **empty page** marks
+    that ``params`` exhausted and the move
+    retries the next-best query — deepening drains a finite set of veins, and a
+    freshly walled region that comes back empty ends the move.
 
-    Dry nodes are retired and skipped within the call, so the qualify chain's
-    "``discover() <= 0`` means exhausted" contract still holds — 0 is returned
-    only when the whole frontier is dry, never when a single branch ends.
+    Returns 0 only when the whole walk is dry (no query left to fetch), never when
+    a single branch ends — so the qualify chain's "``discover() <= 0`` means
+    exhausted" contract still holds.
 
     Gated as before: freemium campaigns seed from their kit (not Lead Finder),
     and a campaign with no finder key or no product/target can't be searched.
@@ -46,26 +50,29 @@ def discover(session, qualifier) -> int:
     if not (campaign.product_docs or campaign.campaign_target):
         return 0
 
-    frontier.ensure_seed(campaign)
     frontier.rerank(campaign, qualifier)
 
+    walled = False
     while True:
-        node = frontier.pick(campaign, qualifier)
-        if node is None:
+        query = frontier.next_query(campaign, qualifier)
+        if query is None:
             return 0
+        if query.move == "wall" and walled:
+            return 0  # one new region per move — its emptiness ends this move
 
-        rows = search(node.params, limit=DISCOVERY_PAGE_SIZE, offset=node.offset)
-        if not rows:
-            frontier.retire(node)
-            continue
+        rows = search(query.params, limit=DISCOVERY_PAGE_SIZE, offset=query.offset)
+        if rows:
+            node = frontier.persist_fetched(campaign, query.params, query.offset)
+            created = sum(
+                create_lead(row, country_code=campaign.country_code, discovered_by=node)
+                for row in rows
+            )
+            logger.info("[%s] discovery: %d new lead(s) from %d row(s) (%s, offset %d)",
+                        campaign, created, len(rows), query.move, query.offset)
+            return created
 
-        created = sum(
-            create_lead(row, country_code=campaign.country_code, discovered_by=node)
-            for row in rows
-        )
-        frontier.mark_fetched(node, qualifier)
-        frontier.expand(campaign, node, qualifier)
-        frontier.enforce_size_cap(campaign)
-        logger.info("[%s] discovery: %d new lead(s) from %d row(s) (node #%d, offset %d)",
-                    campaign, created, len(rows), node.pk, node.offset)
-        return created
+        # Empty page — record the dry attempt and exhaust its line, then retry.
+        frontier.persist_fetched(campaign, query.params, query.offset)
+        frontier.mark_exhausted(campaign, query.params)
+        if query.move == "wall":
+            walled = True

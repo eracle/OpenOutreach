@@ -1,28 +1,39 @@
 # openoutreach/core/pipeline/frontier.py
-"""Discovery frontier — best-first search over a campaign's DiscoveryQuery nodes.
+"""Discovery frontier — a lazy best-first walk over a campaign's query nodes.
 
-Replaces the single ``(Campaign.icp_filters, discovery_offset)`` cursor with a
-persisted frontier of query nodes. One discovery *move* (``discover.py``):
+Replaces the single ``(Campaign.icp_filters, discovery_offset)`` cursor. There is
+no persisted queue of candidates: the next query is computed **lazily** from the
+set of already-fetched ``DiscoveryQuery`` nodes, like the ``pools.py`` generator
+chain. One discovery *move* (``discover.py``):
 
-    ensure_seed → rerank(fetched, current GP) → pick(next PENDING) → fetch →
-    mark_fetched(+score) → expand(deepen + broad mutations) → enforce_size_cap
+    rerank(current GP) → next_query → fetch → persist_fetched
+                              │                    └ empty page → mark_exhausted
+                              └ cold start → generate_seed (ICP)
 
-PENDING nodes are the fringe (fetchable, no leads yet); FETCHED nodes are the
-explored interior (scored, expandable). A node is fetched exactly once, so
-visited nodes are never revisited. Re-rank re-scores the FETCHED interior each
-move (the GP retrained since last move), and PENDING children inherit their
-pick-priority from their FETCHED parent's score.
+``next_query`` picks exactly one query to fetch, driven only by real signals:
 
-See the roadmap card ``p2-e3-discovery-query-graph-search``. The size cap,
-frontier width, and explore share are the build-time tuning knobs it flagged.
+- **Bootstrap** *(qualifier pre-exploit)* — scores aren't trustworthy yet (a null
+  score is *unknown*, not a wall), so page the seed linearly, exactly like the old
+  cursor, feeding qualification the labels that train the GP.
+- **Deepen** *(exploit, best node scores > 0)* — deepen the highest-scoring
+  non-exhausted node to mine a productive vein.
+- **Wall** *(exploit, every active node scores 0)* — ask the LLM for one new query.
+
+The regime boundary is the qualifier's own ``n_neg > n_pos`` trust gate. Exhaustion
+is reactive: a fetch that returns an empty page marks that ``params`` exhausted so
+it is never re-picked. No explore-share cadence, no width target, no size cap — the
+walk widens exactly when the current regions stop paying.
+
+See the roadmap card ``p2-e3-discovery-query-graph-search``.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+from collections import namedtuple
 
-from django.db.models import F
+from django.db.models import Max
 
 from openoutreach.core.models import DiscoveryQuery
 from openoutreach.core.pipeline.ready_pool import count_accepted
@@ -30,15 +41,11 @@ from openoutreach.core.pipeline.ready_pool import count_accepted
 logger = logging.getLogger(__name__)
 
 DISCOVERY_PAGE_SIZE = 100
-# Hard resource ceiling on active nodes per campaign — not a policy knob: past it,
-# the lowest-value FETCHED nodes are retired so the per-move re-rank (a sweep over
-# fetched nodes) stays bounded regardless of how long a campaign runs.
-FRONTIER_SIZE_CAP = 200
-# The explore share: in exploit mode, one pick in EXPLORE_EVERY is reserved for a
-# fresh unexplored region so a hot branch can't starve the graph. This is the
-# card's single sanctioned heuristic knob — the principled replacement (a Bayesian
-# acquisition function over the GP posterior) is deferred to Future work.
-EXPLORE_EVERY = 5
+
+# The query to fetch next, plus which move produced it — ``bootstrap``, ``deepen``,
+# or ``wall``. ``discover`` uses ``move`` for logging and to cap a move at a single
+# wall fetch (a freshly opened region that comes back empty ends the move).
+NextQuery = namedtuple("NextQuery", ["params", "offset", "move"])
 
 
 # ── params identity ──────────────────────────────────────────────────
@@ -53,47 +60,57 @@ def params_hash(params: dict) -> str:
     return hashlib.sha256(canonicalize(params).encode()).hexdigest()
 
 
-# ── enqueue / seed ───────────────────────────────────────────────────
+# ── seed ─────────────────────────────────────────────────────────────
 
-def enqueue(campaign, params: dict, offset: int = 0, parent=None) -> DiscoveryQuery | None:
-    """Create a PENDING node, deduped on ``(campaign, params_hash, offset)``.
+def generate_seed(campaign) -> dict:
+    """LLM-generate the campaign's ICP seed filters and fold its country onto it.
 
-    Returns the new node, or None when an equivalent node already exists in any
-    status — a fetched or retired twin means we have already been there.
+    Called only on a cold start (the campaign owns no nodes yet): the seed isn't
+    cached — its first fetched page becomes the node that carries its params from
+    then on. Folds ``country_code`` (used to geo-stamp every discovered Lead) onto
+    the campaign. Returns the filter dict, or ``{}`` when the ICP is empty.
     """
-    h = params_hash(params)
-    if DiscoveryQuery.objects.filter(campaign=campaign, params_hash=h, offset=offset).exists():
-        return None
-    return DiscoveryQuery.objects.create(
-        campaign=campaign, params=params, params_hash=h, offset=offset,
-        parent=parent, status=DiscoveryQuery.Status.PENDING,
-    )
-
-
-def ensure_seed(campaign) -> None:
-    """Seed the frontier from the campaign's ICP if it owns no nodes yet.
-
-    LLM-generates the ICP filter spec once, folds its ``country_code`` onto the
-    campaign, and enqueues a single PENDING seed node at offset 0. Idempotent —
-    a campaign that already owns any node (or whose spec is empty) is untouched.
-    """
-    if DiscoveryQuery.objects.filter(campaign=campaign).exists():
-        return
-
     from openoutreach.core.pipeline.icp import generate_icp_spec
 
     spec = generate_icp_spec(campaign)
     filters = spec.get("filters") or {}
     if not filters:
-        return
+        return {}
 
     country_code = spec.get("country_code", "")
     if country_code and campaign.country_code != country_code:
         campaign.country_code = country_code
         campaign.save(update_fields=["country_code"])
+    logger.info("[%s] discovery seed: %s", campaign, filters)
+    return filters
 
-    enqueue(campaign, filters, offset=0, parent=None)
-    logger.info("[%s] frontier seeded: %s", campaign, filters)
+
+# ── persist / exhaust ────────────────────────────────────────────────
+
+def persist_fetched(campaign, params: dict, offset: int) -> DiscoveryQuery:
+    """Record a just-fetched ``(params, offset)`` page, deduped on the unique triple.
+
+    Returns the node (created or pre-existing) so its first-touch leads can point
+    back via ``Lead.discovered_by``. ``score`` stays null — the node is scored by
+    the next move's re-rank, once qualification has retrained the GP on its leads.
+    """
+    node, _ = DiscoveryQuery.objects.get_or_create(
+        campaign=campaign, params_hash=params_hash(params), offset=offset,
+        defaults={"params": params},
+    )
+    return node
+
+
+def mark_exhausted(campaign, params: dict) -> None:
+    """Flag every node of a ``params`` line exhausted — its deepen hit an empty page.
+
+    A whole query line is exhausted at once (all offsets share the fate of the
+    deepest, dry page), so it drops out of ``rerank`` and ``next_query`` and is
+    never re-picked.
+    """
+    DiscoveryQuery.objects.filter(
+        campaign=campaign, params_hash=params_hash(params),
+    ).update(exhausted=True)
 
 
 # ── scoring ──────────────────────────────────────────────────────────
@@ -104,138 +121,85 @@ def _in_exploit_mode(qualifier) -> bool:
     return n_neg > n_pos
 
 
-def mark_fetched(node: DiscoveryQuery, qualifier) -> None:
-    """Flip a just-fetched node to FETCHED and score it from its new leads.
-
-    Score = ``count_accepted`` over the node's first-touch leads' embeddings, set
-    only in exploit mode; before that the P(f>0.5) ranking is noise, so score
-    stays null. Computing it here lets ``expand`` judge whether to deepen.
-    """
-    node.status = DiscoveryQuery.Status.FETCHED
-    node.score = count_accepted(qualifier, node.lead_embeddings) if _in_exploit_mode(qualifier) else None
-    node.save(update_fields=["status", "score", "updated_at"])
-
-
 def rerank(campaign, qualifier) -> None:
-    """Re-score every FETCHED node against the current GP (no re-fetch).
+    """Re-score every non-exhausted node against the current GP (no re-fetch).
 
     The GP retrained since the last move, so prior scores are stale. Scores come
     from each node's first-touch leads' embeddings (already persisted on ``Lead``),
     counting how many the GP would accept. No-op until the qualifier is in exploit
-    mode — before that scores stay null and the frontier expands broad-unranked.
+    mode — before that scores stay null and the walk pages the seed (bootstrap).
     """
     if not _in_exploit_mode(qualifier):
         return
-    nodes = list(DiscoveryQuery.objects.filter(campaign=campaign, status=DiscoveryQuery.Status.FETCHED))
+    nodes = list(DiscoveryQuery.objects.filter(campaign=campaign, exhausted=False))
     for node in nodes:
         node.score = count_accepted(qualifier, node.lead_embeddings)
     if nodes:
         DiscoveryQuery.objects.bulk_update(nodes, ["score"])
 
 
-# ── pick ─────────────────────────────────────────────────────────────
+# ── selection ────────────────────────────────────────────────────────
 
-def pick(campaign, qualifier) -> DiscoveryQuery | None:
-    """The next PENDING node to fetch, or None when the frontier is exhausted.
-
-    Explore mode (qualifier pre-exploit): breadth-first and unranked — the oldest
-    PENDING node, mutations (offset 0) before deepens, so the search fans wide
-    while it gathers the balanced labels the exploit switch needs.
-
-    Exploit mode: mostly the highest-value PENDING node, ranked by its FETCHED
-    parent's score (a PENDING node has no leads of its own to score yet); one pick
-    in EXPLORE_EVERY is reserved for a *fresh* unexplored region — the newest broad
-    (offset-0) mutation — so a hot branch can't starve the graph.
-    """
-    pending = list(
+def _next_offset(campaign, hash_: str) -> int:
+    """The next unfetched offset for a params line — max fetched offset + one page,
+    or 0 if the line has never been fetched."""
+    deepest = (
         DiscoveryQuery.objects
-        .filter(campaign=campaign, status=DiscoveryQuery.Status.PENDING)
-        .select_related("parent")
+        .filter(campaign=campaign, params_hash=hash_)
+        .aggregate(m=Max("offset"))["m"]
     )
-    if not pending:
-        return None
-
-    if not _in_exploit_mode(qualifier):
-        # breadth-first: mutations (offset 0) before deepens, then FIFO
-        return min(pending, key=lambda n: (n.offset, n.pk))
-
-    n_fetched = DiscoveryQuery.objects.filter(
-        campaign=campaign, status=DiscoveryQuery.Status.FETCHED,
-    ).count()
-    if n_fetched % EXPLORE_EVERY == 0:
-        fresh = [n for n in pending if n.offset == 0]
-        if fresh:
-            return max(fresh, key=lambda n: n.pk)  # newest unexplored region
-
-    def rank_key(node):
-        score = node.parent.score if node.parent and node.parent.score is not None else -1.0
-        return (-score, node.offset, node.pk)  # highest score, then breadth, then FIFO
-
-    return min(pending, key=rank_key)
+    return 0 if deepest is None else deepest + DISCOVERY_PAGE_SIZE
 
 
-# ── expand ───────────────────────────────────────────────────────────
+def _bootstrap_query(campaign) -> NextQuery | None:
+    """The next seed page to fetch pre-exploit — the old linear cursor.
 
-def expand(campaign, node: DiscoveryQuery, qualifier) -> None:
-    """Grow the frontier by at most ONE node — breadth by default, depth the exception.
-
-    The choice is driven by signals we already have — the qualifier's own
-    explore→exploit state and the node's measured value — not a fixed width:
-
-    - **Depth (exception)** fires only in exploit mode on a node that scored above
-      zero: a productive vein worth mining another page (``offset + page``).
-    - **Breadth (default)** asks the LLM for one new distinct query. Pre-exploit
-      that's every move (the broad, unranked fan-out that also produces the balanced
-      labels the exploit switch needs); in exploit it fires whenever the picked node
-      wasn't a productive vein — a barren region spawns a fresh one to try instead.
-    - **Depth as fallback**: if the LLM returns nothing pre-exploit, deepen to keep
-      linear progress (the degenerate one-node case = the old single cursor).
-
-    One node in (a fetch), one out (this enqueue), so the frontier is size-conserved.
+    Pre-exploit the only line is the seed, so the earliest node *is* the seed's
+    deepest-known page. Deepen it; on a cold start (no node yet) generate the seed
+    from the ICP and start at offset 0.
     """
-    def deepen():
-        enqueue(campaign, node.params, offset=node.offset + DISCOVERY_PAGE_SIZE, parent=node)
+    seed = DiscoveryQuery.objects.filter(campaign=campaign).order_by("pk").first()
+    if seed is None:
+        filters = generate_seed(campaign)
+        return NextQuery(filters, 0, "bootstrap") if filters else None
+    if seed.exhausted:
+        return None  # the seed line dried up before the GP could score elsewhere
+    return NextQuery(seed.params, _next_offset(campaign, seed.params_hash), "bootstrap")
 
-    if _in_exploit_mode(qualifier) and (node.score or 0) > 0:
-        deepen()  # mine a productive vein
-        return
 
+def next_query(campaign, qualifier) -> NextQuery | None:
+    """The single query to fetch next, or None when nothing is left to walk.
+
+    Assumes ``rerank`` already ran this move. Three moves:
+
+    - **Bootstrap** (pre-exploit): page the seed linearly. A null score is unknown,
+      not a wall, so we stay on our best prior until the GP can score. On a cold
+      start (no nodes yet) the seed is generated from the ICP; thereafter the seed
+      node itself carries its params. None if the ICP is empty or the seed line has
+      dried up (no trustworthy scores to move elsewhere).
+    - **Deepen** (exploit, best non-exhausted score > 0): deepen that node's line.
+    - **Wall** (exploit, all scores 0): ask the LLM for one new query at offset 0.
+      None if the LLM is dry or re-proposes an already-tried query.
+    """
+    if not _in_exploit_mode(qualifier):
+        return _bootstrap_query(campaign)
+
+    active = list(DiscoveryQuery.objects.filter(campaign=campaign, exhausted=False))
+    best = max(
+        (n for n in active if (n.score or 0) > 0),
+        key=lambda n: (n.score, n.pk), default=None,
+    )
+    if best is not None:
+        return NextQuery(best.params, _next_offset(campaign, best.params_hash), "deepen")
+
+    # Wall — every active region is barren. Open one new region.
     from openoutreach.core.pipeline.mutate import generate_mutation
 
-    params = generate_mutation(campaign)  # widen into a new region
-    if params:
-        enqueue(campaign, params, offset=0, parent=node)
-    elif not _in_exploit_mode(qualifier):
-        deepen()  # LLM dry pre-exploit → keep linear progress
-
-
-# ── retire / size-cap ────────────────────────────────────────────────
-
-def retire(node: DiscoveryQuery) -> None:
-    """Drop a node off the frontier (dry page, or size-cap eviction)."""
-    node.status = DiscoveryQuery.Status.RETIRED
-    node.save(update_fields=["status", "updated_at"])
-
-
-def enforce_size_cap(campaign) -> None:
-    """Retire the lowest-value FETCHED nodes past FRONTIER_SIZE_CAP.
-
-    Keeps the per-move re-rank bounded. Only FETCHED nodes are evicted — PENDING
-    nodes are the unexplored fringe, and retiring them would drop regions we have
-    not yet tried. Lowest score first (unscored/oldest break the tie).
-    """
-    active = DiscoveryQuery.objects.filter(
-        campaign=campaign,
-        status__in=[DiscoveryQuery.Status.PENDING, DiscoveryQuery.Status.FETCHED],
-    ).count()
-    overflow = active - FRONTIER_SIZE_CAP
-    if overflow <= 0:
-        return
-
-    evictable = (
-        DiscoveryQuery.objects
-        .filter(campaign=campaign, status=DiscoveryQuery.Status.FETCHED)
-        .order_by(F("score").asc(nulls_first=True), "created_at")[:overflow]
-    )
-    for node in list(evictable):
-        retire(node)
+    params = generate_mutation(campaign)
+    if not params:
+        return None
+    if DiscoveryQuery.objects.filter(
+        campaign=campaign, params_hash=params_hash(params),
+    ).exists():
+        return None  # LLM re-proposed a query we already tried — nothing new to open
+    return NextQuery(params, 0, "wall")

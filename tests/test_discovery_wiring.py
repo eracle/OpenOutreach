@@ -15,8 +15,6 @@ from openoutreach.core.pipeline.discover import discover
 from openoutreach.core.pipeline.frontier import params_hash
 from openoutreach.core.pipeline.icp import ICPSpec, _to_lead_finder_filters
 
-Status = DiscoveryQuery.Status
-
 
 def _campaign(**kw):
     from openoutreach.core.models import Campaign
@@ -33,10 +31,18 @@ def _explore_qualifier():
     return q
 
 
-def _pending_node(campaign, params):
+def _exploit_qualifier():
+    """Exploit qualifier (negatives outnumber positives)."""
+    q = MagicMock(spec=BayesianQualifier)
+    q.class_counts = (5, 2)
+    q.predict_probs.return_value = None
+    return q
+
+
+def _node(campaign, params, offset=0, score=None):
     return DiscoveryQuery.objects.create(
         campaign=campaign, params=params, params_hash=params_hash(params),
-        offset=0, status=Status.PENDING,
+        offset=offset, score=score,
     )
 
 
@@ -80,8 +86,8 @@ class TestCreateLead:
         from openoutreach.crm.models import Lead
 
         c = _campaign()
-        first = _pending_node(c, {"a": 1})
-        second = _pending_node(c, {"b": 1})
+        first = _node(c, {"a": 1})
+        second = _node(c, {"b": 1})
         row = {"contact_linkedin_profile_url": "https://www.linkedin.com/in/alice/"}
         with patch("openoutreach.discovery.embed_row", return_value=np.ones(384, dtype=np.float32)):
             assert create_lead(row, discovered_by=first) is True
@@ -109,51 +115,67 @@ class TestDiscover:
         session = MagicMock(campaign=_campaign(product_docs="", campaign_target=""))
         assert discover(session, _explore_qualifier()) == 0
 
-    def test_fetches_picked_node_creates_first_touch_leads(self, db):
+    def test_bootstrap_deepens_existing_seed_node(self, db):
         _set_key()
         campaign = _campaign(country_code="us")
-        node = _pending_node(campaign, {"lead_seniority": {"include": ["owner"]}})
+        _node(campaign, {"lead_seniority": {"include": ["owner"]}}, offset=0)  # seed page already fetched
         session = MagicMock(campaign=campaign)
         rows = [
             {"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"},
             {"contact_linkedin_profile_url": "https://www.linkedin.com/in/b/"},
         ]
-        with patch("openoutreach.discovery.search", return_value=rows), \
-             patch("openoutreach.core.db.leads.create_lead", return_value=True) as create, \
-             patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value={}):
+        with patch("openoutreach.discovery.search", return_value=rows) as search, \
+             patch("openoutreach.core.db.leads.create_lead", return_value=True) as create:
             assert discover(session, _explore_qualifier()) == 2
 
+        # bootstrap deepens the seed line to the next page
+        assert search.call_args.kwargs["offset"] == 100
+        node = DiscoveryQuery.objects.get(campaign=campaign, offset=100)
+        assert node.params == {"lead_seniority": {"include": ["owner"]}} and not node.exhausted
         assert create.call_count == 2
         assert create.call_args.kwargs == {"country_code": "us", "discovered_by": node}
-        node.refresh_from_db()
-        assert node.status == Status.FETCHED
-        # LLM dry → depth is the fallback that keeps discovery moving (subsumes the old cursor)
-        assert DiscoveryQuery.objects.filter(campaign=campaign, offset=100).exists()
 
-    def test_dry_node_retired_and_returns_zero(self, db):
+    def test_empty_page_exhausts_line_and_returns_zero(self, db):
         _set_key()
         campaign = _campaign()
-        node = _pending_node(campaign, {"x": 1})
+        _node(campaign, {"x": 1}, offset=0)  # seed line, one page already fetched
         session = MagicMock(campaign=campaign)
         with patch("openoutreach.discovery.search", return_value=[]):
             assert discover(session, _explore_qualifier()) == 0
-        node.refresh_from_db()
-        assert node.status == Status.RETIRED
+        # the dry deepen is recorded and its line marked exhausted (never re-picked)
+        assert DiscoveryQuery.objects.filter(
+            campaign=campaign, params_hash=params_hash({"x": 1}), exhausted=True,
+        ).count() == 2
 
-    def test_seeds_frontier_when_empty(self, db):
+    def test_empty_wall_ends_move_without_looping(self, db):
         _set_key()
+        # existing barren line → exploit walls to a new region; that region is empty too
         campaign = _campaign()
+        _node(campaign, {"a": 1}, offset=0, score=0)
+        session = MagicMock(campaign=campaign)
+        with patch("openoutreach.discovery.search", return_value=[]), \
+             patch("openoutreach.core.pipeline.mutate.generate_mutation",
+                   side_effect=[{"new": 1}, {"new": 2}]):
+            assert discover(session, _exploit_qualifier()) == 0
+        # exactly one new region was opened (and exhausted); the second is never fetched
+        assert DiscoveryQuery.objects.filter(campaign=campaign, params_hash=params_hash({"new": 1})).exists()
+        assert not DiscoveryQuery.objects.filter(campaign=campaign, params_hash=params_hash({"new": 2})).exists()
+
+    def test_cold_start_generates_seed_from_icp(self, db):
+        _set_key()
+        campaign = _campaign()  # no nodes yet — cold start
         session = MagicMock(campaign=campaign)
         spec = {"filters": {"lead_seniority": {"include": ["vp"]}}, "country_code": "gb"}
         rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/c/"}]
         with patch("openoutreach.core.pipeline.icp.generate_icp_spec", return_value=spec), \
              patch("openoutreach.discovery.search", return_value=rows), \
-             patch("openoutreach.core.db.leads.create_lead", return_value=True), \
-             patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value={}):
+             patch("openoutreach.core.db.leads.create_lead", return_value=True):
             assert discover(session, _explore_qualifier()) == 1
         campaign.refresh_from_db()
-        assert campaign.country_code == "gb"
-        assert DiscoveryQuery.objects.filter(campaign=campaign).exists()
+        assert campaign.country_code == "gb"  # folded from the ICP spec
+        # the generated seed is embodied by its first fetched node, not cached
+        node = DiscoveryQuery.objects.get(campaign=campaign, offset=0)
+        assert node.params == {"lead_seniority": {"include": ["vp"]}}
 
 
 # ── ICP generator ────────────────────────────────────────────────────
