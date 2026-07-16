@@ -34,6 +34,7 @@ import logging
 from collections import namedtuple
 
 from django.db.models import Max
+from termcolor import colored
 
 from openoutreach.core.models import DiscoveryQuery
 from openoutreach.core.pipeline.ready_pool import count_accepted
@@ -82,7 +83,9 @@ def generate_seed(campaign) -> dict:
     if country_code and campaign.country_code != country_code:
         campaign.country_code = country_code
         campaign.save(update_fields=["country_code"])
-    logger.info("[%s] discovery seed: %s", campaign, describe_filters(filters))
+    logger.info("[%s] %s: %s", campaign,
+                colored("discovery seed", "cyan", attrs=["bold"]),
+                colored(describe_filters(filters), "cyan"))
     return filters
 
 

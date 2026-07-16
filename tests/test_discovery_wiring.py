@@ -70,7 +70,7 @@ class TestCreateLead:
 
         lead = Lead.objects.get(profile_url="https://www.linkedin.com/in/alice/")
         assert lead.country_code == "us"
-        assert lead.profile_text == "cmo    acme "
+        assert lead.profile_text == "cmo acme"
         assert lead.embedding_array is not None
 
     def test_idempotent_on_duplicate(self, db):

@@ -4,6 +4,7 @@ ready_source (GP rank gate), and find_candidate (top of the chain). Mock
 fetch_qualification_candidates, run_qualification, discover, find_ready_candidate,
 and promote_to_ready at the pools import site."""
 from contextlib import contextmanager
+from itertools import islice
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -72,14 +73,14 @@ class TestQualifySource:
         ):
             assert list(qualify_source("session", scorer)) == []
 
-    def test_interleaves_discovery_before_qualifying_in_exploit_mode(self):
-        """When the pool holds nothing promising, page in fresh leads before
-        spending an LLM call — instead of qualifying the whole page first."""
+    def test_qualifies_one_then_rechecks_before_widening(self):
+        """Nothing promising → qualify one, re-check the moved GP, then widen once."""
         scorer = BayesianQualifier(seed=42)
         with (
             _pool(),
+            # pre-check, re-check (still barren), next cycle
             patch("openoutreach.core.pipeline.pools._needs_more_discovery",
-                  side_effect=[True, False, False]),
+                  side_effect=[True, True, False]),
             patch("openoutreach.core.pipeline.pools.discover",
                   side_effect=[5, 0]) as mock_discover,
             patch("openoutreach.core.pipeline.pools.run_qualification",
@@ -88,17 +89,61 @@ class TestQualifySource:
             results = list(qualify_source("session", scorer))
 
         assert results == [PROFILE_URL]
-        # first discover pages in fresh leads (gate True), second is the dry
+        # first discover is the widen the re-check earned, second is the dry
         # end-of-stream page after run_qualification returns None.
         assert mock_discover.call_count == 2
 
+    def test_recheck_can_overturn_the_verdict_and_spare_the_move(self):
+        """The label moved the GP and the pool now looks promising → no move spent.
 
-def _fake_qualifier(class_counts, probs, n_obs=100):
-    """A qualifier stubbed at the boundary _needs_more_discovery reads from."""
+        This is what the re-check buys: the pre-check's verdict was made by a
+        model that hadn't seen the label yet.
+        """
+        scorer = BayesianQualifier(seed=42)
+        with (
+            _pool(),
+            patch("openoutreach.core.pipeline.pools._needs_more_discovery",
+                  side_effect=[True, False, False]),
+            patch("openoutreach.core.pipeline.pools.discover",
+                  return_value=0) as mock_discover,
+            patch("openoutreach.core.pipeline.pools.run_qualification",
+                  side_effect=[PROFILE_URL, None]),
+        ):
+            results = list(qualify_source("session", scorer))
+
+        assert results == [PROFILE_URL]
+        mock_discover.assert_called_once()  # only the end-of-stream dry page
+
+    def test_one_frontier_move_per_label_never_a_burst(self):
+        """A pool that stays barren earns one move per label, not a discover loop."""
+        scorer = BayesianQualifier(seed=42)
+        with (
+            _pool(),
+            patch("openoutreach.core.pipeline.pools._needs_more_discovery",
+                  return_value=True),
+            patch("openoutreach.core.pipeline.pools.discover",
+                  return_value=100) as mock_discover,
+            patch("openoutreach.core.pipeline.pools.run_qualification",
+                  return_value=PROFILE_URL),
+        ):
+            results = list(islice(qualify_source("session", scorer), 3))
+
+        assert results == [PROFILE_URL] * 3
+        assert mock_discover.call_count == 3
+
+
+def _fake_qualifier(class_counts, probs, n_obs=100, floor=0.75):
+    """A qualifier stubbed at the boundary _needs_more_discovery reads from.
+
+    ``floor`` is the GP's score at the configured percentile of its proven
+    positives — the self-calibrating bar the pool is held to. None models a
+    campaign with no positive yet.
+    """
     q = MagicMock(spec=BayesianQualifier)
     q.class_counts = class_counts
     q.n_obs = n_obs
     q.predict_probs.return_value = None if probs is None else np.array(probs, dtype=float)
+    q.positive_score_floor.return_value = floor
     return q
 
 
@@ -114,15 +159,32 @@ class TestNeedsMoreDiscovery:
         """A fresh (unfitted, explore-mode) qualifier never forces discovery."""
         assert _needs_more_discovery(BayesianQualifier(seed=42), POOL) is False
 
-    def test_true_when_exploit_pool_all_below_threshold(self):
-        """Exploit mode + no candidate above the adaptive threshold → discover."""
-        # n_obs=100 → threshold = 0.20 - 1/sqrt(100) = 0.10; both probs are below it.
-        q = _fake_qualifier(class_counts=(10, 3), probs=[0.01, 0.02], n_obs=100)
+    def test_true_when_pool_scores_below_the_proven_positives(self):
+        """Nothing scoring like a lead that actually qualified → widen.
+
+        These probs are well clear of any absolute floor — the regression this
+        guards is a pool of respectable-looking leads that the GP nonetheless
+        rates far below everything that has ever converted.
+        """
+        q = _fake_qualifier(class_counts=(10, 3), probs=[0.20, 0.25], floor=0.75)
         assert _needs_more_discovery(q, _cands()) is True
 
-    def test_false_when_a_candidate_clears_threshold(self):
-        q = _fake_qualifier(class_counts=(10, 3), probs=[0.01, 0.5], n_obs=100)
+    def test_false_when_a_candidate_matches_a_proven_positive(self):
+        q = _fake_qualifier(class_counts=(10, 3), probs=[0.20, 0.80], floor=0.75)
         assert _needs_more_discovery(q, _cands()) is False
+
+    def test_false_when_no_positive_proven_yet(self):
+        """No positive → no bar to hold the pool to → qualify to find the first."""
+        q = _fake_qualifier(class_counts=(10, 0), probs=[0.01, 0.02], floor=None)
+        assert _needs_more_discovery(q, _cands()) is False
+
+    def test_bar_tracks_the_model_not_a_constant(self):
+        """The same pool is barren against strong positives, fine against weak ones."""
+        pool_probs = [0.30, 0.40]
+        assert _needs_more_discovery(
+            _fake_qualifier((10, 3), pool_probs, floor=0.75), _cands()) is True
+        assert _needs_more_discovery(
+            _fake_qualifier((10, 3), pool_probs, floor=0.35), _cands()) is False
 
     def test_false_in_explore_mode_even_with_low_probs(self):
         """More positives than negatives → explore; never force discovery."""
@@ -138,10 +200,9 @@ class TestNeedsMoreDiscovery:
         q = _fake_qualifier(class_counts=(10, 3), probs=None, n_obs=100)
         assert _needs_more_discovery(q, _cands()) is False
 
-    def test_false_early_when_threshold_floors_at_zero(self):
-        """Small n_obs floors the threshold at 0, so any prob clears it → no forced discovery."""
-        # n_obs=9 → 0.20 - 1/sqrt(9) = 0.20 - 0.33 < 0 → threshold clamps to 0.
-        q = _fake_qualifier(class_counts=(6, 2), probs=[0.0, 0.0], n_obs=9)
+    def test_false_early_when_the_model_has_barely_learned(self):
+        """A barely-trained GP rating everything alike can't call a pool dead."""
+        q = _fake_qualifier(class_counts=(6, 2), probs=[0.02, 0.02], n_obs=9)
         assert _needs_more_discovery(q, _cands()) is False
 
 

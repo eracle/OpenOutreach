@@ -12,9 +12,9 @@ Two generators chain via ``next(upstream, None)``:
 Each qualify_source iteration produces exactly one label, which shifts the GP
 model. Rather than draining the whole discovery page before searching again,
 qualify_source interleaves the two: in exploit mode, when the unlabelled pool
-holds no candidate the model rates above the adaptive threshold, it pages in
-fresh leads via ``discover`` *before* spending an LLM call. A dry page (nothing
-new to bring in) ends the generator.
+holds no candidate the model rates above the adaptive threshold, it qualifies
+one, re-checks with the moved model, and only then walks the frontier once via
+``discover``. A dry page (nothing new to bring in) ends the generator.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ import logging
 from typing import Generator
 
 import numpy as np
+from termcolor import colored
 
 from openoutreach.core.conf import CAMPAIGN_CONFIG
 from openoutreach.core.ml.qualifier import BayesianQualifier
@@ -33,15 +34,18 @@ logger = logging.getLogger(__name__)
 
 
 def _needs_more_discovery(qualifier: BayesianQualifier, candidates) -> bool:
-    """True only in exploit mode when no candidate meets the adaptive threshold.
+    """True in exploit mode when no candidate scores as well as a proven positive.
 
-    Effective threshold = max(0, base - 1/sqrt(n_obs)). Stays at zero until
-    ~1/base² observations, then gradually rises toward base — favoring
-    qualification over discovery early on, and only paging in fresh leads once
-    the model is trained enough to say the current pool holds nothing promising.
+    The bar is the GP's own score at ``positive_pool_percentile`` of the leads
+    that actually qualified — so "promising" means *promising like the ones that
+    worked*, in the model's own units, and re-fits itself as it learns. An
+    absolute cutoff cannot do this job: ``predict_probs`` is P(latent f > 0.5),
+    not a calibrated rate, so the same number means a different thing in every
+    campaign and at every training size.
 
-    Returns False on cold start, explore mode, a degenerate GP, or empty
-    candidates — in all of those, qualifying from the existing pool is the move.
+    Returns False on cold start, explore mode, a degenerate GP, empty candidates,
+    or before any positive exists — in all of those, qualifying from the existing
+    pool is the move (with no proven positive there is no bar to hold anyone to).
     """
     if not candidates:
         return False
@@ -67,16 +71,21 @@ def _needs_more_discovery(qualifier: BayesianQualifier, candidates) -> bool:
         )
         return False
 
-    base = CAMPAIGN_CONFIG["min_positive_pool_prob"]
-    n = qualifier.n_obs
-    threshold = max(0.0, base - 1 / np.sqrt(n)) if n > 0 else 0.0
-    if bool(np.any(probs >= threshold)):
+    pct = CAMPAIGN_CONFIG["positive_pool_percentile"]
+    bar = qualifier.positive_score_floor(pct)
+    if bar is None:
+        # No proven positive yet — nothing to hold the pool to. Qualify to find one.
+        return False
+    if bool(np.any(probs >= bar)):
         return False
 
     logger.info(
-        "Pool (%d unlabelled) has no P >= %.3f in exploit mode "
-        "(neg=%d, pos=%d, n_obs=%d, base=%.2f) — paging in fresh leads",
-        len(candidates), threshold, n_neg, n_pos, n, base,
+        "Pool (%d unlabelled) tops out at %s, under the p%g bar of %s set by its "
+        "%d proven positive(s) (neg=%d, n_obs=%d) — %s",
+        len(candidates), colored(f"{float(probs.max()):.3f}", "yellow", attrs=["bold"]),
+        pct, colored(f"{bar:.3f}", "green", attrs=["bold"]),
+        n_pos, n_neg, qualifier.n_obs,
+        colored("widening the frontier", "yellow", attrs=["bold"]),
     )
     return True
 
@@ -84,11 +93,18 @@ def _needs_more_discovery(qualifier: BayesianQualifier, candidates) -> bool:
 def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None, None]:
     """Yield profile_urls from run_qualification(), interleaving discovery.
 
-    Every yield produces a label that shifts the GP model. Before qualifying,
-    the source pages in fresh leads whenever the pool is empty or — in exploit
-    mode — holds nothing above the adaptive threshold, so discovery and
-    qualification stay interleaved instead of qualifying the whole page first.
-    A dry discovery page (nothing new) ends the generator.
+    Every yield produces a label that shifts the GP model. When the pool holds
+    nothing promising, qualify **one** and re-check before widening: that label
+    moves the GP, and the re-check asks the moved model whether the pool is still
+    barren. Only a pool that stays barren *after* learning something earns a
+    frontier move — one per label, never a burst.
+
+    The order matters both ways. Widening without labelling walks blind, since
+    the frontier's re-rank scores its nodes with this same GP. Labelling without
+    re-checking spends the move on a verdict the new label may have already
+    overturned.
+
+    A dry discovery page (nothing new) on an empty pool ends the generator.
     """
     while True:
         candidates = fetch_qualification_candidates(session)
@@ -99,15 +115,16 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
                 return
             continue
 
-        # Exploit mode with no promising candidate → page in fresh leads before
-        # spending an LLM call, until a promising lead appears or discovery dries up.
-        while _needs_more_discovery(qualifier, candidates):
-            if discover(session, qualifier) <= 0:
-                break
-            candidates = fetch_qualification_candidates(session)
-
+        unpromising = _needs_more_discovery(qualifier, candidates)
         result = run_qualification(session, qualifier)
+
         if result is not None:
+            # The label just moved the GP. Ask it again before widening: one
+            # frontier move per label, and only if the pool is still barren.
+            if unpromising and _needs_more_discovery(
+                qualifier, fetch_qualification_candidates(session)
+            ):
+                discover(session, qualifier)
             yield result
             continue
 

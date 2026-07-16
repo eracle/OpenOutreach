@@ -62,12 +62,14 @@ CAMPAIGN_CONFIG = {
     # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
     # (rations the paid BetterContact lookup to leads the model is confident about).
     "min_gp_confidence": 0.9,
-    # Discovery-interleave gate: base of the adaptive probability threshold that
-    # decides whether to page in fresh leads before qualifying. In exploit mode,
-    # if no unlabelled candidate clears max(0, base - 1/sqrt(n_obs)) the chain
-    # discovers another page rather than spending LLM calls on an unpromising
-    # pool — so search stays interleaved instead of qualifying the whole page first.
-    "min_positive_pool_prob": 0.20,
+    # Discovery-interleave gate, as a percentile of the GP's scores for the leads
+    # that actually qualified (BayesianQualifier.positive_score_floor). In exploit
+    # mode, a pool holding nothing that scores as well as the weaker quartile of
+    # proven positives is a dead end: qualify one, re-check, then widen the
+    # frontier. A percentile, not an absolute probability, because predict_probs
+    # is P(latent f > 0.5) rather than a calibrated rate — its scale differs per
+    # campaign and moves as the model trains, so any fixed cutoff goes stale.
+    "positive_pool_percentile": 25,
     "embedding_model": "BAAI/bge-small-en-v1.5",
 }
 

@@ -14,9 +14,20 @@ from __future__ import annotations
 
 import logging
 
+from termcolor import colored
+
 logger = logging.getLogger(__name__)
 
 DISCOVERY_PAGE_SIZE = 100
+
+# One colour per move, so a run reads at a glance: green is mining a vein that
+# pays, yellow is widening blind into a new region, cyan is still paging the seed.
+_MOVE_COLORS = {"bootstrap": "cyan", "deepen": "green", "wall": "yellow"}
+
+
+def _move(name: str) -> str:
+    """The move name in its colour."""
+    return colored(name, _MOVE_COLORS.get(name, "white"), attrs=["bold"])
 
 
 def discover(session, qualifier) -> int:
@@ -50,6 +61,7 @@ def discover(session, qualifier) -> int:
     if not (campaign.product_docs or campaign.campaign_target):
         return 0
 
+    logger.info(colored("▶ discover", "blue", attrs=["bold"]))
     frontier.rerank(campaign, qualifier)
 
     walled = False
@@ -67,9 +79,11 @@ def discover(session, qualifier) -> int:
                 create_lead(row, country_code=campaign.country_code, discovered_by=node)
                 for row in rows
             )
-            logger.info("[%s] discovery: %d new lead(s) from %d row(s) (%s, offset %d) — %s",
-                        campaign, created, len(rows), query.move, query.offset,
-                        describe_filters(query.params))
+            logger.info("[%s] %s: %s new lead(s) from %d row(s) (offset %d) — %s",
+                        campaign, _move(query.move),
+                        colored(str(created), "green", attrs=["bold"]),
+                        len(rows), query.offset,
+                        colored(describe_filters(query.params), "cyan"))
             return created
 
         # Empty page — record the dry attempt and exhaust its line, then retry.
@@ -79,15 +93,17 @@ def discover(session, qualifier) -> int:
         # all, versus a vein that finally ran out.
         if query.offset == 0:
             logger.info(
-                "[%s] discovery: %s query matched nothing — exhausting %s "
+                "[%s] %s: query matched %s — exhausting %s "
                 "(an empty region and a filter value Lead Finder doesn't know "
                 "look identical here)",
-                campaign, query.move, describe_filters(query.params),
+                campaign, _move(query.move), colored("nothing", "yellow", attrs=["bold"]),
+                colored(describe_filters(query.params), "cyan"),
             )
         else:
-            logger.info("[%s] discovery: %s vein ran dry at offset %d — exhausting %s",
-                        campaign, query.move, query.offset,
-                        describe_filters(query.params))
+            logger.info("[%s] %s: vein %s at offset %d — exhausting %s",
+                        campaign, _move(query.move),
+                        colored("ran dry", "yellow", attrs=["bold"]), query.offset,
+                        colored(describe_filters(query.params), "cyan"))
         frontier.persist_fetched(campaign, query.params, query.offset)
         frontier.mark_exhausted(campaign, query.params)
         if query.move == "wall":

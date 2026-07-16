@@ -27,6 +27,7 @@ from typing import Protocol
 
 import jinja2
 from pydantic import BaseModel, Field
+from termcolor import colored
 
 from openoutreach.core.conf import PROMPTS_DIR
 from openoutreach.discovery import Seniority, describe_filters
@@ -158,8 +159,9 @@ def llm_generate_mutation(campaign) -> dict:
     proposal = filters.model_dump(exclude_none=True)
     # Logged like the seed it widens from: the proposal is the only record of what
     # the LLM invented, and a value it made up reads as an empty page downstream.
-    logger.info("[%s] discovery mutation from %d past quer(ies): %s",
-                campaign, len(past), describe_filters(proposal))
+    logger.info("[%s] %s from %d past quer(ies): %s",
+                campaign, colored("discovery mutation", "yellow", attrs=["bold"]),
+                len(past), colored(describe_filters(proposal), "cyan"))
     return proposal
 
 
