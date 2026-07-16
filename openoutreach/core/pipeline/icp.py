@@ -1,29 +1,45 @@
 # openoutreach/core/pipeline/icp.py
-"""ICP filter generator — LLM maps a campaign to a Lead Finder search spec.
+"""ICP seed generator — LLM maps a campaign to its first Lead Finder query.
 
-A single LLM pass turns ``product_docs + campaign_target`` into firmographic
-filters (title/seniority/location) that Lead Finder discovery searches on. Called
-on a campaign's cold start by ``frontier.generate_seed`` to seed the discovery
-walk — the seed isn't cached; its first fetched page becomes the node that
-carries its params thereafter. Adaptive refinement is realized by the
-frontier itself (a lazy best-first walk that deepens productive veins and mutates
-into new ones) — see the discovery-query-graph-search roadmap card.
+A single LLM pass turns ``product_docs + campaign_target`` into candidate values
+per family (titles, seniorities, countries, a size band), which are composed into
+the **seed conjunction**: the campaign's first query. Called by the frontier's
+bootstrap move on a cold start, and nowhere else.
+
+This is the only unprompted LLM call in discovery, and it is unavoidable — with no
+positives yet, the product description is the only prior available. Thereafter the
+frontier steers on measured node counts and only asks the LLM again at a wall.
+
+**A returned list per family is a set of candidates, not an OR.** A query holds at
+most one clause per family: an include-list of 5 titles compresses 5 sampling
+windows of ~10k rows into 1, and is strictly dominated by 5 separate queries, which
+are free. Only the top value of each family reaches the seed; composing the rest
+into further conjunctions needs the descent (next item on the roadmap card
+``p2-e3-discovery-query-graph-search``), so until that lands the LLM re-proposes
+them at a wall. See ``discovery.filters_for``.
 """
 from __future__ import annotations
 
+import logging
+
 import jinja2
 from pydantic import BaseModel, Field
+from termcolor import colored
 
 from openoutreach.core.conf import PROMPTS_DIR
-from openoutreach.discovery import LEAD_SENIORITIES, Seniority
+from openoutreach.discovery import LEAD_SENIORITIES, Seniority, describe_clauses
+
+logger = logging.getLogger(__name__)
 
 
 class ICPSpec(BaseModel):
-    """The LLM's provider-agnostic ICP output.
+    """The LLM's provider-agnostic ICP output — candidate values per family.
 
     ``seniorities`` is typed to Lead Finder's vocabulary, not ``list[str]``: an
     unknown level returns an empty page rather than an error, which the frontier
     would misread as the seed drying up. The schema makes that unrepresentable.
+    The other families are free text — a value the index doesn't carry is a normal
+    empty page, one move spent.
     """
 
     job_titles: list[str] = Field(default_factory=list)
@@ -34,25 +50,36 @@ class ICPSpec(BaseModel):
     country_code: str = ""
 
 
-def _to_lead_finder_filters(spec: ICPSpec) -> dict:
-    """Map the provider-agnostic ICP onto Lead Finder's filter shape."""
-    filters: dict = {
-        "company_headcount_min": spec.headcount_min,
-        "company_headcount_max": spec.headcount_max,
-    }
-    if spec.job_titles:
-        filters["lead_job_title"] = {"include": spec.job_titles, "exact_match": False}
-    if spec.seniorities:
-        filters["lead_seniority"] = {"include": spec.seniorities}
-    if spec.locations:
-        filters["lead_location"] = {"include": spec.locations}
-    return filters
+def _seed_conjunction(spec: ICPSpec) -> list[tuple[str, str]]:
+    """Compose the seed's clause set — the LLM's top pick in each family.
+
+    Taking the first value per family takes the model's own ranking at face value,
+    which is the only prior a cold start has. The remaining values are dropped
+    rather than ORed in, because an OR would collapse their windows into one.
+    """
+    clauses = [
+        ("company_headcount_min", str(spec.headcount_min)),
+        ("company_headcount_max", str(spec.headcount_max)),
+    ]
+    for family, values in (
+        ("lead_job_title", spec.job_titles),
+        ("lead_seniority", spec.seniorities),
+        ("lead_location", spec.locations),
+    ):
+        if values:
+            clauses.append((family, values[0]))
+    return sorted(clauses)
 
 
-def generate_icp_spec(campaign) -> dict:
-    """LLM-generate the ICP spec for a campaign (single pass).
+def generate_seed(campaign) -> list[tuple[str, str]]:
+    """LLM-generate the campaign's seed query and fold its country onto it.
 
-    Returns ``{"filters": <Lead Finder filter dict>, "country_code": "xx"}``.
+    The walk's cold start: with no nodes there is no line to page and nothing to
+    deepen, so this is the one place a first query comes from. The seed isn't cached
+    — its first fetched page becomes the node that carries its clauses thereafter.
+
+    Also folds ``country_code`` onto the campaign, which is what geo-stamps every
+    discovered Lead. Returns the seed's clause set, or ``[]`` when the ICP is empty.
     """
     from pydantic_ai import Agent
 
@@ -71,4 +98,16 @@ def generate_icp_spec(campaign) -> dict:
         model_settings={"temperature": 0.3, "timeout": 60},
     )
     spec = run_agent_sync(agent.run(prompt)).output
-    return {"filters": _to_lead_finder_filters(spec), "country_code": spec.country_code.lower()}
+
+    clauses = _seed_conjunction(spec)
+    if not clauses:
+        return []
+
+    country_code = spec.country_code.lower()
+    if country_code and campaign.country_code != country_code:
+        campaign.country_code = country_code
+        campaign.save(update_fields=["country_code"])
+    logger.info("[%s] %s: %s", campaign,
+                colored("discovery seed", "cyan", attrs=["bold"]),
+                colored(describe_clauses(clauses), "cyan"))
+    return clauses

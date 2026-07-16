@@ -11,8 +11,8 @@ import numpy as np
 from openoutreach.core.db.leads import create_lead
 from openoutreach.core.models import DiscoveryQuery
 from openoutreach.core.pipeline.discover import discover
-from openoutreach.core.pipeline.frontier import params_hash
-from openoutreach.core.pipeline.icp import ICPSpec, _to_lead_finder_filters
+from openoutreach.core.pipeline.frontier import _clauses_for, clause_key
+from openoutreach.core.pipeline.icp import ICPSpec, _seed_conjunction, generate_seed
 
 
 def _campaign(**kw):
@@ -23,11 +23,17 @@ def _campaign(**kw):
     return Campaign.objects.create(**defaults)
 
 
-def _node(campaign, params, offset=0):
-    return DiscoveryQuery.objects.create(
-        campaign=campaign, params=params, params_hash=params_hash(params),
-        offset=offset,
+def _node(campaign, clauses, offset=0):
+    node = DiscoveryQuery.objects.create(
+        campaign=campaign, clause_key=clause_key(clauses), offset=offset,
     )
+    node.clauses.set(_clauses_for(clauses))
+    return node
+
+
+SEED = [("lead_seniority", "owner")]
+OTHER = [("lead_location", "Japan")]
+THIRD = [("lead_location", "Germany")]
 
 
 def _rejected(campaign, node, tag):
@@ -80,8 +86,8 @@ class TestCreateLead:
         from openoutreach.crm.models import Lead
 
         c = _campaign()
-        first = _node(c, {"a": 1})
-        second = _node(c, {"b": 1})
+        first = _node(c, SEED)
+        second = _node(c, OTHER)
         row = {"contact_linkedin_profile_url": "https://www.linkedin.com/in/alice/"}
         with patch("openoutreach.discovery.embed_row", return_value=np.ones(384, dtype=np.float32)):
             assert create_lead(row, discovered_by=first) is True
@@ -112,7 +118,7 @@ class TestDiscover:
     def test_bootstrap_deepens_existing_seed_node(self, db):
         _set_key()
         campaign = _campaign(country_code="us")
-        _node(campaign, {"lead_seniority": {"include": ["owner"]}}, offset=0)  # seed page already fetched
+        _node(campaign, SEED, offset=0)  # seed page already fetched
         session = MagicMock(campaign=campaign)
         rows = [
             {"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"},
@@ -125,74 +131,102 @@ class TestDiscover:
         # bootstrap deepens the seed line to the next page
         assert search.call_args.kwargs["offset"] == 100
         node = DiscoveryQuery.objects.get(campaign=campaign, offset=100)
-        assert node.params == {"lead_seniority": {"include": ["owner"]}} and not node.exhausted
+        assert node.clause_pairs == SEED and not node.exhausted
         assert create.call_count == 2
         assert create.call_args.kwargs == {"country_code": "us", "discovered_by": node}
 
     def test_empty_page_exhausts_line_and_returns_zero(self, db):
         _set_key()
         campaign = _campaign()
-        _node(campaign, {"x": 1}, offset=0)  # seed line, one page already fetched
+        _node(campaign, SEED, offset=0)  # seed line, one page already fetched
         session = MagicMock(campaign=campaign)
         with patch("openoutreach.discovery.search", return_value=[]):
             assert discover(session) == 0
         # the dry deepen is recorded and its line marked exhausted (never re-picked)
         assert DiscoveryQuery.objects.filter(
-            campaign=campaign, params_hash=params_hash({"x": 1}), exhausted=True,
+            campaign=campaign, clause_key=clause_key(SEED), exhausted=True,
         ).count() == 2
 
     def test_empty_wall_ends_move_without_looping(self, db):
         _set_key()
         # existing line, examined and barren → walls to a new region; that region is empty too
         campaign = _campaign()
-        _rejected(campaign, _node(campaign, {"a": 1}, offset=0), "a1")
+        _rejected(campaign, _node(campaign, SEED, offset=0), "a1")
         session = MagicMock(campaign=campaign)
         with patch("openoutreach.discovery.search", return_value=[]), \
              patch("openoutreach.core.pipeline.mutate.generate_mutation",
-                   side_effect=[{"new": 1}, {"new": 2}]):
+                   side_effect=[OTHER, THIRD]):
             assert discover(session) == 0
         # exactly one new region was opened (and exhausted); the second is never fetched
-        assert DiscoveryQuery.objects.filter(campaign=campaign, params_hash=params_hash({"new": 1})).exists()
-        assert not DiscoveryQuery.objects.filter(campaign=campaign, params_hash=params_hash({"new": 2})).exists()
+        assert DiscoveryQuery.objects.filter(campaign=campaign, clause_key=clause_key(OTHER)).exists()
+        assert not DiscoveryQuery.objects.filter(campaign=campaign, clause_key=clause_key(THIRD)).exists()
 
     def test_cold_start_generates_seed_from_icp(self, db):
         _set_key()
         campaign = _campaign()  # no nodes yet — cold start
         session = MagicMock(campaign=campaign)
-        spec = {"filters": {"lead_seniority": {"include": ["vp"]}}, "country_code": "gb"}
+        seed = [("lead_seniority", "vp")]
         rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/c/"}]
-        with patch("openoutreach.core.pipeline.icp.generate_icp_spec", return_value=spec), \
+        with patch("openoutreach.core.pipeline.icp.generate_seed", return_value=seed), \
              patch("openoutreach.discovery.search", return_value=rows), \
              patch("openoutreach.core.db.leads.create_lead", return_value=True):
             assert discover(session) == 1
-        campaign.refresh_from_db()
-        assert campaign.country_code == "gb"  # folded from the ICP spec
         # the generated seed is embodied by its first fetched node, not cached
         node = DiscoveryQuery.objects.get(campaign=campaign, offset=0)
-        assert node.params == {"lead_seniority": {"include": ["vp"]}}
+        assert node.clause_pairs == seed
 
 
 # ── ICP generator ────────────────────────────────────────────────────
 
 
+def _icp_returns(spec):
+    """Patch the ICP's LLM call to yield ``spec``."""
+    return patch("openoutreach.core.llm.run_agent_sync",
+                 return_value=MagicMock(output=spec))
+
+
 class TestICP:
-    def test_maps_spec_onto_lead_finder_filters(self):
+    def test_folds_country_onto_the_campaign(self, db):
+        # The country stamps every discovered Lead for the contacts geo-gate, and
+        # the ICP is the only thing that knows it — so the fold lives with the call
+        # that produced it, not in the frontier.
+        campaign = _campaign()
+        spec = ICPSpec(job_titles=["CMO"], country_code="GB")
+        with _icp_returns(spec), patch("openoutreach.core.llm.get_llm_model"), \
+             patch("pydantic_ai.Agent"):
+            clauses = generate_seed(campaign)
+        campaign.refresh_from_db()
+        assert campaign.country_code == "gb"  # lowercased
+        assert ("lead_job_title", "CMO") in clauses
+
+    def test_composes_the_seed_from_the_spec(self):
         spec = ICPSpec(
             job_titles=["CMO"], seniorities=["owner"],
             locations=["United States"], headcount_min=1, headcount_max=50, country_code="us",
         )
-        f = _to_lead_finder_filters(spec)
-        assert f["company_headcount_min"] == 1 and f["company_headcount_max"] == 50
-        assert f["lead_job_title"] == {"include": ["CMO"], "exact_match": False}
-        assert f["lead_seniority"] == {"include": ["owner"]}
-        assert f["lead_location"] == {"include": ["United States"]}
+        assert _seed_conjunction(spec) == [
+            ("company_headcount_max", "50"),
+            ("company_headcount_min", "1"),
+            ("lead_job_title", "CMO"),
+            ("lead_location", "United States"),
+            ("lead_seniority", "owner"),
+        ]
+
+    def test_takes_one_value_per_family_not_an_or(self):
+        # An include-list of 5 titles packs 5 sampling windows into 1. The seed takes
+        # the model's top pick; the rest are not ORed in.
+        spec = ICPSpec(job_titles=["CMO", "CTO", "Founder"], locations=["Germany", "Italy"])
+        seed = dict(_seed_conjunction(spec))
+        assert seed["lead_job_title"] == "CMO"
+        assert seed["lead_location"] == "Germany"
 
     def test_seed_carries_no_inert_family(self):
         # lead_industry rode every seed while doing nothing (probed 2026-07-16:
         # both a real value and an absurd control returned the unfiltered page).
         spec = ICPSpec(job_titles=["CMO"], seniorities=["owner"], locations=["Germany"])
-        assert "lead_industry" not in _to_lead_finder_filters(spec)
+        assert not any(f == "lead_industry" for f, _ in _seed_conjunction(spec))
 
-    def test_omits_empty_lists(self):
-        f = _to_lead_finder_filters(ICPSpec())
-        assert set(f) == {"company_headcount_min", "company_headcount_max"}
+    def test_omits_empty_families(self):
+        assert dict(_seed_conjunction(ICPSpec())).keys() == {
+            "company_headcount_min", "company_headcount_max",
+        }

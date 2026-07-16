@@ -8,7 +8,7 @@ chain. One discovery *move* (``discover.py``):
 
     next_query → fetch → persist_fetched
          │                    └ empty page → mark_exhausted
-         └ cold start → generate_seed (ICP)
+         └ cold start → icp.generate_seed
 
 ``next_query`` picks exactly one query to fetch, scored by **ground truth**: each
 node's ``(examined, qualified)`` counts over its first-touch leads' deals, computed
@@ -38,7 +38,7 @@ qualify next, and ``min_gp_confidence`` is *only* the spend gate.
 
 **``examined == 0`` means unknown, not barren**, so an unsampled node is not
 rankable and cannot vote for a wall. Exhaustion is reactive: a fetch that returns an
-empty page marks that ``params`` exhausted so it is never re-picked. No explore-share
+empty page marks that clause set exhausted so it is never re-picked. No explore-share
 cadence, no width target, no size cap — the walk widens exactly when the regions it
 can actually see stop paying.
 
@@ -52,78 +52,65 @@ import logging
 from collections import namedtuple
 
 from django.db.models import Count, Max, Q
-from termcolor import colored
 
-from openoutreach.core.models import DiscoveryQuery
+from openoutreach.core.models import Clause, DiscoveryQuery
 
 logger = logging.getLogger(__name__)
 
 DISCOVERY_PAGE_SIZE = 100
 
 # The query to fetch next, plus which move produced it — ``bootstrap``, ``deepen``,
-# or ``wall``. ``discover`` uses ``move`` for logging and to cap a move at a single
-# wall fetch (a freshly opened region that comes back empty ends the move).
-NextQuery = namedtuple("NextQuery", ["params", "offset", "move"])
+# or ``wall``. ``clauses`` is the clause set as ``(family, value)`` pairs; nothing is
+# persisted until the fetch returns rows. ``discover`` uses ``move`` for logging and
+# to cap a move at a single wall fetch (a freshly opened region that comes back
+# empty ends the move).
+NextQuery = namedtuple("NextQuery", ["clauses", "offset", "move"])
 
 
-# ── params identity ──────────────────────────────────────────────────
+# ── clause-set identity ──────────────────────────────────────────────
 
-def canonicalize(params: dict) -> str:
-    """Deterministic JSON for a filter dict — key-sorted, compact."""
-    return json.dumps(params, sort_keys=True, separators=(",", ":"))
-
-
-def params_hash(params: dict) -> str:
-    """sha256 of the canonicalized params — the node-identity key for dedup."""
-    return hashlib.sha256(canonicalize(params).encode()).hexdigest()
+def canonicalize(clauses) -> str:
+    """Deterministic text for a clause set — sorted ``family=value`` pairs."""
+    return json.dumps(sorted(clauses), separators=(",", ":"))
 
 
-# ── seed ─────────────────────────────────────────────────────────────
+def clause_key(clauses) -> str:
+    """sha256 of the canonicalized clause set — the node-identity key for dedup.
 
-def generate_seed(campaign) -> dict:
-    """LLM-generate the campaign's ICP seed filters and fold its country onto it.
-
-    Called only on a cold start (the campaign owns no nodes yet): the seed isn't
-    cached — its first fetched page becomes the node that carries its params from
-    then on. Folds ``country_code`` (used to geo-stamp every discovered Lead) onto
-    the campaign. Returns the filter dict, or ``{}`` when the ICP is empty.
+    Order-independent, so the same conjunction reached by two different descents is
+    one node.
     """
-    from openoutreach.core.pipeline.icp import generate_icp_spec
-    from openoutreach.discovery import describe_filters
-
-    spec = generate_icp_spec(campaign)
-    filters = spec.get("filters") or {}
-    if not filters:
-        return {}
-
-    country_code = spec.get("country_code", "")
-    if country_code and campaign.country_code != country_code:
-        campaign.country_code = country_code
-        campaign.save(update_fields=["country_code"])
-    logger.info("[%s] %s: %s", campaign,
-                colored("discovery seed", "cyan", attrs=["bold"]),
-                colored(describe_filters(filters), "cyan"))
-    return filters
+    return hashlib.sha256(canonicalize(clauses).encode()).hexdigest()
 
 
 # ── persist / exhaust ────────────────────────────────────────────────
 
-def persist_fetched(campaign, params: dict, offset: int) -> DiscoveryQuery:
-    """Record a just-fetched ``(params, offset)`` page, deduped on the unique triple.
+def _clauses_for(clauses) -> list[Clause]:
+    """Get-or-create the ``Clause`` rows for ``clauses``. Idempotent; clauses are shared."""
+    return [
+        Clause.objects.get_or_create(family=family, value=value)[0]
+        for family, value in clauses
+    ]
 
-    Returns the node (created or pre-existing) so its first-touch leads can point
-    back via ``Lead.discovered_by`` — the link that lets ``node_stats`` count what
-    the node was worth, once qualification has ruled on those leads.
+
+def persist_fetched(campaign, clauses, offset: int) -> DiscoveryQuery:
+    """Record a just-fetched ``(clause set, offset)`` page, deduped on the triple.
+
+    Creates any ``Clause`` row that doesn't exist yet, so a node always points at
+    real clauses. Returns the node (created or pre-existing) so its first-touch leads
+    can point back via ``Lead.discovered_by`` — the link that lets ``node_stats``
+    count what the node was worth, once qualification has ruled on those leads.
     """
-    node, _ = DiscoveryQuery.objects.get_or_create(
-        campaign=campaign, params_hash=params_hash(params), offset=offset,
-        defaults={"params": params},
+    node, created = DiscoveryQuery.objects.get_or_create(
+        campaign=campaign, clause_key=clause_key(clauses), offset=offset,
     )
+    if created:
+        node.clauses.set(_clauses_for(clauses))
     return node
 
 
-def mark_exhausted(campaign, params: dict) -> None:
-    """Flag every node of a ``params`` line exhausted — its deepen hit an empty page.
+def mark_exhausted(campaign, clauses) -> None:
+    """Flag every node of a clause-set line exhausted — its fetch hit an empty page.
 
     A whole query line is exhausted at once (all offsets share the fate of the
     deepest, dry page), so it drops out of ``next_query`` and is never re-picked.
@@ -131,7 +118,7 @@ def mark_exhausted(campaign, params: dict) -> None:
     exist but don't qualify) is a verdict about a view, not about the query.
     """
     DiscoveryQuery.objects.filter(
-        campaign=campaign, params_hash=params_hash(params),
+        campaign=campaign, clause_key=clause_key(clauses),
     ).update(exhausted=True)
 
 
@@ -183,12 +170,12 @@ def node_stats(campaign) -> dict[int, NodeStats]:
 
 # ── selection ────────────────────────────────────────────────────────
 
-def _next_offset(campaign, hash_: str) -> int:
-    """The next unfetched offset for a params line — max fetched offset + one page,
-    or 0 if the line has never been fetched."""
+def _next_offset(campaign, key: str) -> int:
+    """The next unfetched offset for a clause-set line — max fetched offset + one
+    page, or 0 if the line has never been fetched."""
     deepest = (
         DiscoveryQuery.objects
-        .filter(campaign=campaign, params_hash=hash_)
+        .filter(campaign=campaign, clause_key=key)
         .aggregate(m=Max("offset"))["m"]
     )
     return 0 if deepest is None else deepest + DISCOVERY_PAGE_SIZE
@@ -198,15 +185,17 @@ def _bootstrap_query(campaign) -> NextQuery | None:
     """The next seed page to fetch while nothing is rankable — the old linear cursor.
 
     The seed is the earliest node, so it *is* the line we page. Deepen it; on a cold
-    start (no node yet) generate the seed from the ICP and start at offset 0.
+    start (no node yet) the ICP generates the seed and we start at offset 0.
     """
+    from openoutreach.core.pipeline.icp import generate_seed
+
     seed = DiscoveryQuery.objects.filter(campaign=campaign).order_by("pk").first()
     if seed is None:
-        filters = generate_seed(campaign)
-        return NextQuery(filters, 0, "bootstrap") if filters else None
+        clauses = generate_seed(campaign)
+        return NextQuery(clauses, 0, "bootstrap") if clauses else None
     if seed.exhausted:
-        return None  # the seed line dried up before the GP could score elsewhere
-    return NextQuery(seed.params, _next_offset(campaign, seed.params_hash), "bootstrap")
+        return None  # the seed line dried up before anything else was measurable
+    return NextQuery(seed.clause_pairs, _next_offset(campaign, seed.clause_key), "bootstrap")
 
 
 def next_query(campaign) -> NextQuery | None:
@@ -217,7 +206,7 @@ def next_query(campaign) -> NextQuery | None:
     - **Bootstrap** (no active node has an examined lead): page the seed linearly.
       Nothing has been ruled on, so we stay on our best prior until qualification
       says otherwise. On a cold start (no nodes yet) the seed is generated from the
-      ICP; thereafter the seed node itself carries its params. None if the ICP is
+      ICP; thereafter the seed node itself carries its clauses. None if the ICP is
       empty or the seed line has dried up (nothing measured to move toward).
     - **Deepen** (the best rankable node has ``qualified > 0``): deepen its line.
     - **Wall** (every rankable node has ``qualified == 0``): ask the LLM for one new
@@ -239,18 +228,18 @@ def next_query(campaign) -> NextQuery | None:
     )
     if best is not None:
         node = best[0]
-        return NextQuery(node.params, _next_offset(campaign, node.params_hash), "deepen")
+        return NextQuery(node.clause_pairs, _next_offset(campaign, node.clause_key), "deepen")
 
     # Wall — every region we can see has been ruled on and pays nothing. Open a new
     # one. A wall is a *yield* verdict, so it retires nothing: only an empty page
     # (``mark_exhausted``) takes a line out of the walk.
     from openoutreach.core.pipeline.mutate import generate_mutation
 
-    params = generate_mutation(campaign)
-    if not params:
+    clauses = generate_mutation(campaign)
+    if not clauses:
         return None
     if DiscoveryQuery.objects.filter(
-        campaign=campaign, params_hash=params_hash(params),
+        campaign=campaign, clause_key=clause_key(clauses),
     ).exists():
         return None  # LLM re-proposed a query we already tried — nothing new to open
-    return NextQuery(params, 0, "wall")
+    return NextQuery(clauses, 0, "wall")

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from openoutreach import discovery
 from openoutreach.core.models import Campaign, DiscoveryQuery
 from openoutreach.core.pipeline import mutate
-from openoutreach.core.pipeline.frontier import params_hash
+from openoutreach.core.pipeline.frontier import _clauses_for, clause_key
 
 
 def _enums_in(schema) -> list[list]:
@@ -31,10 +31,12 @@ def _campaign():
     return Campaign.objects.create(name="C", product_docs="widgets", campaign_target="demos")
 
 
-def _node(c, params, offset=0):
-    return DiscoveryQuery.objects.create(
-        campaign=c, params=params, params_hash=params_hash(params), offset=offset,
+def _node(c, clauses, offset=0):
+    node = DiscoveryQuery.objects.create(
+        campaign=c, clause_key=clause_key(clauses), offset=offset,
     )
+    node.clauses.set(_clauses_for(clauses))
+    return node
 
 
 class TestPastQueryStats:
@@ -42,19 +44,20 @@ class TestPastQueryStats:
         from openoutreach.crm.models import Deal, DealState, Lead, Outcome
 
         c = _campaign()
-        paid = _node(c, {"a": 1})
+        paid = _node(c, [("lead_job_title", "Founder")])
         for tag, state, outcome in (("a1", DealState.QUALIFIED, ""),
                                     ("a2", DealState.FAILED, Outcome.WRONG_FIT)):
             lead = Lead.objects.create(profile_url=f"https://x/{tag}/", discovered_by=paid)
             Deal.objects.create(lead=lead, campaign=c, state=state, outcome=outcome)
-        unseen = _node(c, {"b": 1}, offset=100)
+        unseen = _node(c, [("lead_location", "Japan")], offset=100)
         Lead.objects.create(profile_url="https://x/b1/", discovered_by=unseen)
 
-        stats = {tuple(s["params"].items())[0][0]: s for s in mutate._past_query_stats(c)}
+        stats = {s["query"]: s for s in mutate._past_query_stats(c)}
         assert len(stats) == 2
-        assert (stats["a"]["n_leads"], stats["a"]["examined"], stats["a"]["qualified"]) == (2, 2, 1)
+        founder, japan = stats["job_title Founder"], stats["location Japan"]
+        assert (founder["n_leads"], founder["examined"], founder["qualified"]) == (2, 2, 1)
         # discovered but never ruled on — the LLM must see 0 examined, not 0 qualified
-        assert (stats["b"]["n_leads"], stats["b"]["examined"], stats["b"]["qualified"]) == (1, 0, 0)
+        assert (japan["n_leads"], japan["examined"], japan["qualified"]) == (1, 0, 0)
 
 
 class TestFilterSchema:
@@ -75,11 +78,14 @@ class TestFilterSchema:
         # "other" is what both prompts used to advertise; Lead Finder matches
         # nothing for it and says so with an empty page, not an error.
         with pytest.raises(ValidationError):
-            mutate._Filters(lead_seniority={"include": ["other"]})
+            mutate._Filters(lead_seniority="other")
 
-    def test_rejects_empty_include_list(self):
+    def test_rejects_an_include_list_where_one_value_belongs(self):
+        # An OR is strictly dominated: five titles in one query share a single
+        # ~10k-row window that five separate queries would each get in full, for
+        # free. The schema is what makes it unrepresentable.
         with pytest.raises(ValidationError):
-            mutate._Filters(lead_location={"include": []})
+            mutate._Filters(lead_location=["Germany", "Italy"])
 
     @pytest.mark.parametrize("family", ["lead_industry", "company_technology", "lead_skills"])
     def test_rejects_families_that_do_not_steer(self, family):
@@ -89,16 +95,13 @@ class TestFilterSchema:
         # element — it makes the LLM believe it is steering while producing a node
         # indistinguishable from its parent. Unrepresentable is the only safe state.
         with pytest.raises(ValidationError):
-            mutate._Filters(**{family: {"include": ["anything"]}})
+            mutate._Filters(**{family: "anything"})
 
     def test_accepts_the_families_verified_to_steer(self):
-        filters = mutate._Filters(
-            lead_seniority={"include": ["mid-level"]},
-            lead_location={"include": ["Germany"]},
-        )
+        filters = mutate._Filters(lead_seniority="mid-level", lead_location="Germany")
         assert filters.model_dump(exclude_none=True) == {
-            "lead_seniority": {"include": ["mid-level"]},
-            "lead_location": {"include": ["Germany"]},
+            "lead_seniority": "mid-level",
+            "lead_location": "Germany",
         }
 
     def test_department_and_function_are_free_text_not_enums(self):
@@ -106,21 +109,18 @@ class TestFilterSchema:
         # "enum" is not binding — plain labels are what actually match. A value
         # that matches nothing just returns an empty page, as for any free-text
         # family, so the schema must not constrain them.
-        filters = mutate._Filters(
-            lead_department={"include": ["Sales"]},
-            lead_function={"include": ["Human Resources"]},
-        )
+        filters = mutate._Filters(lead_department="Sales", lead_function="Human Resources")
         assert filters.model_dump(exclude_none=True) == {
-            "lead_department": {"include": ["Sales"]},
-            "lead_function": {"include": ["Human Resources"]},
+            "lead_department": "Sales",
+            "lead_function": "Human Resources",
         }
 
     def test_unset_families_drop_out(self):
-        filters = mutate._Filters(lead_location={"include": ["Italy"]})
-        assert filters.model_dump(exclude_none=True) == {"lead_location": {"include": ["Italy"]}}
+        filters = mutate._Filters(lead_location="Italy")
+        assert filters.model_dump(exclude_none=True) == {"lead_location": "Italy"}
 
     def test_all_unset_degrades_to_empty_meaning_llm_is_dry(self):
-        # frontier.next_query treats {} as "no new region" and returns None.
+        # frontier.next_query treats an empty clause set as "no new region" → None.
         assert mutate._Filters().model_dump(exclude_none=True) == {}
 
     def test_seniority_vocabulary_reaches_the_model_json_schema(self):
@@ -137,8 +137,8 @@ class TestGeneratorInterface:
         c = _campaign()
         original = mutate._generator
         try:
-            mutate.set_generator(lambda campaign: {"x": 1})
-            assert mutate.generate_mutation(c) == {"x": 1}
+            mutate.set_generator(lambda campaign: [("lead_location", "Italy")])
+            assert mutate.generate_mutation(c) == [("lead_location", "Italy")]
         finally:
             mutate.set_generator(original)
 
@@ -149,6 +149,6 @@ class TestGeneratorInterface:
             def _boom(campaign):
                 raise RuntimeError("llm down")
             mutate.set_generator(_boom)
-            assert mutate.generate_mutation(c) == {}
+            assert mutate.generate_mutation(c) == []
         finally:
             mutate.set_generator(original)

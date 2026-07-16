@@ -5,6 +5,8 @@ from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
 
+from openoutreach.discovery import FILTER_FAMILIES, describe_filters, filters_for
+
 
 class SiteConfig(models.Model):
     """Singleton model for global site configuration (LLM keys, etc.)."""
@@ -178,25 +180,67 @@ class Task(models.Model):
         self.save(update_fields=["status"])
 
 
+class Clause(models.Model):
+    """One ``(family, value)`` pair — the unit a discovery query is built from.
+
+    First-class rather than a key in a JSON blob: a clause set has to be *grouped
+    over*, which is the walk's only fast query, and you cannot group over a key
+    inside a blob. Clauses are also the vocabulary the LLM supplies at cold start,
+    which the descent composes conjunctions from without asking the LLM again.
+
+    **Globally unique on ``(family, value)``, with no campaign of its own.** A clause
+    is not campaign-specific — ``lead_location = United States`` is the same clause
+    whoever searches it — and giving it a campaign would duplicate a fact
+    ``DiscoveryQuery`` already owns, letting a node point at a clause belonging to
+    another campaign. A campaign reaches its clauses through its queries.
+
+    ``family`` is constrained to ``discovery.FILTER_FAMILIES`` — the field names are
+    the provider contract, and an unknown one is silently *dropped* (you get the
+    unfiltered page, with rows, reading as success). ``value`` is deliberately
+    **not** constrained: except for ``lead_seniority`` these are free-text search
+    terms, and a value the index doesn't carry simply returns an empty page — a
+    normal, cheap answer.
+    """
+
+    family = models.CharField(
+        max_length=32, choices=[(f, f) for f in FILTER_FAMILIES],
+    )
+    value = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["family", "value"], name="uniq_clause"),
+        ]
+
+    def __str__(self):
+        return describe_filters(filters_for([(self.family, self.value)]))
+
+
 class DiscoveryQuery(models.Model):
     """One **fetched** node in a campaign's discovery walk — a Lead Finder query.
 
-    A node is ``(params, offset)``: a Lead Finder filter dict at a pagination
-    depth that has already been pulled once. Discovery is a lazy best-first walk
-    over these nodes (see ``core/pipeline/frontier.py``), replacing the old single
-    ``(Campaign.icp_filters, discovery_offset)`` cursor (dropped in migration 0007).
+    A node is a **set of clauses plus an offset**: at most one clause per family, all
+    ANDed, at a pagination depth that has already been pulled once. Discovery is a
+    lazy best-first walk over these nodes (see ``core/pipeline/frontier.py``).
+
+    **Why a clause set and not a filter dict.** A filter dict can express an
+    include-list — an OR — and an OR is strictly dominated: it compresses several
+    ~10k-row sampling windows into one. A filter is not a narrowing of a result set;
+    it *moves a window* over a corpus ordered by provider preference, so the only way
+    to see different people is a different conjunction. One value per family is
+    therefore the whole expressive space worth having (~144 nodes for a 5/5/3 clause
+    pool, against ~8,200 with full OR), and ``discovery.filters_for`` enforces it.
 
     **Only fetched nodes are persisted** — the next query is computed lazily from
     them, so there is no pending queue and no ``parent`` provenance to inherit rank
-    from. The seed itself isn't cached either: on the first move it is regenerated
-    from the ICP and, once its page is fetched, embodied by the resulting node(s).
-    A node is fetched exactly once (dedup on the unique
-    ``(campaign, params_hash, offset)`` triple) and never re-fetched.
+    from. A node is fetched exactly once (dedup on the unique
+    ``(campaign, clause_key, offset)`` triple) and never re-fetched.
 
-    ``exhausted`` marks a ``params`` line whose deepen returned an empty page (the
-    reactive end-of-depth signal). All nodes sharing that ``params_hash`` are
-    flagged together and excluded from selection, so an exhausted query is never
-    re-picked.
+    ``exhausted`` marks a clause-set line whose deepen returned an empty page (the
+    reactive end-of-depth signal). All offsets of that line are flagged together and
+    excluded from selection. Emptiness is the **only** thing that retires a line: a
+    barren *yield* is a verdict about a view, not about the query.
 
     **A node's value is not a column.** It is the ``(examined, qualified)`` pair
     that ``frontier.node_stats`` counts over its first-touch leads' deals — measured
@@ -210,14 +254,14 @@ class DiscoveryQuery(models.Model):
     campaign = models.ForeignKey(
         Campaign, on_delete=models.CASCADE, related_name="discovery_queries",
     )
-    # The Lead Finder filter dict (the same shape as the old icp_filters["filters"]).
-    params = models.JSONField(default=dict)
-    # sha256 of the canonicalized params — the node-identity key for dedup, so two
-    # equivalent filter dicts (key order aside) never both enter the walk.
-    params_hash = models.CharField(max_length=64)
+    clauses = models.ManyToManyField(Clause, related_name="queries")
+    # sha256 of the canonicalized clause set — the node-identity key for dedup, so
+    # the same conjunction never enters the walk twice. A column because the set
+    # lives across an M2M, which no unique constraint can span.
+    clause_key = models.CharField(max_length=64)
     offset = models.IntegerField(default=0)
-    # A ``params`` line whose deepen hit an empty page (reactive end-of-depth).
-    # Set on every node of that params_hash at once; excluded from selection.
+    # A clause-set line whose deepen hit an empty page (reactive end-of-depth).
+    # Set on every offset of that line at once; excluded from selection.
     exhausted = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -227,7 +271,7 @@ class DiscoveryQuery(models.Model):
         verbose_name_plural = "Discovery Queries"
         constraints = [
             models.UniqueConstraint(
-                fields=["campaign", "params_hash", "offset"],
+                fields=["campaign", "clause_key", "offset"],
                 name="uniq_discovery_node",
             ),
         ]
@@ -235,14 +279,25 @@ class DiscoveryQuery(models.Model):
             models.Index(fields=["campaign", "exhausted"], name="discovery_camp_exhausted_idx"),
         ]
 
+    @property
+    def clause_pairs(self) -> list[tuple[str, str]]:
+        """This node's clauses as sorted ``(family, value)`` pairs.
+
+        The same clauses as the ``clauses`` M2M, in the form a *proposed* query
+        carries — the walk picks a query before any row exists for it.
+        """
+        return sorted(self.clauses.values_list("family", "value"))
+
+    def to_filters(self) -> dict:
+        """This node as a Lead Finder filter dict — the only thing the provider sees."""
+        return filters_for(self.clause_pairs)
+
     def __str__(self):
         """The query itself, not its row id.
 
-        A node *is* its filter set — "node 10" says nothing about what was searched,
+        A node *is* its clause set — "node 10" says nothing about what was searched,
         and these render in logs and admin where the whole question is which region
         the walk picked.
         """
-        from openoutreach.discovery import describe_filters
-
         flag = " (exhausted)" if self.exhausted else ""
-        return f"{describe_filters(self.params)} @{self.offset}{flag}"
+        return f"{describe_filters(self.to_filters())} @{self.offset}{flag}"

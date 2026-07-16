@@ -39,7 +39,7 @@ def discover(session) -> int:
     One move: ask the frontier for the next query (generating the ICP seed on a cold
     start) and fetch its Lead Finder page. A page with rows is persisted (leads
     first-touch-stamped via ``Lead.discovered_by``) and the count returned. An
-    **empty page** marks that ``params`` exhausted and the move
+    **empty page** marks that clause set exhausted and the move
     retries the next-best query — deepening drains a finite set of veins, and a
     freshly walled region that comes back empty ends the move.
 
@@ -52,7 +52,7 @@ def discover(session) -> int:
     """
     from openoutreach.core.db.leads import create_lead
     from openoutreach.core.pipeline import frontier
-    from openoutreach.discovery import describe_filters, search
+    from openoutreach.discovery import describe_clauses, filters_for, search
     from openoutreach.emails import bettercontact
 
     campaign = session.campaign
@@ -73,9 +73,10 @@ def discover(session) -> int:
         if query.move == "wall" and walled:
             return 0  # one new region per move — its emptiness ends this move
 
-        rows = search(query.params, limit=DISCOVERY_PAGE_SIZE, offset=query.offset)
+        filters = filters_for(query.clauses)
+        rows = search(filters, limit=DISCOVERY_PAGE_SIZE, offset=query.offset)
         if rows:
-            node = frontier.persist_fetched(campaign, query.params, query.offset)
+            node = frontier.persist_fetched(campaign, query.clauses, query.offset)
             created = sum(
                 create_lead(row, country_code=campaign.country_code, discovered_by=node)
                 for row in rows
@@ -84,7 +85,7 @@ def discover(session) -> int:
                         campaign, _move(query.move),
                         colored(str(created), "green", attrs=["bold"]),
                         len(rows), query.offset,
-                        colored(describe_filters(query.params), "cyan"))
+                        colored(describe_clauses(query.clauses), "cyan"))
             return created
 
         # Empty page — record the dry attempt and exhaust its line, then retry.
@@ -98,14 +99,14 @@ def discover(session) -> int:
                 "(an empty region and a filter value Lead Finder doesn't know "
                 "look identical here)",
                 campaign, _move(query.move), colored("nothing", "yellow", attrs=["bold"]),
-                colored(describe_filters(query.params), "cyan"),
+                colored(describe_clauses(query.clauses), "cyan"),
             )
         else:
             logger.info("[%s] %s: vein %s at offset %d — exhausting %s",
                         campaign, _move(query.move),
                         colored("ran dry", "yellow", attrs=["bold"]), query.offset,
-                        colored(describe_filters(query.params), "cyan"))
-        frontier.persist_fetched(campaign, query.params, query.offset)
-        frontier.mark_exhausted(campaign, query.params)
+                        colored(describe_clauses(query.clauses), "cyan"))
+        frontier.persist_fetched(campaign, query.clauses, query.offset)
+        frontier.mark_exhausted(campaign, query.clauses)
         if query.move == "wall":
             walled = True

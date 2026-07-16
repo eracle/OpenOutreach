@@ -8,16 +8,17 @@ You are a B2B go-to-market analyst tuning a lead-search campaign. Propose ONE ne
 
 ## Queries already tried (with measured value)
 {% if past_queries %}{% for q in past_queries %}
-- filters={{ q.params }} | offset={{ q.offset }} | leads={{ q.n_leads }} | examined={{ q.examined }} | qualified={{ q.qualified }}{% endfor %}
+- {{ q.query }} | offset={{ q.offset }} | leads={{ q.n_leads }} | examined={{ q.examined }} | qualified={{ q.qualified }}{% endfor %}
 {% else %}
 (none yet)
 {% endif %}
 
 ## Instructions
-Return a single filter set we have NOT tried. Set only the fields that define the region you are opening — leave the rest unset. Each field's meaning is described in the output schema.
+Return a single filter set we have NOT tried. **Each field takes ONE value, not a list** — a query is a conjunction, and every field you set ANDs another condition onto it. Set only the fields that define the region you are opening; leave the rest unset. Each field's meaning is described in the output schema.
 
 Rules:
 - Favor a NEW title / country / seniority / department / function over re-paginating a set we already tried.
+- Setting MORE fields makes the query deeper and reaches smaller companies; setting FEWER matches millions of people, of whom you only ever see the most famous. Prefer a specific conjunction over a broad one.
 - **Use only real-world values that a lead database would actually hold** — plain department and function names (`Sales`, `Marketing`, `Human Resources`), real job titles, and real COUNTRY names. Every field except `lead_seniority` is free text matched against a search index, so an invented or misspelled value is not rejected — it simply matches ZERO leads and we spend the move for nothing.
 - `lead_location` takes **countries**, never regions. `Europe`, `EMEA` and `Eastern Europe` match zero leads and kill the whole query.
 - Read the counts carefully — they are three different verdicts:

@@ -1,7 +1,8 @@
 # openoutreach/core/admin.py
 from django.contrib import admin
 
-from openoutreach.core.models import Campaign, DiscoveryQuery, SiteConfig, Task
+from openoutreach.core.models import Campaign, Clause, DiscoveryQuery, SiteConfig, Task
+from openoutreach.discovery import describe_filters
 
 
 @admin.register(SiteConfig)
@@ -38,18 +39,15 @@ class DiscoveryQueryAdmin(admin.ModelAdmin):
     )
     list_filter = ("exhausted", "campaign")
     readonly_fields = (
-        "campaign", "query", "params", "params_hash", "offset", "exhausted",
+        "campaign", "query", "clause_key", "offset", "exhausted",
         "lead_yield", "examined", "qualified", "created_at", "updated_at",
     )
     date_hierarchy = "created_at"
 
     @admin.display(description="query")
     def query(self, obj):
-        """The filter set, rendered — the raw ``params`` JSON is also on the detail
-        page, but nobody reads a region out of nested include-lists."""
-        from openoutreach.discovery import describe_filters
-
-        return describe_filters(obj.params)
+        """The node's clause set, rendered as the region it searches."""
+        return describe_filters(obj.to_filters())
 
     def _stats(self, obj):
         """This node's counts, straight from the frontier's own metric.
@@ -79,6 +77,20 @@ class DiscoveryQueryAdmin(admin.ModelAdmin):
         """Its first-touch leads the LLM accepted — the node's value, and what the
         frontier deepens on."""
         return self._stats(obj).qualified
+
+
+@admin.register(Clause)
+class ClauseAdmin(admin.ModelAdmin):
+    """The clause vocabulary — every ``(family, value)`` any query has been built from."""
+
+    list_display = ("__str__", "family", "value", "query_count", "created_at")
+    list_filter = ("family",)
+    search_fields = ("value",)
+
+    @admin.display(description="queries")
+    def query_count(self, obj):
+        """How many query nodes carry this clause."""
+        return obj.queries.count()
 
 
 @admin.register(Task)

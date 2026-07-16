@@ -38,7 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from termcolor import colored
 
 from openoutreach.core.conf import PROMPTS_DIR
-from openoutreach.discovery import Seniority, describe_filters
+from openoutreach.discovery import Seniority, describe_clauses, describe_filters
 
 logger = logging.getLogger(__name__)
 
@@ -47,28 +47,13 @@ PAST_QUERY_LIMIT = 40
 
 
 class MutationGenerator(Protocol):
-    """A callable proposing one new Lead Finder filter dict (or empty for none)."""
+    """A callable proposing one new clause set (or empty for none).
 
-    def __call__(self, campaign) -> dict: ...
+    Clauses are ``(family, value)`` pairs — at most one per family, all ANDed. See
+    ``discovery.filters_for``.
+    """
 
-
-class _StringFilter(BaseModel):
-    """An include-list over free-form strings (location, department, function)."""
-
-    include: list[str] = Field(min_length=1)
-
-
-class _JobTitleFilter(BaseModel):
-    """Job-title include-list; ``exact_match`` off keeps the match fuzzy."""
-
-    include: list[str] = Field(min_length=1)
-    exact_match: bool = False
-
-
-class _SeniorityFilter(BaseModel):
-    """Seniority include-list, constrained to Lead Finder's 12 levels."""
-
-    include: list[Seniority] = Field(min_length=1)
+    def __call__(self, campaign) -> list[tuple[str, str]]: ...
 
 
 class _Filters(BaseModel):
@@ -94,6 +79,12 @@ class _Filters(BaseModel):
     a word, and the mutation is silently the same query as its parent. Forbidding
     puts ``additionalProperties: false`` in the JSON schema the LLM is generating
     against, and turns a violation into a retry instead of a no-op.
+
+    **One value per family, not a list.** A query is a conjunction of single clauses:
+    an include-list is an OR, and an OR is strictly dominated — it packs several
+    ~10k-row windows into one, where separate queries would get a window each, for
+    free. The schema is what makes that unrepresentable, so the model cannot spend a
+    move collapsing five regions into one.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -102,19 +93,19 @@ class _Filters(BaseModel):
         None, description="Smallest company size to match, in employees.")
     company_headcount_max: int | None = Field(
         None, description="Largest company size to match, in employees.")
-    lead_job_title: _JobTitleFilter | None = Field(
-        None, description="Role titles the person actually holds, e.g. 'Head of Sales'. "
-                          "Plain titles — no boolean syntax.")
-    lead_seniority: _SeniorityFilter | None = Field(
-        None, description="How senior the person is, from a fixed set of levels.")
-    lead_location: _StringFilter | None = Field(
-        None, description="Countries to search, by real country name, e.g. 'United States'. "
+    lead_job_title: str | None = Field(
+        None, description="One role title the person actually holds, e.g. 'Head of Sales'. "
+                          "A plain title — no boolean syntax, no lists.")
+    lead_seniority: Seniority | None = Field(
+        None, description="How senior the person is — one level from a fixed set.")
+    lead_location: str | None = Field(
+        None, description="One country to search, by real country name, e.g. 'United States'. "
                           "Regions ('Europe', 'APAC') are not countries and match zero leads.")
-    lead_department: _StringFilter | None = Field(
-        None, description="Department the person sits in, by its plain name, "
+    lead_department: str | None = Field(
+        None, description="One department the person sits in, by its plain name, "
                           "e.g. 'Sales', 'Marketing', 'Human Resources'.")
-    lead_function: _StringFilter | None = Field(
-        None, description="Broad job function the person performs, by its plain name, "
+    lead_function: str | None = Field(
+        None, description="One broad job function the person performs, by its plain name, "
                           "e.g. 'Sales', 'Operations', 'Legal'.")
 
 
@@ -149,7 +140,7 @@ def _past_query_stats(campaign) -> list[dict]:
     stats = node_stats(campaign)
     return [
         {
-            "params": n.params,
+            "query": describe_filters(n.to_filters()),
             "offset": n.offset,
             "n_leads": n.leads.count(),
             "examined": stats.get(n.pk, NodeStats(0, 0)).examined,
@@ -159,8 +150,8 @@ def _past_query_stats(campaign) -> list[dict]:
     ]
 
 
-def llm_generate_mutation(campaign) -> dict:
-    """Ask the LLM for one new distinct filter set from past-query stats."""
+def llm_generate_mutation(campaign) -> list[tuple[str, str]]:
+    """Ask the LLM for one new distinct clause set from past-query stats."""
     from pydantic_ai import Agent
 
     from openoutreach.core.llm import get_llm_model, run_agent_sync
@@ -179,13 +170,16 @@ def llm_generate_mutation(campaign) -> dict:
     )
     filters = run_agent_sync(agent.run(prompt)).output.filters
     # Drop the families the model left unset — Lead Finder wants only the keys we
-    # actually filter on, and an all-unset set degrades to {} (== "LLM is dry").
-    proposal = filters.model_dump(exclude_none=True)
+    # actually filter on, and an all-unset set degrades to [] (== "LLM is dry").
+    proposal = sorted(
+        (family, str(value))
+        for family, value in filters.model_dump(exclude_none=True).items()
+    )
     # Logged like the seed it widens from: the proposal is the only record of what
     # the LLM invented, and a value it made up reads as an empty page downstream.
     logger.info("[%s] %s from %d past quer(ies): %s",
                 campaign, colored("discovery mutation", "yellow", attrs=["bold"]),
-                len(past), colored(describe_filters(proposal), "cyan"))
+                len(past), colored(describe_clauses(proposal), "cyan"))
     return proposal
 
 
@@ -198,16 +192,16 @@ def set_generator(generator: MutationGenerator) -> None:
     _generator = generator
 
 
-def generate_mutation(campaign) -> dict:
-    """Propose one new distinct filter set via the active generator.
+def generate_mutation(campaign) -> list[tuple[str, str]]:
+    """Propose one new distinct clause set via the active generator.
 
     Mutation feeds discovery breadth but is not essential to a move — a failed or
     timed-out LLM call must not lose the fetch that already landed, so a failure
-    here degrades to an empty dict (the node still deepens; the frontier just
+    here degrades to an empty list (the node still deepens; the frontier just
     doesn't widen this move).
     """
     try:
         return _generator(campaign)
     except Exception:
         logger.exception("mutation generation failed — expanding without a new query")
-        return {}
+        return []

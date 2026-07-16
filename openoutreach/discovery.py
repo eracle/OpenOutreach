@@ -33,6 +33,59 @@ Seniority = Literal[
 ]
 LEAD_SENIORITIES = get_args(Seniority)
 
+# The filter families a query may be composed from — every one **verified to
+# steer** (2026-07-16: probed live against an unfiltered baseline, each with an
+# absurd-value control). ``lead_industry``, ``company_technology`` and
+# ``lead_skills`` are absent because they were proven inert: the page came back
+# identical to the baseline, i.e. the filter was silently dropped.
+#
+# The field names are the contract; the values are search terms. An unknown *key*
+# is dropped without a word and hands back the unfiltered page **with rows**, which
+# reads as success — so keys are constrained here and in the pydantic schemas. An
+# unknown *value* is benign: an empty page, one move spent.
+FILTER_FAMILIES = (
+    "company_headcount_min",
+    "company_headcount_max",
+    "lead_job_title",
+    "lead_seniority",
+    "lead_location",
+    "lead_department",
+    "lead_function",
+)
+
+# Families whose value is a bare scalar rather than an ``include`` list.
+_SCALAR_FAMILIES = frozenset({"company_headcount_min", "company_headcount_max"})
+
+
+def filters_for(clauses) -> dict:
+    """``(family, value)`` clauses → one Lead Finder filter dict, ANDed across families.
+
+    The inverse of the walk's model: a node is a set of clauses, at most one per
+    family, and this is the only place that becomes provider JSON. Each family gets
+    a **single-element** ``include`` list — an include-list of 5 titles is an OR, and
+    an OR is strictly dominated (it compresses 5 sampling windows of ~10k rows into
+    1); splitting it into 5 queries is free. See the roadmap card
+    ``p2-e3-discovery-query-graph-search``.
+
+    Raises ``ValueError`` on two clauses of the same family — that is the one-value-
+    per-family invariant, enforced here because this dict is keyed by family and
+    would otherwise let the second clause silently overwrite the first.
+    """
+    clauses = sorted(clauses)
+    families = [family for family, _ in clauses]
+    if len(families) != len(set(families)):
+        raise ValueError(f"a query holds at most one clause per family, got {families}")
+
+    filters: dict = {}
+    for family, value in clauses:
+        if family in _SCALAR_FAMILIES:
+            filters[family] = int(value)
+        elif family == "lead_job_title":
+            filters[family] = {"include": [value], "exact_match": False}
+        else:
+            filters[family] = {"include": [value]}
+    return filters
+
 # Lead-row fields we embed, folded in only when the row carries them.
 #
 # Every field here must *vary between leads*: the GP's whole job is to rank the
@@ -59,6 +112,26 @@ TEXT_FIELDS = [
     "contact_location_state",
     "contact_location_country",
 ]
+
+
+def describe_clauses(clauses) -> str:
+    """``(family, value)`` clauses → ``"3 clauses: headcount 1–20 · title Founder"``.
+
+    What a discovery move actually decided, in one line: how many clauses the query
+    conjoins and which. Depth is the number worth seeing — a short conjunction
+    matches millions and shows you only the provider's famous-company head, while a
+    long one reaches the niche, so "how deep did we go" is the question a run log has
+    to answer.
+
+    The count is clauses, not rendered groups, so a headcount band reads as *one*
+    ``headcount 1–20`` while counting *two* (``_min`` and ``_max`` are separate
+    families to the provider, hence separate clauses). Depth is what the count is
+    for; it is deliberately not the length of the text after the colon.
+    """
+    clauses = sorted(clauses)
+    if not clauses:
+        return "0 clauses"
+    return f"{len(clauses)} clause(s): {describe_filters(filters_for(clauses))}"
 
 
 def describe_filters(filters: dict) -> str:
