@@ -184,15 +184,20 @@ class TestDiscover:
 class TestICP:
     def test_maps_spec_onto_lead_finder_filters(self):
         spec = ICPSpec(
-            job_titles=["CMO"], seniorities=["owner"], industries=["SaaS"],
+            job_titles=["CMO"], seniorities=["owner"],
             locations=["United States"], headcount_min=1, headcount_max=50, country_code="us",
         )
         f = _to_lead_finder_filters(spec)
         assert f["company_headcount_min"] == 1 and f["company_headcount_max"] == 50
         assert f["lead_job_title"] == {"include": ["CMO"], "exact_match": False}
         assert f["lead_seniority"] == {"include": ["owner"]}
-        assert f["lead_industry"] == {"include": ["SaaS"]}
         assert f["lead_location"] == {"include": ["United States"]}
+
+    def test_seed_carries_no_inert_family(self):
+        # lead_industry rode every seed while doing nothing (probed 2026-07-16:
+        # both a real value and an absurd control returned the unfiltered page).
+        spec = ICPSpec(job_titles=["CMO"], seniorities=["owner"], locations=["Germany"])
+        assert "lead_industry" not in _to_lead_finder_filters(spec)
 
     def test_omits_empty_lists(self):
         f = _to_lead_finder_filters(ICPSpec())

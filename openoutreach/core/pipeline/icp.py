@@ -2,10 +2,10 @@
 """ICP filter generator — LLM maps a campaign to a Lead Finder search spec.
 
 A single LLM pass turns ``product_docs + campaign_target`` into firmographic
-filters (title/seniority/industry/location/headcount) that Lead Finder discovery
-searches on. Called on a campaign's cold start by ``frontier.generate_seed`` to
-seed the discovery walk — the seed isn't cached; its first fetched page becomes the
-node that carries its params thereafter. Adaptive refinement is realized by the
+filters (title/seniority/location) that Lead Finder discovery searches on. Called
+on a campaign's cold start by ``frontier.generate_seed`` to seed the discovery
+walk — the seed isn't cached; its first fetched page becomes the node that
+carries its params thereafter. Adaptive refinement is realized by the
 frontier itself (a lazy best-first walk that deepens productive veins and mutates
 into new ones) — see the discovery-query-graph-search roadmap card.
 """
@@ -28,7 +28,6 @@ class ICPSpec(BaseModel):
 
     job_titles: list[str] = Field(default_factory=list)
     seniorities: list[Seniority] = Field(default_factory=list)
-    industries: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
     headcount_min: int = 1
     headcount_max: int = 10000
@@ -45,8 +44,6 @@ def _to_lead_finder_filters(spec: ICPSpec) -> dict:
         filters["lead_job_title"] = {"include": spec.job_titles, "exact_match": False}
     if spec.seniorities:
         filters["lead_seniority"] = {"include": spec.seniorities}
-    if spec.industries:
-        filters["lead_industry"] = {"include": spec.industries}
     if spec.locations:
         filters["lead_location"] = {"include": spec.locations}
     return filters

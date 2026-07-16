@@ -11,7 +11,6 @@ Produce the firmographic filters that select the people most likely to be a good
 
 - **job_titles**: 2-6 role titles the buyer/decision-maker actually holds (e.g. "Head of Sales", "Founder"). Plain titles, no boolean syntax.
 - **seniorities**: the seniority levels that fit. Use ONLY these exact values: {{ seniorities|join(", ") }}. Any other value silently matches zero leads.
-- **industries**: 1-4 industries the target companies operate in.
-- **locations**: the geographies to search (countries or regions, e.g. "United States"). Leave empty for no geographic restriction.
+- **locations**: the countries to search, by real country name (e.g. "United States", "Germany"). Regions ("Europe", "APAC", "Eastern Europe") are NOT countries and match zero leads. Leave empty for no geographic restriction.
 - **headcount_min / headcount_max**: the company-size band, in employees, that fits the target.
 - **country_code**: the ISO-3166-1 alpha-2 code (lowercase) of the primary target country if the search is country-specific, else "" (empty). This tags discovered leads for the data-collection geo-gate.

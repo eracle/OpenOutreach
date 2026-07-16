@@ -8,13 +8,21 @@ drains, and a single filter dict is what the model reliably produces. Kept behin
 a small swappable interface (``set_generator``) so the learned cluster→query
 replacement (roadmap Future work) can drop in without touching the frontier.
 
-The proposal is a **typed** output (``_Filters``), not a free dict, because Lead
-Finder answers an unknown key or value with an *empty page rather than an error* —
-which the frontier reads as end-of-depth. Constraining the filter families and the
-seniority vocabulary in the schema makes that class of silent kill unrepresentable;
-the prompt then only has to carry strategy. What the schema still cannot catch is a
-plausible-but-nonexistent *free-form* value (an invented technology or skill), which
-is why the prompt insists on real-world values.
+The proposal is a **typed** output (``_Filters``), not a free dict, and the schema
+carries **only families proven to steer** — each one verified live against an
+unfiltered baseline plus an absurd-value control (2026-07-16).
+
+An unknown key is **silently dropped**, and the query answers as if it were never
+sent: you get the unfiltered page back, with rows. That is *not* an empty page, so
+it never reads as end-of-depth — it reads as success, which is worse. An inert
+family is an identity element: it lets the model believe it is steering while
+producing a node indistinguishable from its parent. ``lead_industry``,
+``company_technology`` and ``lead_skills`` were exactly that and are gone.
+
+A *value* the index doesn't carry is different and benign: it returns an empty page,
+costs one move, and the frontier records the clause as dry. Only ``lead_seniority``
+is a closed vocabulary (a ``Literal``); the rest are search terms, so the prompt —
+not the schema — carries the "real-world values only" rule.
 
 Non-scaling by construction: the prompt lists past queries, so history size is
 the bound — fine for the MVP, and the reason the generator sits behind an
@@ -26,7 +34,7 @@ import logging
 from typing import Protocol
 
 import jinja2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from termcolor import colored
 
 from openoutreach.core.conf import PROMPTS_DIR
@@ -45,7 +53,7 @@ class MutationGenerator(Protocol):
 
 
 class _StringFilter(BaseModel):
-    """An include-list over free-form strings (industry, location, tech, skills)."""
+    """An include-list over free-form strings (location, department, function)."""
 
     include: list[str] = Field(min_length=1)
 
@@ -66,21 +74,29 @@ class _SeniorityFilter(BaseModel):
 class _Filters(BaseModel):
     """The Lead Finder filter families a mutation may vary.
 
-    Typed rather than a bare dict on purpose: the **field names** are the contract,
-    and an unknown *key* is answered with an empty page rather than an error — which
-    the frontier would read as end-of-depth. Constraining the families in the schema
-    makes that unrepresentable.
+    Every family here is **verified to steer**: probed live against an unfiltered
+    baseline with an absurd-value control, and kept only if the real value changed
+    the returned page *and* the absurd value emptied it. Families that failed that
+    test (``lead_industry``, ``company_technology``, ``lead_skills``) are absent by
+    design — see the module docstring. "It returned rows" is not evidence.
 
     Only ``lead_seniority`` is a closed vocabulary (its documented levels really do
-    match, so it is a ``Literal``). Every other family is **free text handed to a
-    search engine** — including ``lead_department`` and ``lead_function``, whose
-    published "enum" is fiction: those snake_case values match nothing, while plain
-    labels like ``Sales`` or ``Human Resources`` match fine. A value that matches
-    nothing simply returns an empty page, exactly as an invented industry or skill
-    would; the frontier records that query as dry and moves on, which is correct.
-    So the prompt's job is to supply plausible real-world values, not to be
-    exhaustive.
+    match, so it is a ``Literal``). ``lead_department`` and ``lead_function`` are
+    free text despite a published "enum" that is fiction — the snake_case values
+    match nothing, while plain labels (``Sales``, ``Marketing``) match fine. A value
+    the index doesn't carry returns an empty page; the frontier records that clause
+    as dry and moves on, which is correct. So the prompt supplies plausible
+    real-world values; the schema doesn't police them.
+
+    ``extra="forbid"`` is load-bearing, not hygiene. Pydantic's default is to
+    *ignore* an unknown key, which would reproduce the exact provider bug this
+    schema exists to prevent: the model emits ``lead_industry``, it vanishes without
+    a word, and the mutation is silently the same query as its parent. Forbidding
+    puts ``additionalProperties: false`` in the JSON schema the LLM is generating
+    against, and turns a violation into a retry instead of a no-op.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     company_headcount_min: int | None = Field(
         None, description="Smallest company size to match, in employees.")
@@ -91,16 +107,9 @@ class _Filters(BaseModel):
                           "Plain titles — no boolean syntax.")
     lead_seniority: _SeniorityFilter | None = Field(
         None, description="How senior the person is, from a fixed set of levels.")
-    lead_industry: _StringFilter | None = Field(
-        None, description="Industries the target companies operate in.")
     lead_location: _StringFilter | None = Field(
-        None, description="Geographies to search — countries or regions, e.g. 'United States'.")
-    company_technology: _StringFilter | None = Field(
-        None, description="Technology the company uses, by product name, "
-                          "e.g. 'salesforce', 'hubspot', 'shopify'.")
-    lead_skills: _StringFilter | None = Field(
-        None, description="Skills the person lists on their own profile, "
-                          "e.g. 'negotiation', 'fundraising'.")
+        None, description="Countries to search, by real country name, e.g. 'United States'. "
+                          "Regions ('Europe', 'APAC') are not countries and match zero leads.")
     lead_department: _StringFilter | None = Field(
         None, description="Department the person sits in, by its plain name, "
                           "e.g. 'Sales', 'Marketing', 'Human Resources'.")

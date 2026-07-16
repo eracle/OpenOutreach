@@ -52,10 +52,15 @@ class TestPastQueryStats:
 class TestFilterSchema:
     """The typed output that keeps the LLM from inventing a silently-dead query.
 
-    Lead Finder answers an unknown filter key/value with an empty page rather than
-    an error, and the frontier reads an empty page as end-of-depth — so an
-    unconstrained filter dict would let one hallucinated value mark a healthy query
-    line exhausted. These lock the constraint at the schema, not the prompt.
+    Two distinct failures, and only one of them is loud. An unknown *key* is
+    **silently dropped** — the query comes back as if it were never sent, i.e. the
+    unfiltered page, with rows — so an inert family reads as *success* and the model
+    keeps steering with a knob wired to nothing. An unknown *value* returns an empty
+    page, which the frontier reads as end-of-depth and correctly retires.
+
+    So the schema's job is to admit only families proven to steer (verified live
+    against a baseline with an absurd-value control, 2026-07-16), and to pin the one
+    genuinely closed vocabulary. Values it must not police — a search miss is normal.
     """
 
     def test_rejects_seniority_outside_lead_finders_vocabulary(self):
@@ -66,18 +71,26 @@ class TestFilterSchema:
 
     def test_rejects_empty_include_list(self):
         with pytest.raises(ValidationError):
-            mutate._Filters(lead_industry={"include": []})
+            mutate._Filters(lead_location={"include": []})
 
-    def test_accepts_the_probe_cleared_params(self):
+    @pytest.mark.parametrize("family", ["lead_industry", "company_technology", "lead_skills"])
+    def test_rejects_families_that_do_not_steer(self, family):
+        # Probed live 2026-07-16 against an unfiltered baseline with an absurd-value
+        # control: each returned the *baseline page* for a value nothing could match,
+        # so the filter is dropped, not applied. An inert family is an identity
+        # element — it makes the LLM believe it is steering while producing a node
+        # indistinguishable from its parent. Unrepresentable is the only safe state.
+        with pytest.raises(ValidationError):
+            mutate._Filters(**{family: {"include": ["anything"]}})
+
+    def test_accepts_the_families_verified_to_steer(self):
         filters = mutate._Filters(
             lead_seniority={"include": ["mid-level"]},
-            company_technology={"include": ["salesforce"]},
-            lead_skills={"include": ["negotiation"]},
+            lead_location={"include": ["Germany"]},
         )
         assert filters.model_dump(exclude_none=True) == {
             "lead_seniority": {"include": ["mid-level"]},
-            "company_technology": {"include": ["salesforce"]},
-            "lead_skills": {"include": ["negotiation"]},
+            "lead_location": {"include": ["Germany"]},
         }
 
     def test_department_and_function_are_free_text_not_enums(self):
