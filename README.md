@@ -46,6 +46,17 @@ Perfect for founders, sales teams, and agencies who want powerful automation **w
 
 ---
 
+## 💸 How OpenOutreach Stays Free
+
+OpenOutreach sends email from a mailbox **you own and control**, under your own sending identity. It sends **two kinds** of email, and you should know about both before you run it:
+
+- **Your outreach** — personalized emails to the leads *you* target, on your behalf, as part of your own campaigns. This is the whole point of the tool.
+- **A promotion for OpenOutreach itself** — if you run a **freemium** campaign, a small, maintainer-configured fraction of your sending (`action_fraction`) goes to a campaign that **advertises OpenOutreach**, sent from your mailbox **as if from you**, to recipients unrelated to your own leads. This is one of the ways the project funds itself for cold-start users, alongside affiliate links and sponsorships.
+
+Both kinds send from your mailbox under your identity, and both are your responsibility under anti-spam law. The freemium promotion has been part of the project since the beginning. It can be disabled by editing the source (the GPLv3 licence permits this). Full detail — the fraction, the content source, and your responsibilities — is in the **[Legal Notice](LEGAL_NOTICE.md)** (§4).
+
+---
+
 ## 📋 What You Need
 
 | # | What | Example |

@@ -71,9 +71,11 @@ _INFORMATION_NOTICE = """
   covered in full by the Legal Notice (sections 4 and 6) — in plain terms:
 
   1. Freemium promotional campaign — only if you run a freemium campaign.
-     A fraction of your sending goes to a maintainer-configured promotional
-     campaign, sent from your own mailbox to recipients unrelated to your leads.
-     Your own qualified leads are never used for it. Disable it by editing the source.
+     A fraction of your sending goes to a maintainer-configured campaign that
+     advertises OpenOutreach itself — sent from your own mailbox, under your
+     sending identity (as if from you), to recipients unrelated to your leads.
+     Your own qualified leads are never used for it. This has been part of the
+     project since the beginning. Disable it by editing the source.
 
   2. Shared contacts store (the hub).
      When a paid lookup resolves a work email, a minimal record — the profile URL,
