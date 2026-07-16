@@ -367,28 +367,6 @@ class BayesianQualifier:
         mean, std = _gpr_predict(self._pipeline, embeddings)
         return _prob_above_half(mean, std)
 
-    def positive_score_floor(self, percentile: float) -> float | None:
-        """The GP's own score at ``percentile`` of the leads that actually qualified.
-
-        A self-calibrating bar for "promising". ``predict_probs`` returns
-        P(latent f > 0.5), **not** a calibrated qualification rate — a campaign
-        converting 4% can still see its positives score ~0.78 — so an absolute
-        probability cutoff means something different in every campaign and drifts
-        as the model trains. What the model scores its *known positives* is in the
-        same units as what it scores a candidate, so the comparison holds without
-        a magic constant.
-
-        Returns None before any positive exists: with nothing proven to work,
-        there is no bar to hold candidates to.
-        """
-        if 1 not in self._y:
-            return None
-        positives = np.array([x for x, label in zip(self._X, self._y) if label == 1])
-        probs = self.predict_probs(positives)
-        if probs is None:
-            return None
-        return float(np.percentile(probs, percentile))
-
     def acquisition_scores(self, embeddings: np.ndarray) -> tuple[str, np.ndarray] | None:
         """Score candidates using the balance-driven acquisition strategy.
 

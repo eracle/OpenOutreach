@@ -10,19 +10,30 @@ Two generators chain via ``next(upstream, None)``:
                  qualify_source  <- qualifies embedded, unlabelled leads
 
 Each qualify_source iteration produces exactly one label, which shifts the GP
-model. Rather than draining the whole discovery page before searching again,
-qualify_source interleaves the two: in exploit mode, when the unlabelled pool
-holds no candidate the model rates above the adaptive threshold, it qualifies
-one, re-checks with the moved model, and only then walks the frontier once via
-``discover``. A dry page (nothing new to bring in) ends the generator.
+model. **Discovery runs only when the pool is dry.** A dry page (nothing new to
+bring in) ends the generator.
+
+There is deliberately no "is this pool promising?" gate. Two have been tried and
+both were constants in disguise, because every such gate compares a candidate's
+score against a bar the GP's scale cannot support:
+
+- ``max(0, 0.20 - 1/sqrt(n_obs))`` — capped at 0.20, while the pool's best lead
+  scores 0.327. Never fired: always "pool's fine".
+- ``positive_score_floor(25)`` — the p25 of the GP's scores for its own
+  positives, i.e. **in-sample** predictions (0.755–0.829) used as a bar for
+  **out-of-sample** ones (0.121–0.327). Fired always: "pool is barren", every
+  cycle, so discovery ran 17x ahead of qualification.
+
+A fitted GP reproduces its training points and regresses everything unseen toward
+the prior, so the two populations never overlap and no bar drawn from one applies
+to the other. Discovery steering does not belong here at all — it belongs to the
+frontier, on ground-truth per-node counts. See the discovery-query-graph-search
+roadmap card.
 """
 from __future__ import annotations
 
 import logging
 from typing import Generator
-
-import numpy as np
-from termcolor import colored
 
 from openoutreach.core.conf import CAMPAIGN_CONFIG
 from openoutreach.core.ml.qualifier import BayesianQualifier
@@ -33,76 +44,14 @@ from openoutreach.core.pipeline.ready_pool import find_ready_candidate, promote_
 logger = logging.getLogger(__name__)
 
 
-def _needs_more_discovery(qualifier: BayesianQualifier, candidates) -> bool:
-    """True in exploit mode when no candidate scores as well as a proven positive.
-
-    The bar is the GP's own score at ``positive_pool_percentile`` of the leads
-    that actually qualified — so "promising" means *promising like the ones that
-    worked*, in the model's own units, and re-fits itself as it learns. An
-    absolute cutoff cannot do this job: ``predict_probs`` is P(latent f > 0.5),
-    not a calibrated rate, so the same number means a different thing in every
-    campaign and at every training size.
-
-    Returns False on cold start, explore mode, a degenerate GP, empty candidates,
-    or before any positive exists — in all of those, qualifying from the existing
-    pool is the move (with no proven positive there is no bar to hold anyone to).
-    """
-    if not candidates:
-        return False
-
-    n_neg, n_pos = qualifier.class_counts
-    if n_neg <= n_pos:
-        # explore mode — no need to page in more high-P profiles
-        return False
-
-    embeddings = np.array([c.embedding_array for c in candidates], dtype=np.float32)
-    probs = qualifier.predict_probs(embeddings)
-    if probs is None:
-        # cold start
-        return False
-
-    # If the GP can't differentiate profiles (all predictions identical),
-    # discovering won't help — qualify from the existing pool to build labels.
-    if len(probs) > 1 and np.ptp(probs) < 1e-6:
-        logger.debug(
-            "GP predictions degenerate (all ~%.3f) with %d obs — "
-            "skipping discovery, qualifying from existing pool",
-            float(probs[0]), qualifier.n_obs,
-        )
-        return False
-
-    pct = CAMPAIGN_CONFIG["positive_pool_percentile"]
-    bar = qualifier.positive_score_floor(pct)
-    if bar is None:
-        # No proven positive yet — nothing to hold the pool to. Qualify to find one.
-        return False
-    if bool(np.any(probs >= bar)):
-        return False
-
-    logger.info(
-        "Pool (%d unlabelled) tops out at %s, under the p%g bar of %s set by its "
-        "%d proven positive(s) (neg=%d, n_obs=%d) — %s",
-        len(candidates), colored(f"{float(probs.max()):.3f}", "yellow", attrs=["bold"]),
-        pct, colored(f"{bar:.3f}", "green", attrs=["bold"]),
-        n_pos, n_neg, qualifier.n_obs,
-        colored("widening the frontier", "yellow", attrs=["bold"]),
-    )
-    return True
-
-
 def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None, None]:
-    """Yield profile_urls from run_qualification(), interleaving discovery.
+    """Yield profile_urls from run_qualification(), discovering when the pool is dry.
 
-    Every yield produces a label that shifts the GP model. When the pool holds
-    nothing promising, qualify **one** and re-check before widening: that label
-    moves the GP, and the re-check asks the moved model whether the pool is still
-    barren. Only a pool that stays barren *after* learning something earns a
-    frontier move — one per label, never a burst.
-
-    The order matters both ways. Widening without labelling walks blind, since
-    the frontier's re-rank scores its nodes with this same GP. Labelling without
-    re-checking spends the move on a verdict the new label may have already
-    overturned.
+    Every yield produces a label that shifts the GP model. Discovery is pulled in
+    only when there is nothing left to qualify — the pool is drained first, which
+    is what feeds the frontier's per-node counts (a node nobody examined has no
+    measured value; see the module docstring on why no "promising pool" gate
+    survives).
 
     A dry discovery page (nothing new) on an empty pool ends the generator.
     """
@@ -115,16 +64,8 @@ def qualify_source(session, qualifier: BayesianQualifier) -> Generator[str, None
                 return
             continue
 
-        unpromising = _needs_more_discovery(qualifier, candidates)
         result = run_qualification(session, qualifier)
-
         if result is not None:
-            # The label just moved the GP. Ask it again before widening: one
-            # frontier move per label, and only if the pool is still barren.
-            if unpromising and _needs_more_discovery(
-                qualifier, fetch_qualification_candidates(session)
-            ):
-                discover(session, qualifier)
             yield result
             continue
 
