@@ -169,6 +169,24 @@ class TestSendEmailBcc:
         assert message["Bcc"] is None
 
 
+class TestSendEmailSignature:
+    def _sent_body(self, signature: str) -> str:
+        box = Mailbox(
+            username="s@infra.com", password="pw", from_address="s@infra.com",
+            signature=signature,
+        )
+        with patch("openoutreach.emails.sender._deliver") as deliver:
+            send_email(box, "lead@corp.com", "Hi", "Body")
+        return deliver.call_args.args[1].get_content()
+
+    def test_signature_appended_after_blank_line(self):
+        body = self._sent_body("Eracle\nhttps://www.linkedin.com/in/eracle")
+        assert body == "Body\n\nEracle\nhttps://www.linkedin.com/in/eracle\n"
+
+    def test_body_unchanged_when_signature_blank(self):
+        assert self._sent_body("") == "Body\n"
+
+
 # ── handle_email (the EMAIL task) ─────────────────────────────────
 
 

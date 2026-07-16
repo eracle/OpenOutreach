@@ -26,6 +26,9 @@ def send_email(
 ) -> str:
     """Send ``body`` from ``mailbox`` to ``to_address``; return the Message-ID.
 
+    The mailbox's signature is appended to ``body`` here rather than at the call
+    sites, so every send — opener and follow-up — carries it.
+
     ``bcc`` blind-copies the operator's own address so they keep a private record
     of every send; ``send_message`` strips the Bcc header before transmission, so
     the To recipient never sees it.
@@ -54,8 +57,16 @@ def _build_message(mailbox, to_address, subject, body, bcc, in_reply_to, referen
     if in_reply_to:
         message["In-Reply-To"] = in_reply_to
         message["References"] = references or in_reply_to
-    message.set_content(body)
+    message.set_content(_sign(body, mailbox.signature))
     return message
+
+
+def _sign(body: str, signature: str) -> str:
+    """Append the mailbox's sign-off, separated by a blank line. Blank ⇒ body unchanged."""
+    signature = signature.strip()
+    if not signature:
+        return body
+    return f"{body.rstrip()}\n\n{signature}\n"
 
 
 def _mint_message_id(from_address: str) -> str:

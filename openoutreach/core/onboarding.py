@@ -237,8 +237,25 @@ _MAILBOX_GUIDANCE = """
 
 _MAILBOX_DEFAULTS = {
     "from_address": "", "host": "smtp.gmail.com", "port": 587,
-    "imap_host": "imap.gmail.com", "imap_port": 993,
+    "imap_host": "imap.gmail.com", "imap_port": 993, "signature": "",
 }
+
+# Shown as the signature prompt. The example is a real, working signature — a
+# cold lead's first instinct is to check who wrote, so it leads with a LinkedIn
+# profile rather than a title.
+_SIGNATURE_PROMPT = """Email signature — appended to every email this mailbox sends, opener and
+  follow-ups alike. The agent never signs its own drafts, so this is the only
+  sign-off your leads see. Optional — Ctrl+D on an empty line for none.
+
+  Example:
+
+    Eracle
+    Founder, OpenOutreach
+    https://www.linkedin.com/in/eracle
+
+    Sent with OpenOutreach — the open-source AI sales agent: https://openoutreach.app
+
+  Your signature"""
 
 
 def _mailbox_done() -> bool:
@@ -273,7 +290,7 @@ def _run_mailbox() -> None:
 
 
 def _prompt_mailbox_fields(entry: dict) -> dict:
-    """Ask the six mailbox fields, seeded from *entry*. Raises on cancel."""
+    """Ask the seven mailbox fields, seeded from *entry*. Raises on cancel."""
     return {
         "from_address": _required(wiz.text(
             "Email address (your From: address and SMTP username)",
@@ -288,6 +305,9 @@ def _prompt_mailbox_fields(entry: dict) -> dict:
         "port": _required(wiz.integer("SMTP port (587 STARTTLS / 465 SSL)", default=entry["port"])),
         "imap_host": _required(wiz.text("IMAP host (Enter = Gmail/Workspace)", default=entry["imap_host"])),
         "imap_port": _required(wiz.integer("IMAP port", default=entry["imap_port"])),
+        "signature": _required(wiz.multiline(
+            _SIGNATURE_PROMPT, default=entry["signature"], required=False,
+        )),
     }
 
 

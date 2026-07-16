@@ -57,6 +57,8 @@ def test_mailbox_retry_retains_values_and_stores_one_box():
              "a@b.com", "pw2", "smtp.h", "imap.h"]   # attempt 2 (auth ok)
     with patch("openoutreach.core.onboarding.wiz.text", side_effect=texts) as text, \
          patch("openoutreach.core.onboarding.wiz.integer", side_effect=[587, 993, 587, 993]), \
+         patch("openoutreach.core.onboarding.wiz.multiline",
+               side_effect=["Eracle", "Eracle"]) as multiline, \
          patch("openoutreach.core.onboarding.wiz.confirm", return_value=False), \
          patch("openoutreach.emails.smtp.verify_auth",
                side_effect=[(False, "auth rejected (535)"), (True, "ok")]):
@@ -65,9 +67,12 @@ def test_mailbox_retry_retains_values_and_stores_one_box():
     # Exactly one box, stored only on the successful attempt.
     assert Mailbox.objects.count() == 1
     assert Mailbox.objects.get().from_address == "a@b.com"
+    assert Mailbox.objects.get().signature == "Eracle"
     # The retry re-seeded the host field with what was typed the first time.
     host_prompts = [c for c in text.call_args_list if c.args and c.args[0].startswith("SMTP host")]
     assert host_prompts[1].kwargs["default"] == "smtp.h"
+    # …and the signature likewise, so a rejected auth doesn't cost a retyped sign-off.
+    assert multiline.call_args_list[1].kwargs["default"] == "Eracle"
 
 
 @pytest.mark.django_db
