@@ -4,13 +4,15 @@
 The actual LLM call is not exercised (as with the ICP generator, the model is
 mocked at the boundary); these cover the past-query summary, the swap hook, and
 the failure fallback that keeps a failed mutation from losing a landed fetch."""
+from unittest.mock import patch
+
 import pytest
 from pydantic import ValidationError
 
 from openoutreach import discovery
-from openoutreach.core.models import Campaign, DiscoveryQuery
+from openoutreach.core.models import Campaign, Clause, DiscoveryQuery
 from openoutreach.core.pipeline import mutate
-from openoutreach.core.pipeline.frontier import _clauses_for, clause_key
+from openoutreach.core.pipeline.frontier import clause_key
 
 
 def _enums_in(schema) -> list[list]:
@@ -35,7 +37,7 @@ def _node(c, clauses, offset=0):
     node = DiscoveryQuery.objects.create(
         campaign=c, clause_key=clause_key(clauses), offset=offset,
     )
-    node.clauses.set(_clauses_for(clauses))
+    node.clauses.set(Clause.rows_for(clauses))
     return node
 
 
@@ -152,3 +154,34 @@ class TestGeneratorInterface:
             assert mutate.generate_mutation(c) == []
         finally:
             mutate.set_generator(original)
+
+    def test_the_wall_composes_before_it_invents(self, db):
+        """The default generator is the descent, not the LLM.
+
+        Every other test here swaps the generator out, so nothing else in the suite
+        can tell whether the seam is wired to ``descend_or_refill`` or still to the
+        raw LLM call — the wall would go on inventing a query per firing and the
+        suite would stay green.
+        """
+        assert mutate._generator is mutate.descend_or_refill
+
+
+class TestEscalation:
+    """wall → next untried conjunction → (only when none remain) → LLM refill."""
+
+    def test_a_composed_conjunction_costs_no_llm_call(self, db):
+        c = _campaign()
+        with patch("openoutreach.core.pipeline.descend.descend",
+                   return_value=[("lead_location", "Japan")]) as descend, \
+             patch.object(mutate, "llm_generate_mutation") as llm:
+            assert mutate.descend_or_refill(c) == [("lead_location", "Japan")]
+        assert descend.called
+        assert not llm.called, "the LLM was asked while the pool still spanned a query"
+
+    def test_the_llm_is_asked_only_once_the_pool_is_used_up(self, db):
+        c = _campaign()
+        with patch("openoutreach.core.pipeline.descend.descend", return_value=[]), \
+             patch.object(mutate, "llm_generate_mutation",
+                          return_value=[("lead_location", "Italy")]) as llm:
+            assert mutate.descend_or_refill(c) == [("lead_location", "Italy")]
+        assert llm.called

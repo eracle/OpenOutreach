@@ -85,14 +85,6 @@ def clause_key(clauses) -> str:
 
 # ── persist / exhaust ────────────────────────────────────────────────
 
-def _clauses_for(clauses) -> list[Clause]:
-    """Get-or-create the ``Clause`` rows for ``clauses``. Idempotent; clauses are shared."""
-    return [
-        Clause.objects.get_or_create(family=family, value=value)[0]
-        for family, value in clauses
-    ]
-
-
 def persist_fetched(campaign, clauses, offset: int) -> DiscoveryQuery:
     """Record a just-fetched ``(clause set, offset)`` page, deduped on the triple.
 
@@ -105,7 +97,7 @@ def persist_fetched(campaign, clauses, offset: int) -> DiscoveryQuery:
         campaign=campaign, clause_key=clause_key(clauses), offset=offset,
     )
     if created:
-        node.clauses.set(_clauses_for(clauses))
+        node.clauses.set(Clause.rows_for(clauses))
     return node
 
 

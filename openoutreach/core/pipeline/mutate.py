@@ -1,12 +1,21 @@
 # openoutreach/core/pipeline/mutate.py
-"""LLM-driven query mutation — propose one new Lead Finder filter set (MVP).
+"""The frontier's breadth move — one new Lead Finder query, composed or invented.
 
-The frontier's breadth move: given a campaign's past query nodes and their
-measured value, ask the LLM for a *single* new, distinct parameter set to try.
-One query per call — the frontier widens a fetch at a time as its breadth floor
-drains, and a single filter dict is what the model reliably produces. Kept behind
-a small swappable interface (``set_generator``) so the learned cluster→query
-replacement (roadmap Future work) can drop in without touching the frontier.
+``descend_or_refill`` is what the wall actually calls, and the escalation is the
+whole design: compose the next untried conjunction from the campaign's clause pool
+(``descend.py``), and ask the LLM **only** when the pool spans nothing new. The
+descent is free and cannot invent a value the index has never heard of; the LLM
+call below is the refill for when a pool is genuinely used up.
+
+Both sit behind ``set_generator``, so the frontier calls one function and never
+learns which answered — the seam the learned cluster→query replacement (roadmap
+Future work) drops into as well.
+
+What follows is the **refill**: given a campaign's past query nodes and their
+measured value, ask the LLM for a single new, distinct parameter set. It used to
+run at *every* wall — 7 mutations in a few minutes on the observed run, 6 of them
+returning 0 rows — because the clauses the ICP had already produced were being
+thrown away instead of pooled.
 
 The proposal is a **typed** output (``_Filters``), not a free dict, and the schema
 carries **only families proven to steer** — each one verified live against an
@@ -183,7 +192,31 @@ def llm_generate_mutation(campaign) -> list[tuple[str, str]]:
     return proposal
 
 
-_generator: MutationGenerator = llm_generate_mutation
+def descend_or_refill(campaign) -> list[tuple[str, str]]:
+    """Compose the wall's query from the clause pool; ask the LLM only if it can't.
+
+    The escalation, and the order is the point::
+
+        wall → next untried conjunction → (only when none remain) → LLM refill
+
+    The descent is a lattice lookup over clauses the LLM already produced, so it is
+    free and it cannot invent a value the index has never heard of. Only when every
+    conjunction the pool spans is fetched or probed empty is there nothing left to
+    compose, and only then is the LLM asked — which is a real answer ("this pool is
+    used up"), not a fallback for an error.
+
+    A pool of 5 titles / 5 countries / 3 seniorities spans ~75 conjunctions worth up
+    to ~10k rows each, so that condition is a long way off: the LLM goes from being
+    asked at *every* wall to being asked at cold start and then essentially not
+    again. The refill still invents a whole query today; making it mint *clauses*
+    from returned rows is the next item on the card.
+    """
+    from openoutreach.core.pipeline.descend import descend
+
+    return descend(campaign) or llm_generate_mutation(campaign)
+
+
+_generator: MutationGenerator = descend_or_refill
 
 
 def set_generator(generator: MutationGenerator) -> None:

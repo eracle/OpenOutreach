@@ -187,6 +187,24 @@ def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
     return leads
 
 
+def probe(clauses) -> bool:
+    """Does this conjunction match anybody? ``limit=1``, and it creates no leads.
+
+    The cheap half of the probe/fetch split. ``search`` at ``limit=100`` answers the
+    same question, but pays for the answer in the one genuinely scarce resource:
+    a non-empty page becomes up to 100 ``Lead`` rows competing for *examination*,
+    of which only ~6% of the corpus has ever had any. A probe asks whether a region
+    exists without committing to mine it — so the descent can map structure across
+    the lattice while fetches stay reserved for regions the walk actually picked.
+
+    Free in credits (``credits_consumed: 0.0``), **not** free in time: ~45s, and
+    probes must run serially — concurrency causes 300s poll timeouts and corrupt
+    results. So the descent probes one candidate at a time and stops at the first
+    hit, rather than mapping the lattice up front.
+    """
+    return bool(search(filters_for(clauses), limit=1))
+
+
 def profile_text_for(row: dict) -> str:
     """Firmographic text for one lead row — the LLM qualifier's input and the
     embedding's source, built from the same fields so both stay comparable.

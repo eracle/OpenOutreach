@@ -81,6 +81,20 @@ class Campaign(models.Model):
     # embodied by the fetched seed nodes, not cached.)
     country_code = models.CharField(max_length=2, blank=True, default="")
 
+    # The clause pool — every candidate value the ICP produced, not just the ones
+    # the seed used. The descent composes conjunctions from these without asking
+    # the LLM again (``core/pipeline/descend.py``), which is the whole reason the
+    # pool exists: ``icp.generate_seed`` gets 5 job titles and the seed can only
+    # carry one, and the other 4 used to be dropped on the floor and re-invented
+    # at every wall.
+    #
+    # **The pool is per-campaign; the ``Clause`` rows are global.** Not a
+    # contradiction: a clause is the same fact whoever searches it
+    # (``lead_location = United States``), but *which* clauses are worth trying is
+    # this campaign's ICP talking. So the membership is the campaign's and the row
+    # is shared.
+    clauses = models.ManyToManyField("Clause", blank=True, related_name="campaigns")
+
     def __str__(self):
         return self.name
 
@@ -206,6 +220,21 @@ class Clause(models.Model):
         max_length=32, choices=[(f, f) for f in FILTER_FAMILIES],
     )
     value = models.CharField(max_length=200)
+    # Does this clause match anybody *on its own*? NULL = never probed. Written by
+    # the descent's singleton sweep (``descend.py``), which is the highest-value
+    # probe in the lattice: emptiness is anti-monotone, so a clause the index
+    # carries nowhere kills every conjunction containing it — one call retires a
+    # whole slice. This is what makes the ``Europe`` class of dead query
+    # (``lead_location: Europe`` matches zero leads) cost one probe instead of
+    # poisoning query after query.
+    #
+    # **Only a singleton probe may write this.** A clause is dead when *it alone*
+    # returns nothing — never because some conjunction holding it came back empty.
+    # ``lead_department: Sales`` is honored and returns rows, yet sat in six 0-row
+    # conjunctions; convicting it on that evidence is the "department is poison"
+    # error, and it is why conjunction emptiness blames the whole set
+    # (``EmptyClauseSet``) and nothing smaller.
+    is_live = models.BooleanField(null=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -215,6 +244,20 @@ class Clause(models.Model):
 
     def __str__(self):
         return describe_filters(filters_for([(self.family, self.value)]))
+
+    @classmethod
+    def rows_for(cls, clauses) -> list["Clause"]:
+        """Get-or-create the rows for ``(family, value)`` pairs, in order.
+
+        Idempotent, and the one place clause rows are minted: the pool, a fetched
+        node and a blacklisted set all name the same clauses, and a clause is
+        global, so whichever of them reaches a ``(family, value)`` first creates the
+        row and the rest find it.
+        """
+        return [
+            cls.objects.get_or_create(family=family, value=value)[0]
+            for family, value in clauses
+        ]
 
 
 class DiscoveryQuery(models.Model):
@@ -301,3 +344,53 @@ class DiscoveryQuery(models.Model):
         """
         flag = " (exhausted)" if self.exhausted else ""
         return f"{describe_filters(self.to_filters())} @{self.offset}{flag}"
+
+
+class EmptyClauseSet(models.Model):
+    """A **multi-clause** conjunction Lead Finder matches nobody with.
+
+    Written by a descent probe that came back empty, and read as a pruning rule:
+    **a candidate is dead iff some recorded set is a subset of it.** That is
+    anti-monotone — a superset of an empty conjunction is empty — so one dry probe
+    retires a sublattice without another call, and a conjunction is never probed
+    twice.
+
+    **The unit is the whole set, and never a clause inside it.** An empty
+    conjunction convicts nothing smaller than itself: ``lead_department: Sales``
+    is honored and returns rows on its own, yet sat in six 0-row conjunctions.
+    Blaming its clauses would delete ``Sales`` from every campaign's pool on
+    evidence that says nothing about it — the "department is poison" error,
+    automated. A clause is only ever retired by its *own* singleton probe, which
+    is sound and lives on ``Clause.is_live``; that is also why the ``k=1`` case
+    never lands here.
+
+    **Only emptiness lands here — never a barren yield.** A conjunction whose
+    leads all get rejected is a verdict about *the people in that window*, not
+    about whether the query matches anybody, and yield propagates in neither
+    direction: a node whose window is all-Meta can have a refinement whose window
+    is gold. So a wall must never write a row here — it retires nothing. See the
+    roadmap card ``p2-e3-discovery-query-graph-search``.
+
+    **Global, with no campaign FK** — the same argument as ``Clause``. Emptiness
+    is a fact about the provider's index, not about a campaign: a conjunction that
+    matches nobody matches nobody whoever asks. So one campaign's probes prune
+    every campaign's lattice, free.
+    """
+
+    clauses = models.ManyToManyField(Clause, related_name="empty_sets")
+    # sha256 of the canonicalized clause set — the identity key, for the same
+    # reason ``DiscoveryQuery`` carries one: no unique constraint can span an M2M.
+    clause_key = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Empty Clause Set"
+        verbose_name_plural = "Empty Clause Sets"
+
+    def __str__(self):
+        return f"{describe_filters(filters_for(self.clause_pairs))} → nothing"
+
+    @property
+    def clause_pairs(self) -> list[tuple[str, str]]:
+        """This set's clauses as sorted ``(family, value)`` pairs."""
+        return sorted(self.clauses.values_list("family", "value"))

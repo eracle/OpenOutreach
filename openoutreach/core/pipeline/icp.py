@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from termcolor import colored
 
 from openoutreach.core.conf import PROMPTS_DIR
+from openoutreach.core.models import Clause
 from openoutreach.discovery import LEAD_SENIORITIES, Seniority, describe_clauses
 
 logger = logging.getLogger(__name__)
@@ -50,25 +51,55 @@ class ICPSpec(BaseModel):
     country_code: str = ""
 
 
+# The ICP's multi-value families — the ones a descent has something to vary. The
+# headcount bounds are deliberately absent: each is a single number, so they ride
+# every conjunction unchanged (see ``_pool_clauses``).
+_VARYING_FAMILIES = (
+    ("lead_job_title", "job_titles"),
+    ("lead_seniority", "seniorities"),
+    ("lead_location", "locations"),
+)
+
+
 def _seed_conjunction(spec: ICPSpec) -> list[tuple[str, str]]:
     """Compose the seed's clause set — the LLM's top pick in each family.
 
     Taking the first value per family takes the model's own ranking at face value,
     which is the only prior a cold start has. The remaining values are dropped
-    rather than ORed in, because an OR would collapse their windows into one.
+    rather than ORed in, because an OR would collapse their windows into one — they
+    are kept as the campaign's *pool* instead (``_pool_clauses``), where the descent
+    composes them into further conjunctions one at a time.
     """
     clauses = [
         ("company_headcount_min", str(spec.headcount_min)),
         ("company_headcount_max", str(spec.headcount_max)),
     ]
-    for family, values in (
-        ("lead_job_title", spec.job_titles),
-        ("lead_seniority", spec.seniorities),
-        ("lead_location", spec.locations),
-    ):
+    for family, attr in _VARYING_FAMILIES:
+        values = getattr(spec, attr)
         if values:
             clauses.append((family, values[0]))
     return sorted(clauses)
+
+
+def _pool_clauses(spec: ICPSpec) -> list[tuple[str, str]]:
+    """Every candidate clause the ICP produced — the campaign's clause pool.
+
+    The seed is one point in the lattice this spans; the descent walks the rest
+    without another LLM call. That is the whole point of keeping them: the model
+    hands back 5 job titles, the seed can carry exactly one, and the other 4 used
+    to be dropped on the floor and re-invented at the next wall.
+
+    The headcount bounds are included with their single value each, so they appear
+    in every conjunction the descent composes and never vary — a size band is this
+    campaign's ICP, not a knob to search.
+    """
+    clauses = [
+        ("company_headcount_min", str(spec.headcount_min)),
+        ("company_headcount_max", str(spec.headcount_max)),
+    ]
+    for family, attr in _VARYING_FAMILIES:
+        clauses.extend((family, value) for value in getattr(spec, attr))
+    return sorted(set(clauses))
 
 
 def generate_seed(campaign) -> list[tuple[str, str]]:
@@ -103,11 +134,14 @@ def generate_seed(campaign) -> list[tuple[str, str]]:
     if not clauses:
         return []
 
+    pool = _pool_clauses(spec)
+    campaign.clauses.set(Clause.rows_for(pool))
+
     country_code = spec.country_code.lower()
     if country_code and campaign.country_code != country_code:
         campaign.country_code = country_code
         campaign.save(update_fields=["country_code"])
-    logger.info("[%s] %s: %s", campaign,
+    logger.info("[%s] %s: %s (pool: %d clause(s))", campaign,
                 colored("discovery seed", "cyan", attrs=["bold"]),
-                colored(describe_clauses(clauses), "cyan"))
+                colored(describe_clauses(clauses), "cyan"), len(pool))
     return clauses

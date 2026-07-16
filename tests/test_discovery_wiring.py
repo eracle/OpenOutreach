@@ -11,7 +11,8 @@ import numpy as np
 from openoutreach.core.db.leads import create_lead
 from openoutreach.core.models import DiscoveryQuery
 from openoutreach.core.pipeline.discover import discover
-from openoutreach.core.pipeline.frontier import _clauses_for, clause_key
+from openoutreach.core.models import Clause
+from openoutreach.core.pipeline.frontier import clause_key
 from openoutreach.core.pipeline.icp import ICPSpec, _seed_conjunction, generate_seed
 
 
@@ -27,7 +28,7 @@ def _node(campaign, clauses, offset=0):
     node = DiscoveryQuery.objects.create(
         campaign=campaign, clause_key=clause_key(clauses), offset=offset,
     )
-    node.clauses.set(_clauses_for(clauses))
+    node.clauses.set(Clause.rows_for(clauses))
     return node
 
 
@@ -219,6 +220,36 @@ class TestICP:
         seed = dict(_seed_conjunction(spec))
         assert seed["lead_job_title"] == "CMO"
         assert seed["lead_location"] == "Germany"
+
+    def test_the_pool_keeps_every_value_the_seed_could_not_carry(self, db):
+        # The seed takes one title and the other two are what the descent composes
+        # the *next* conjunctions from. They used to be dropped on the floor and
+        # re-invented by an LLM call at every wall.
+        campaign = _campaign()
+        spec = ICPSpec(job_titles=["CMO", "CTO", "Founder"], locations=["Germany", "Italy"],
+                       headcount_min=1, headcount_max=50)
+        with _icp_returns(spec), patch("openoutreach.core.llm.get_llm_model"), \
+             patch("pydantic_ai.Agent"):
+            generate_seed(campaign)
+
+        assert set(campaign.clauses.values_list("family", "value")) == {
+            ("company_headcount_min", "1"), ("company_headcount_max", "50"),
+            ("lead_job_title", "CMO"), ("lead_job_title", "CTO"),
+            ("lead_job_title", "Founder"),
+            ("lead_location", "Germany"), ("lead_location", "Italy"),
+        }
+
+    def test_the_pool_leaves_every_clause_unprobed(self, db):
+        # NULL is "nobody has looked", which is what licenses the descent's sweep.
+        # A pool that defaulted to live would skip the sweep and let `Europe` poison
+        # query after query; one that defaulted to dead would prune the ICP unread.
+        campaign = _campaign()
+        with _icp_returns(ICPSpec(job_titles=["CMO"])), \
+             patch("openoutreach.core.llm.get_llm_model"), patch("pydantic_ai.Agent"):
+            generate_seed(campaign)
+
+        assert campaign.clauses.exists()
+        assert not campaign.clauses.exclude(is_live=None).exists()
 
     def test_seed_carries_no_inert_family(self):
         # lead_industry rode every seed while doing nothing (probed 2026-07-16:

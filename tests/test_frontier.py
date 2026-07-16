@@ -8,7 +8,7 @@ steered by counted deals, not by a GP prediction. If a stub ever needs to come
 back, something has started reading the model again."""
 from unittest.mock import patch
 
-from openoutreach.core.models import Campaign, DiscoveryQuery
+from openoutreach.core.models import Campaign, Clause, DiscoveryQuery
 from openoutreach.core.pipeline import frontier
 from openoutreach.crm.models import Deal, DealState, Lead, Outcome
 
@@ -26,7 +26,7 @@ def _node(campaign, clauses, offset=0, exhausted=False):
         campaign=campaign, clause_key=frontier.clause_key(clauses),
         offset=offset, exhausted=exhausted,
     )
-    node.clauses.set(frontier._clauses_for(clauses))
+    node.clauses.set(Clause.rows_for(clauses))
     return node
 
 
