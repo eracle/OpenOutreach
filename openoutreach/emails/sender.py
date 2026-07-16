@@ -61,9 +61,12 @@ def _build_message(mailbox, to_address, subject, body, bcc, in_reply_to, referen
     return message
 
 
-def _sign(body: str, signature: str) -> str:
-    """Append the mailbox's sign-off, separated by a blank line. Blank ⇒ body unchanged."""
-    signature = signature.strip()
+def _sign(body: str, signature: str | None) -> str:
+    """Append the mailbox's sign-off, separated by a blank line.
+
+    Declined ("") or never asked (None) ⇒ body unchanged.
+    """
+    signature = (signature or "").strip()
     if not signature:
         return body
     return f"{body.rstrip()}\n\n{signature}\n"

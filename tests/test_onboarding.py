@@ -57,8 +57,6 @@ def test_mailbox_retry_retains_values_and_stores_one_box():
              "a@b.com", "pw2", "smtp.h", "imap.h"]   # attempt 2 (auth ok)
     with patch("openoutreach.core.onboarding.wiz.text", side_effect=texts) as text, \
          patch("openoutreach.core.onboarding.wiz.integer", side_effect=[587, 993, 587, 993]), \
-         patch("openoutreach.core.onboarding.wiz.multiline",
-               side_effect=["Eracle", "Eracle"]) as multiline, \
          patch("openoutreach.core.onboarding.wiz.confirm", return_value=False), \
          patch("openoutreach.emails.smtp.verify_auth",
                side_effect=[(False, "auth rejected (535)"), (True, "ok")]):
@@ -67,12 +65,11 @@ def test_mailbox_retry_retains_values_and_stores_one_box():
     # Exactly one box, stored only on the successful attempt.
     assert Mailbox.objects.count() == 1
     assert Mailbox.objects.get().from_address == "a@b.com"
-    assert Mailbox.objects.get().signature == "Eracle"
+    # Never asked yet — the signature step owns that prompt.
+    assert Mailbox.objects.get().signature is None
     # The retry re-seeded the host field with what was typed the first time.
     host_prompts = [c for c in text.call_args_list if c.args and c.args[0].startswith("SMTP host")]
     assert host_prompts[1].kwargs["default"] == "smtp.h"
-    # …and the signature likewise, so a rejected auth doesn't cost a retyped sign-off.
-    assert multiline.call_args_list[1].kwargs["default"] == "Eracle"
 
 
 @pytest.mark.django_db
@@ -89,6 +86,69 @@ def test_mailbox_cancel_without_box_aborts():
     with patch("openoutreach.core.onboarding.wiz.text", return_value=None):
         with pytest.raises(SystemExit):
             onboarding._run_mailbox()
+
+
+# ── Signature step ───────────────────────────────────────────────
+
+def _box(address: str, signature=None):
+    from openoutreach.emails.models import Mailbox
+
+    return Mailbox.objects.create(
+        username=address, from_address=address, password="p", signature=signature,
+    )
+
+
+@pytest.mark.django_db
+def test_signature_asked_once_per_never_asked_box():
+    """Every NULL box is asked and persisted, including pre-signature boxes."""
+    _box("a@b.com")
+    _box("c@d.com")
+    with patch("openoutreach.core.onboarding.wiz.multiline",
+               side_effect=["Eracle", "Someone Else"]) as multiline:
+        onboarding._run_signature()
+
+    from openoutreach.emails.models import Mailbox
+    assert Mailbox.objects.get(from_address="a@b.com").signature == "Eracle"
+    assert Mailbox.objects.get(from_address="c@d.com").signature == "Someone Else"
+    # Each box is named in its own prompt, so a two-box operator can tell them apart.
+    assert "a@b.com" in multiline.call_args_list[0].args[0]
+    assert onboarding._signature_done()
+
+
+@pytest.mark.django_db
+def test_declining_sticks_and_is_never_asked_again():
+    """The regression: "" must not be re-asked, or declining costs a prompt a day."""
+    _box("a@b.com")
+    with patch("openoutreach.core.onboarding.wiz.multiline", return_value=""):
+        onboarding._run_signature()
+
+    from openoutreach.emails.models import Mailbox
+    assert Mailbox.objects.get().signature == ""
+    assert onboarding._signature_done()  # done, despite being blank
+
+    with patch("openoutreach.core.onboarding.wiz.multiline",
+               side_effect=AssertionError("re-asked a declined box")):
+        onboarding._run_signature()
+
+
+@pytest.mark.django_db
+def test_signature_step_pending_only_while_a_box_is_unasked():
+    assert onboarding._signature_done()  # no boxes at all
+    _box("a@b.com")
+    assert not onboarding._signature_done()
+    _box("c@d.com", signature="Eracle")
+    assert not onboarding._signature_done()  # the NULL box still pends
+
+
+@pytest.mark.django_db
+def test_signature_cancel_aborts_without_persisting():
+    _box("a@b.com")
+    with patch("openoutreach.core.onboarding.wiz.multiline", return_value=None):
+        with pytest.raises(SystemExit):
+            onboarding._run_signature()
+
+    from openoutreach.emails.models import Mailbox
+    assert Mailbox.objects.get().signature is None  # still unasked — retried next run
 
 
 # ── Account step ─────────────────────────────────────────────────

@@ -237,15 +237,16 @@ _MAILBOX_GUIDANCE = """
 
 _MAILBOX_DEFAULTS = {
     "from_address": "", "host": "smtp.gmail.com", "port": 587,
-    "imap_host": "imap.gmail.com", "imap_port": 993, "signature": "",
+    "imap_host": "imap.gmail.com", "imap_port": 993,
 }
 
-# Shown as the signature prompt. The example is a real, working signature — a
-# cold lead's first instinct is to check who wrote, so it leads with a LinkedIn
-# profile rather than a title.
-_SIGNATURE_PROMPT = """Email signature — appended to every email this mailbox sends, opener and
-  follow-ups alike. The agent never signs its own drafts, so this is the only
-  sign-off your leads see. Optional — Ctrl+D on an empty line for none.
+# Shown as the signature prompt, once per never-asked box. The example is a real,
+# working signature — a cold lead's first instinct is to check who wrote, so it
+# leads with a LinkedIn profile rather than a title.
+_SIGNATURE_PROMPT = """Email signature for {address} — appended to every email this mailbox
+  sends, opener and follow-ups alike. The agent never signs its own drafts, so
+  this is the only sign-off your leads see. Optional — Ctrl+D on an empty line
+  for none (you won't be asked again).
 
   Example:
 
@@ -305,10 +306,31 @@ def _prompt_mailbox_fields(entry: dict) -> dict:
         "port": _required(wiz.integer("SMTP port (587 STARTTLS / 465 SSL)", default=entry["port"])),
         "imap_host": _required(wiz.text("IMAP host (Enter = Gmail/Workspace)", default=entry["imap_host"])),
         "imap_port": _required(wiz.integer("IMAP port", default=entry["imap_port"])),
-        "signature": _required(wiz.multiline(
-            _SIGNATURE_PROMPT, default=entry["signature"], required=False,
-        )),
     }
+
+
+# ── Signature: one sign-off per mailbox, asked once ───────────────
+
+def _signature_done() -> bool:
+    from openoutreach.emails.models import Mailbox
+
+    return not Mailbox.objects.filter(signature__isnull=True).exists()
+
+
+def _run_signature() -> None:
+    """Ask every never-asked box for its sign-off, persisting each as it lands.
+
+    Keyed on NULL rather than emptiness, so declining ("") sticks and the box is
+    never asked again. Backfills boxes connected before signatures existed as
+    well as ones the mailbox step just created.
+    """
+    from openoutreach.emails.models import Mailbox
+
+    for box in Mailbox.objects.filter(signature__isnull=True):
+        box.signature = _required(wiz.multiline(
+            _SIGNATURE_PROMPT.format(address=box.from_address), required=False,
+        ))
+        box.save(update_fields=["signature"])
 
 
 # ── BetterContact: powers discovery + enrichment (mandatory) ──────
@@ -473,6 +495,7 @@ STEPS: list[Step] = [
     Step("campaign", _campaign_done, _run_campaign),
     Step("llm", _llm_done, _run_llm),
     Step("mailbox", _mailbox_done, _run_mailbox),
+    Step("signature", _signature_done, _run_signature),
     Step("bettercontact", _bettercontact_done, _run_bettercontact),
     Step("account", _account_done, _run_account),
 ]

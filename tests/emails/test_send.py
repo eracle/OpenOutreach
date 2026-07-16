@@ -170,7 +170,7 @@ class TestSendEmailBcc:
 
 
 class TestSendEmailSignature:
-    def _sent_body(self, signature: str) -> str:
+    def _sent_body(self, signature: str | None) -> str:
         box = Mailbox(
             username="s@infra.com", password="pw", from_address="s@infra.com",
             signature=signature,
@@ -185,6 +185,10 @@ class TestSendEmailSignature:
 
     def test_body_unchanged_when_signature_blank(self):
         assert self._sent_body("") == "Body\n"
+
+    def test_body_unchanged_when_signature_unset(self):
+        """A never-asked box (NULL) sends unsigned rather than crashing on None."""
+        assert self._sent_body(None) == "Body\n"
 
 
 # ── handle_email (the EMAIL task) ─────────────────────────────────

@@ -35,7 +35,6 @@ class MailboxManager(models.Manager):
         port: int,
         imap_host: str,
         imap_port: int,
-        signature: str = "",
         daily_limit: int = DEFAULT_EMAIL_DAILY_LIMIT,
     ) -> tuple["Mailbox | None", str]:
         """Auth-check a mailbox over SMTP, then store it — the connect gate.
@@ -61,7 +60,6 @@ class MailboxManager(models.Manager):
                 "port": port,
                 "imap_host": imap_host,
                 "imap_port": imap_port,
-                "signature": signature,
                 "daily_limit": daily_limit,
             },
         )
@@ -94,7 +92,10 @@ class Mailbox(models.Model):
     # follow-ups alike). Per box, not global: the signature is part of the sending
     # identity, and a second box is usually a second identity. The email agent is
     # told never to sign (prompts/_outreach_base.j2), so this is the only sign-off.
-    signature = models.TextField(blank=True, default="")
+    # NULL and "" are distinct: NULL means never asked (the onboarding signature
+    # step backfills those), "" means the operator declined one and must stick —
+    # collapsing them would re-ask a declining operator on every startup.
+    signature = models.TextField(blank=True, null=True, default=None)
     # Warm-safe sends/day for this box, set at email onboarding. Enforced at
     # send time, per box (counts this box's outgoing messages since midnight).
     daily_limit = models.PositiveIntegerField(default=DEFAULT_EMAIL_DAILY_LIMIT)
