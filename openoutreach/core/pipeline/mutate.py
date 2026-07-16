@@ -65,19 +65,20 @@ class _SeniorityFilter(BaseModel):
 class _Filters(BaseModel):
     """The Lead Finder filter families a mutation may vary.
 
-    Typed rather than a bare dict on purpose: Lead Finder answers an unknown key
-    or value with an **empty page, not an error**, and the frontier reads an empty
-    page as end-of-depth — so a hallucinated filter would silently mark a healthy
-    query line exhausted. Only families the Req-2 probe cleared appear here.
+    Typed rather than a bare dict on purpose: the **field names** are the contract,
+    and an unknown *key* is answered with an empty page rather than an error — which
+    the frontier would read as end-of-depth. Constraining the families in the schema
+    makes that unrepresentable.
 
-    ``lead_department`` and ``lead_function`` are **deliberately excluded**: their
-    real vocabulary is undocumented and unguessable. The published enum values are
-    snake_case and match *nothing*; Title-Casing them works for only 8 of 19
-    functions (``Human Resources`` hits, ``Information Technology`` does not) with
-    no derivable rule, and ``lead_department`` has 197 values with the same defect.
-    A filter we cannot spell correctly is worse than no filter here, because the
-    empty page it returns is indistinguishable from a genuinely dry query. Revisit
-    only if BetterContact publishes the real labels.
+    Only ``lead_seniority`` is a closed vocabulary (its documented levels really do
+    match, so it is a ``Literal``). Every other family is **free text handed to a
+    search engine** — including ``lead_department`` and ``lead_function``, whose
+    published "enum" is fiction: those snake_case values match nothing, while plain
+    labels like ``Sales`` or ``Human Resources`` match fine. A value that matches
+    nothing simply returns an empty page, exactly as an invented industry or skill
+    would; the frontier records that query as dry and moves on, which is correct.
+    So the prompt's job is to supply plausible real-world values, not to be
+    exhaustive.
     """
 
     company_headcount_min: int | None = Field(
@@ -99,6 +100,12 @@ class _Filters(BaseModel):
     lead_skills: _StringFilter | None = Field(
         None, description="Skills the person lists on their own profile, "
                           "e.g. 'negotiation', 'fundraising'.")
+    lead_department: _StringFilter | None = Field(
+        None, description="Department the person sits in, by its plain name, "
+                          "e.g. 'Sales', 'Marketing', 'Human Resources'.")
+    lead_function: _StringFilter | None = Field(
+        None, description="Broad job function the person performs, by its plain name, "
+                          "e.g. 'Sales', 'Operations', 'Legal'.")
 
 
 class _FilterSet(BaseModel):

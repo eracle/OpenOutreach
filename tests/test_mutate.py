@@ -7,9 +7,24 @@ the failure fallback that keeps a failed mutation from losing a landed fetch."""
 import pytest
 from pydantic import ValidationError
 
+from openoutreach import discovery
 from openoutreach.core.models import Campaign, DiscoveryQuery
 from openoutreach.core.pipeline import mutate
 from openoutreach.core.pipeline.frontier import params_hash
+
+
+def _enums_in(schema) -> list[list]:
+    """Every `enum` list anywhere in a JSON schema, at any nesting depth."""
+    found = []
+    if isinstance(schema, dict):
+        if "enum" in schema:
+            found.append(schema["enum"])
+        for value in schema.values():
+            found += _enums_in(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            found += _enums_in(value)
+    return found
 
 
 def _campaign():
@@ -65,6 +80,20 @@ class TestFilterSchema:
             "lead_skills": {"include": ["negotiation"]},
         }
 
+    def test_department_and_function_are_free_text_not_enums(self):
+        # Lead Finder matches these against a search index, so their published
+        # "enum" is not binding — plain labels are what actually match. A value
+        # that matches nothing just returns an empty page, as for any free-text
+        # family, so the schema must not constrain them.
+        filters = mutate._Filters(
+            lead_department={"include": ["Sales"]},
+            lead_function={"include": ["Human Resources"]},
+        )
+        assert filters.model_dump(exclude_none=True) == {
+            "lead_department": {"include": ["Sales"]},
+            "lead_function": {"include": ["Human Resources"]},
+        }
+
     def test_unset_families_drop_out(self):
         filters = mutate._Filters(lead_location={"include": ["Italy"]})
         assert filters.model_dump(exclude_none=True) == {"lead_location": {"include": ["Italy"]}}
@@ -73,10 +102,13 @@ class TestFilterSchema:
         # frontier.next_query treats {} as "no new region" and returns None.
         assert mutate._Filters().model_dump(exclude_none=True) == {}
 
-    def test_vocabulary_reaches_the_model_json_schema(self):
-        schema = str(mutate._FilterSet.model_json_schema())
-        assert "mid-level" in schema
-        assert "other" not in schema
+    def test_seniority_vocabulary_reaches_the_model_json_schema(self):
+        # Assert on the emitted enum itself, not a substring of the whole schema —
+        # prose in a docstring lands in the schema's descriptions and would make a
+        # naive text search lie.
+        enums = _enums_in(mutate._FilterSet.model_json_schema())
+        assert list(discovery.LEAD_SENIORITIES) in enums
+        assert not any("other" in e for e in enums)
 
 
 class TestGeneratorInterface:

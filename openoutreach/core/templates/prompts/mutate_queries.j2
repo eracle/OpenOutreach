@@ -17,7 +17,7 @@ You are a B2B go-to-market analyst tuning a lead-search campaign. Propose ONE ne
 Return a single filter set we have NOT tried. Set only the fields that define the region you are opening — leave the rest unset. Each field's meaning is described in the output schema.
 
 Rules:
-- Favor a NEW title / industry / location / seniority / technology / skill over re-paginating a set we already tried.
-- **Use only real-world values that a lead database would actually hold** — real product names for `company_technology`, real skill names for `lead_skills`, real industries and places. These fields accept any text, so an invented or misspelled value is not rejected: it simply matches ZERO leads, and we misread that as a dead region and stop searching it.
+- Favor a NEW title / industry / location / seniority / technology / skill / department / function over re-paginating a set we already tried.
+- **Use only real-world values that a lead database would actually hold** — real product names for `company_technology`, real skill names for `lead_skills`, plain department and function names (`Sales`, `Human Resources`), real industries and places. Every field except `lead_seniority` is free text matched against a search index, so an invented or misspelled value is not rejected — it simply matches ZERO leads and we spend the move for nothing.
 - `accepted_score` is how many of that query's leads the model would accept — higher is better. Explore a variation adjacent to the best-scoring query, and avoid regions that scored 0.
 - Keep the set specific but not so narrow it returns almost nothing.
