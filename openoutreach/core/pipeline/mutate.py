@@ -8,6 +8,14 @@ drains, and a single filter dict is what the model reliably produces. Kept behin
 a small swappable interface (``set_generator``) so the learned cluster→query
 replacement (roadmap Future work) can drop in without touching the frontier.
 
+The proposal is a **typed** output (``_Filters``), not a free dict, because Lead
+Finder answers an unknown key or value with an *empty page rather than an error* —
+which the frontier reads as end-of-depth. Constraining the filter families and the
+seniority vocabulary in the schema makes that class of silent kill unrepresentable;
+the prompt then only has to carry strategy. What the schema still cannot catch is a
+plausible-but-nonexistent *free-form* value (an invented technology or skill), which
+is why the prompt insists on real-world values.
+
 Non-scaling by construction: the prompt lists past queries, so history size is
 the bound — fine for the MVP, and the reason the generator sits behind an
 interface.
@@ -21,6 +29,7 @@ import jinja2
 from pydantic import BaseModel, Field
 
 from openoutreach.core.conf import PROMPTS_DIR
+from openoutreach.discovery import Seniority
 
 logger = logging.getLogger(__name__)
 
@@ -34,10 +43,61 @@ class MutationGenerator(Protocol):
     def __call__(self, campaign) -> dict: ...
 
 
-class _FilterSet(BaseModel):
-    """The LLM's proposed Lead Finder filter dict."""
+class _StringFilter(BaseModel):
+    """An include-list over free-form strings (industry, location, tech, skills)."""
 
-    filters: dict = Field(default_factory=dict)
+    include: list[str] = Field(min_length=1)
+
+
+class _JobTitleFilter(BaseModel):
+    """Job-title include-list; ``exact_match`` off keeps the match fuzzy."""
+
+    include: list[str] = Field(min_length=1)
+    exact_match: bool = False
+
+
+class _SeniorityFilter(BaseModel):
+    """Seniority include-list, constrained to Lead Finder's 12 levels."""
+
+    include: list[Seniority] = Field(min_length=1)
+
+
+class _Filters(BaseModel):
+    """The Lead Finder filter families a mutation may vary.
+
+    Typed rather than a bare dict on purpose: Lead Finder answers an unknown key
+    or value with an **empty page, not an error**, and the frontier reads an empty
+    page as end-of-depth — so a hallucinated filter would silently mark a healthy
+    query line exhausted. Only families the Req-2 probe cleared appear here;
+    ``lead_department``/``lead_function`` are withheld until their Title-Case label
+    vocabulary is confirmed (roadmap *What's next* 2b).
+    """
+
+    company_headcount_min: int | None = Field(
+        None, description="Smallest company size to match, in employees.")
+    company_headcount_max: int | None = Field(
+        None, description="Largest company size to match, in employees.")
+    lead_job_title: _JobTitleFilter | None = Field(
+        None, description="Role titles the person actually holds, e.g. 'Head of Sales'. "
+                          "Plain titles — no boolean syntax.")
+    lead_seniority: _SeniorityFilter | None = Field(
+        None, description="How senior the person is, from a fixed set of levels.")
+    lead_industry: _StringFilter | None = Field(
+        None, description="Industries the target companies operate in.")
+    lead_location: _StringFilter | None = Field(
+        None, description="Geographies to search — countries or regions, e.g. 'United States'.")
+    company_technology: _StringFilter | None = Field(
+        None, description="Technology the company uses, by product name, "
+                          "e.g. 'salesforce', 'hubspot', 'shopify'.")
+    lead_skills: _StringFilter | None = Field(
+        None, description="Skills the person lists on their own profile, "
+                          "e.g. 'negotiation', 'fundraising'.")
+
+
+class _FilterSet(BaseModel):
+    """The LLM's proposed Lead Finder filter set."""
+
+    filters: _Filters = Field(default_factory=_Filters)
 
 
 def _past_query_stats(campaign) -> list[dict]:
@@ -77,7 +137,10 @@ def llm_generate_mutation(campaign) -> dict:
         output_type=_FilterSet,
         model_settings={"temperature": 0.7, "timeout": 60},
     )
-    return run_agent_sync(agent.run(prompt)).output.filters
+    filters = run_agent_sync(agent.run(prompt)).output.filters
+    # Drop the families the model left unset — Lead Finder wants only the keys we
+    # actually filter on, and an all-unset set degrades to {} (== "LLM is dry").
+    return filters.model_dump(exclude_none=True)
 
 
 _generator: MutationGenerator = llm_generate_mutation

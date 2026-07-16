@@ -4,8 +4,11 @@ the embedder, so no network or ONNX model is needed."""
 from unittest.mock import patch
 
 import numpy as np
+import pytest
+from pydantic import ValidationError
 
 from openoutreach import discovery
+from openoutreach.core.pipeline.icp import ICPSpec
 
 
 def _set_key(value):
@@ -14,6 +17,28 @@ def _set_key(value):
     cfg = SiteConfig.load()
     cfg.bettercontact_api_key = value
     cfg.save()
+
+
+class TestSeniorityVocabulary:
+    """`lead_seniority` is the one filter family with a closed vocabulary, and a
+    value outside it returns an empty page instead of an error — so the ICP seed
+    constrains it in the schema. A bad seed is the worst case: it starves the
+    bootstrap phase, which pages the seed until the GP can score."""
+
+    def test_seed_spec_rejects_a_level_lead_finder_does_not_know(self):
+        with pytest.raises(ValidationError):
+            ICPSpec(seniorities=["other"])
+
+    def test_seed_spec_accepts_every_real_level(self):
+        assert ICPSpec(seniorities=list(discovery.LEAD_SENIORITIES)).seniorities == list(
+            discovery.LEAD_SENIORITIES
+        )
+
+    def test_vocabulary_is_derived_from_the_type_so_prompt_and_schema_cannot_drift(self):
+        # The prompts render this tuple; the schema validates the same Literal.
+        assert "mid-level" in discovery.LEAD_SENIORITIES
+        assert "other" not in discovery.LEAD_SENIORITIES
+        assert len(discovery.LEAD_SENIORITIES) == 12
 
 
 class TestSearch:

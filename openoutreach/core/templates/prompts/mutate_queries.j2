@@ -14,15 +14,10 @@ You are a B2B go-to-market analyst tuning a lead-search campaign. Propose ONE ne
 {% endif %}
 
 ## Instructions
-Return a single filter set we have NOT tried, as a JSON object under `filters` using these keys (include only the ones you set):
-
-- **company_headcount_min / company_headcount_max**: int employee band
-- **lead_job_title**: {"include": ["..."], "exact_match": false}
-- **lead_seniority**: {"include": [...]} (from: owner, founder, c_suite, partner, vp, head, director, manager, senior, entry, intern, other)
-- **lead_industry**: {"include": ["..."]}
-- **lead_location**: {"include": ["..."]}
+Return a single filter set we have NOT tried. Set only the fields that define the region you are opening — leave the rest unset. Each field's meaning is described in the output schema.
 
 Rules:
-- Favor a NEW title / industry / location / seniority over re-paginating a set we already tried.
+- Favor a NEW title / industry / location / seniority / technology / skill over re-paginating a set we already tried.
+- **Use only real-world values that a lead database would actually hold** — real product names for `company_technology`, real skill names for `lead_skills`, real industries and places. These fields accept any text, so an invented or misspelled value is not rejected: it simply matches ZERO leads, and we misread that as a dead region and stop searching it.
 - `accepted_score` is how many of that query's leads the model would accept — higher is better. Explore a variation adjacent to the best-scoring query, and avoid regions that scored 0.
 - Keep the set specific but not so narrow it returns almost nothing.

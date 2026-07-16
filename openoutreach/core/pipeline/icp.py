@@ -15,13 +15,19 @@ import jinja2
 from pydantic import BaseModel, Field
 
 from openoutreach.core.conf import PROMPTS_DIR
+from openoutreach.discovery import LEAD_SENIORITIES, Seniority
 
 
 class ICPSpec(BaseModel):
-    """The LLM's provider-agnostic ICP output."""
+    """The LLM's provider-agnostic ICP output.
+
+    ``seniorities`` is typed to Lead Finder's vocabulary, not ``list[str]``: an
+    unknown level returns an empty page rather than an error, which the frontier
+    would misread as the seed drying up. The schema makes that unrepresentable.
+    """
 
     job_titles: list[str] = Field(default_factory=list)
-    seniorities: list[str] = Field(default_factory=list)
+    seniorities: list[Seniority] = Field(default_factory=list)
     industries: list[str] = Field(default_factory=list)
     locations: list[str] = Field(default_factory=list)
     headcount_min: int = 1
@@ -59,6 +65,7 @@ def generate_icp_spec(campaign) -> dict:
     prompt = env.get_template("icp_filters.j2").render(
         product_docs=campaign.product_docs,
         campaign_target=campaign.campaign_target,
+        seniorities=LEAD_SENIORITIES,
     )
 
     agent = Agent(

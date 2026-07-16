@@ -10,7 +10,7 @@ You are a B2B go-to-market analyst. Translate the product and campaign below int
 Produce the firmographic filters that select the people most likely to be a good prospect for this target. Be specific but not so narrow that the search returns almost nothing:
 
 - **job_titles**: 2-6 role titles the buyer/decision-maker actually holds (e.g. "Head of Sales", "Founder"). Plain titles, no boolean syntax.
-- **seniorities**: the seniority levels that fit (from: owner, founder, c_suite, partner, vp, head, director, manager, senior, entry, intern, other).
+- **seniorities**: the seniority levels that fit. Use ONLY these exact values: {{ seniorities|join(", ") }}. Any other value silently matches zero leads.
 - **industries**: 1-4 industries the target companies operate in.
 - **locations**: the geographies to search (countries or regions, e.g. "United States"). Leave empty for no geographic restriction.
 - **headcount_min / headcount_max**: the company-size band, in employees, that fits the target.
