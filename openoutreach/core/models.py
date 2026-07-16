@@ -236,5 +236,13 @@ class DiscoveryQuery(models.Model):
         ]
 
     def __str__(self):
-        flag = " exhausted" if self.exhausted else ""
-        return f"DiscoveryQuery#{self.pk}{flag} offset={self.offset}"
+        """The query itself, not its row id.
+
+        A node *is* its filter set — "node 10" says nothing about what was searched,
+        and these render in logs and admin where the whole question is which region
+        the walk picked.
+        """
+        from openoutreach.discovery import describe_filters
+
+        flag = " (exhausted)" if self.exhausted else ""
+        return f"{describe_filters(self.params)} @{self.offset}{flag}"

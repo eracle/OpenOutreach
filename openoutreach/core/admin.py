@@ -33,15 +33,23 @@ class DiscoveryQueryAdmin(admin.ModelAdmin):
     """
 
     list_display = (
-        "id", "campaign", "offset", "exhausted", "lead_yield",
+        "id", "query", "campaign", "offset", "exhausted", "lead_yield",
         "examined", "qualified", "updated_at",
     )
     list_filter = ("exhausted", "campaign")
     readonly_fields = (
-        "campaign", "params", "params_hash", "offset", "exhausted",
+        "campaign", "query", "params", "params_hash", "offset", "exhausted",
         "lead_yield", "examined", "qualified", "created_at", "updated_at",
     )
     date_hierarchy = "created_at"
+
+    @admin.display(description="query")
+    def query(self, obj):
+        """The filter set, rendered — the raw ``params`` JSON is also on the detail
+        page, but nobody reads a region out of nested include-lists."""
+        from openoutreach.discovery import describe_filters
+
+        return describe_filters(obj.params)
 
     def _stats(self, obj):
         """This node's counts, straight from the frontier's own metric.

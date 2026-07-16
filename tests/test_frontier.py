@@ -110,6 +110,24 @@ class TestPersistAndExhaust:
         assert not other.exhausted             # a different query is untouched
 
 
+# ── readability ──────────────────────────────────────────────────────
+
+class TestNodeRendering:
+    def test_str_names_the_region_not_the_row(self, db):
+        c = _campaign()
+        node = _node(c, {"lead_job_title": {"include": ["Founder", "CTO"]},
+                         "company_headcount_min": 1, "company_headcount_max": 20},
+                     offset=100)
+        # A node IS its filter set; "DiscoveryQuery#10" tells a reader nothing about
+        # what was searched, and these render in logs and admin.
+        assert str(node) == "headcount 1–20 · job_title Founder, CTO @100"
+
+    def test_str_flags_an_exhausted_line(self, db):
+        c = _campaign()
+        node = _node(c, {"lead_location": {"include": ["Japan"]}}, exhausted=True)
+        assert str(node) == "location Japan @0 (exhausted)"
+
+
 # ── the node metric ──────────────────────────────────────────────────
 
 class TestNodeStats:
