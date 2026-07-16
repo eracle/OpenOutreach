@@ -239,7 +239,16 @@ requirements; data persists in a volume at `/app/data`.
 ## CI/CD
 
 - `tests.yml` — pytest on push / PRs.
-- `deploy.yml` — on `v*` tags: build + push to `ghcr.io/eracle/openoutreach` (tags `latest`, `sha-<commit>`, semver).
+- `deploy.yml` — **on every push to `main`**, and on `v*` tags. Runs `make docker-test`, then builds
+  + pushes `ghcr.io/eracle/openoutreach`, then fires a `repository-dispatch` (`image-updated`) at
+  `eracle/hub.openoutreach.app`. Image tags: `latest` (default branch only), `sha-<commit>`, and
+  semver (`v*` tags only).
+
+  **There is no release gate.** Merging to `main` republishes `:latest` — so code and **schema
+  migrations reach anyone pulling `latest` on merge, not on a tag**. No `v*` tag has ever been cut,
+  so no semver tag exists and there is nothing pinned to roll back to. `sha-<commit>` tags only the
+  **pushed tip**: commits buried inside a multi-commit push never get their own image, so a
+  migration can go from unpublished to live in one push.
 
 ## Dependencies
 
