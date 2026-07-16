@@ -130,16 +130,31 @@ def _past_query_stats(campaign) -> list[dict]:
     Every persisted node is a fetched query (the walk stores only fetched pages),
     so the LLM sees exactly what we have already tried and how it paid — its cue to
     propose something genuinely new.
+
+    Each row carries **three counts, never collapsed into one score**, because their
+    zeros mean different things and only one of them is evidence against a region:
+    ``n_leads = 0`` is a query the index has nothing for; ``qualified = 0`` over
+    ``examined > 0`` is a real region full of the wrong people; ``examined = 0`` is
+    nobody having looked yet, which licenses no conclusion at all. Collapsing them is
+    how a region gets written off for having a bad *view* rather than being empty.
     """
     from openoutreach.core.models import DiscoveryQuery
+    from openoutreach.core.pipeline.frontier import NodeStats, node_stats
 
     nodes = (
         DiscoveryQuery.objects
         .filter(campaign=campaign)
         .order_by("-updated_at")[:PAST_QUERY_LIMIT]
     )
+    stats = node_stats(campaign)
     return [
-        {"params": n.params, "offset": n.offset, "score": n.score, "n_leads": n.leads.count()}
+        {
+            "params": n.params,
+            "offset": n.offset,
+            "n_leads": n.leads.count(),
+            "examined": stats.get(n.pk, NodeStats(0, 0)).examined,
+            "qualified": stats.get(n.pk, NodeStats(0, 0)).qualified,
+        }
         for n in nodes
     ]
 

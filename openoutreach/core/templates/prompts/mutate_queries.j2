@@ -8,7 +8,7 @@ You are a B2B go-to-market analyst tuning a lead-search campaign. Propose ONE ne
 
 ## Queries already tried (with measured value)
 {% if past_queries %}{% for q in past_queries %}
-- filters={{ q.params }} | offset={{ q.offset }} | leads={{ q.n_leads }} | accepted_score={{ q.score }}{% endfor %}
+- filters={{ q.params }} | offset={{ q.offset }} | leads={{ q.n_leads }} | examined={{ q.examined }} | qualified={{ q.qualified }}{% endfor %}
 {% else %}
 (none yet)
 {% endif %}
@@ -20,5 +20,9 @@ Rules:
 - Favor a NEW title / country / seniority / department / function over re-paginating a set we already tried.
 - **Use only real-world values that a lead database would actually hold** — plain department and function names (`Sales`, `Marketing`, `Human Resources`), real job titles, and real COUNTRY names. Every field except `lead_seniority` is free text matched against a search index, so an invented or misspelled value is not rejected — it simply matches ZERO leads and we spend the move for nothing.
 - `lead_location` takes **countries**, never regions. `Europe`, `EMEA` and `Eastern Europe` match zero leads and kill the whole query.
-- `accepted_score` is how many of that query's leads the model would accept — higher is better. Explore a variation adjacent to the best-scoring query, and avoid regions that scored 0.
+- Read the counts carefully — they are three different verdicts:
+  - `leads=0` — the index holds nobody for that filter set. Avoid the combination, and suspect a value it doesn't recognise (an invented region, a made-up department).
+  - `qualified=0` with `examined>0` — those people exist but are the wrong fit. Move away from that region.
+  - `examined=0` — nobody has reviewed those leads yet. This says NOTHING about the region; do not treat it as a failure.
+- Move toward what the `qualified` counts reward: a variation adjacent to the queries that actually produced qualified leads.
 - Keep the set specific but not so narrow it returns almost nothing.

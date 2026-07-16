@@ -31,22 +31,30 @@ def _campaign():
     return Campaign.objects.create(name="C", product_docs="widgets", campaign_target="demos")
 
 
-def _node(c, params, offset=0, score=None):
+def _node(c, params, offset=0):
     return DiscoveryQuery.objects.create(
-        campaign=c, params=params, params_hash=params_hash(params),
-        offset=offset, score=score,
+        campaign=c, params=params, params_hash=params_hash(params), offset=offset,
     )
 
 
 class TestPastQueryStats:
-    def test_reports_every_fetched_node_with_value(self, db):
+    def test_reports_every_fetched_node_with_its_counts(self, db):
+        from openoutreach.crm.models import Deal, DealState, Lead, Outcome
+
         c = _campaign()
-        _node(c, {"a": 1}, score=3)
-        _node(c, {"b": 1}, offset=100, score=0)
-        stats = mutate._past_query_stats(c)
-        assert {s["params"]["a"] if "a" in s["params"] else s["params"]["b"] for s in stats} == {1}
-        assert {s["score"] for s in stats} == {3, 0}
+        paid = _node(c, {"a": 1})
+        for tag, state, outcome in (("a1", DealState.QUALIFIED, ""),
+                                    ("a2", DealState.FAILED, Outcome.WRONG_FIT)):
+            lead = Lead.objects.create(profile_url=f"https://x/{tag}/", discovered_by=paid)
+            Deal.objects.create(lead=lead, campaign=c, state=state, outcome=outcome)
+        unseen = _node(c, {"b": 1}, offset=100)
+        Lead.objects.create(profile_url="https://x/b1/", discovered_by=unseen)
+
+        stats = {tuple(s["params"].items())[0][0]: s for s in mutate._past_query_stats(c)}
         assert len(stats) == 2
+        assert (stats["a"]["n_leads"], stats["a"]["examined"], stats["a"]["qualified"]) == (2, 2, 1)
+        # discovered but never ruled on — the LLM must see 0 examined, not 0 qualified
+        assert (stats["b"]["n_leads"], stats["b"]["examined"], stats["b"]["qualified"]) == (1, 0, 0)
 
 
 class TestFilterSchema:

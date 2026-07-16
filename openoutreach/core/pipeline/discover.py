@@ -7,8 +7,11 @@ browserless. The qualify chain calls ``discover`` whenever its candidate pool ru
 dry; each call fetches the single most promising query — the deeper page of a
 productive vein, or a fresh region when the current ones stop paying — so
 successive calls steer toward the region of the query space that feeds
-qualification best. See ``frontier.py`` and the roadmap card
-``p2-e3-discovery-query-graph-search``.
+qualification best.
+
+The move takes no qualifier: what a query region is worth is measured from the
+deals its leads earned, not predicted by the GP. See ``frontier.py`` and the roadmap
+card ``p2-e3-discovery-query-graph-search``.
 """
 from __future__ import annotations
 
@@ -30,14 +33,13 @@ def _move(name: str) -> str:
     return colored(name, _MOVE_COLORS.get(name, "white"), attrs=["bold"])
 
 
-def discover(session, qualifier) -> int:
+def discover(session) -> int:
     """Fetch one query's page and persist its first-touch Leads. Returns the count.
 
-    One move: re-rank the fetched nodes against the current GP, then ask the
-    frontier for the next query (generating the ICP seed on a cold start) and fetch
-    its Lead Finder page. A page with rows is persisted (leads first-touch-stamped
-    via ``Lead.discovered_by``) and the count returned. An **empty page** marks
-    that ``params`` exhausted and the move
+    One move: ask the frontier for the next query (generating the ICP seed on a cold
+    start) and fetch its Lead Finder page. A page with rows is persisted (leads
+    first-touch-stamped via ``Lead.discovered_by``) and the count returned. An
+    **empty page** marks that ``params`` exhausted and the move
     retries the next-best query — deepening drains a finite set of veins, and a
     freshly walled region that comes back empty ends the move.
 
@@ -62,11 +64,10 @@ def discover(session, qualifier) -> int:
         return 0
 
     logger.info(colored("▶ discover", "blue", attrs=["bold"]))
-    frontier.rerank(campaign, qualifier)
 
     walled = False
     while True:
-        query = frontier.next_query(campaign, qualifier)
+        query = frontier.next_query(campaign)
         if query is None:
             return 0
         if query.move == "wall" and walled:

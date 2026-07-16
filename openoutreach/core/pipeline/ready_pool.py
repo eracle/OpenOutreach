@@ -27,29 +27,19 @@ logger = logging.getLogger(__name__)
 def acceptance_threshold() -> float:
     """The GP confidence a lead's P(f>0.5) must clear to be worth a paid lookup.
 
-    One definition, shared by the promotion gate (QUALIFIED → READY_TO_FIND_EMAIL)
-    and the discovery frontier (which scores a query node by how many of its leads
-    would clear this same gate). Tunable via ``CAMPAIGN_CONFIG["min_gp_confidence"]``.
+    The **spend gate, and nothing else** — one lead, one credit, one question: is
+    the model confident enough to pay for this address? Tunable via
+    ``CAMPAIGN_CONFIG["min_gp_confidence"]``.
+
+    The discovery frontier used to borrow it to score query nodes ("how many of this
+    query's leads would we pay for?"). That was a category error and it broke the
+    walk: calibrated against *labelled* leads the GP has memorized, the bar is
+    unreachable for the unlabelled candidates a node is made of, so every node scored
+    zero and discovery read a permanent wall. The frontier now scores on ground truth
+    and never asks. Keep it that way — see ``pipeline/frontier.py`` and the roadmap
+    card ``p2-e3-discovery-query-graph-search``.
     """
     return CAMPAIGN_CONFIG["min_gp_confidence"]
-
-
-def count_accepted(qualifier: BayesianQualifier, embeddings: np.ndarray,
-                   threshold: float | None = None) -> int | None:
-    """How many of ``embeddings`` clear the GP acceptance gate (P(f>0.5) > threshold).
-
-    The frontier's per-node score: the number of a query's leads the GP would
-    accept for the paid pipeline. Returns None on cold start (GP not fitted).
-    """
-    if threshold is None:
-        threshold = acceptance_threshold()
-    X = np.asarray(embeddings, dtype=np.float64)
-    if X.size == 0:
-        return 0
-    probs = qualifier.predict_probs(X)
-    if probs is None:
-        return None
-    return int(np.count_nonzero(probs > threshold))
 
 
 def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) -> int:

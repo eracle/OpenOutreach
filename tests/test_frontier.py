@@ -1,17 +1,16 @@
 # tests/test_frontier.py
 """Discovery frontier — the lazy best-first walk over DiscoveryQuery nodes:
-params identity + dedup, seeding, per-move re-rank/scoring, the
+params identity + dedup, seeding, the ground-truth node metric, the
 bootstrap/deepen/wall selector, node persistence, and reactive exhaustion.
 
-The qualifier is stubbed at its ``class_counts`` / ``predict_probs`` boundary so
-these tests never fit a GP."""
-from unittest.mock import MagicMock, patch
+No qualifier appears anywhere in this file, and that is the point: the walk is
+steered by counted deals, not by a GP prediction. If a stub ever needs to come
+back, something has started reading the model again."""
+from unittest.mock import patch
 
-import numpy as np
-
-from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.core.models import Campaign, DiscoveryQuery
 from openoutreach.core.pipeline import frontier
+from openoutreach.crm.models import Deal, DealState, Lead, Outcome
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -22,38 +21,31 @@ def _campaign(**kw):
     return Campaign.objects.create(**defaults)
 
 
-def _node(campaign, params, offset=0, score=None, exhausted=False):
+def _node(campaign, params, offset=0, exhausted=False):
     return DiscoveryQuery.objects.create(
         campaign=campaign, params=params, params_hash=frontier.params_hash(params),
-        offset=offset, score=score, exhausted=exhausted,
+        offset=offset, exhausted=exhausted,
     )
 
 
-def _lead(campaign, node, emb):
-    """A first-touch lead for ``node`` carrying a 384-dim embedding."""
-    from openoutreach.crm.models import Lead
-
-    vec = np.zeros(384, dtype=np.float32)
-    vec[0] = emb
+def _lead(node, tag):
+    """A first-touch lead for ``node``."""
     return Lead.objects.create(
-        profile_url=f"https://x/{node.pk}-{emb}/", discovered_by=node,
-        embedding=vec.tobytes(),
+        profile_url=f"https://x/{node.pk}-{tag}/", discovered_by=node,
     )
 
 
-def _explore_qualifier():
-    """Pre-exploit: negatives do NOT outnumber positives."""
-    q = MagicMock(spec=BayesianQualifier)
-    q.class_counts = (0, 0)
-    return q
+def _examined(campaign, node, tag, *, state=DealState.QUALIFIED, outcome=""):
+    """A lead of ``node`` the LLM has ruled on — i.e. one carrying a Deal."""
+    return Deal.objects.create(
+        lead=_lead(node, tag), campaign=campaign, state=state, outcome=outcome,
+    )
 
 
-def _exploit_qualifier(probs=None):
-    """Exploit mode; ``predict_probs`` returns a fixed array (probs > 0.9 accept)."""
-    q = MagicMock(spec=BayesianQualifier)
-    q.class_counts = (5, 2)
-    q.predict_probs.return_value = None if probs is None else np.asarray(probs, dtype=float)
-    return q
+def _rejected(campaign, node, tag):
+    """An LLM rejection: FAILED + wrong_fit. Examined, not qualified."""
+    return _examined(campaign, node, tag,
+                     state=DealState.FAILED, outcome=Outcome.WRONG_FIT)
 
 
 # ── params identity ──────────────────────────────────────────────────
@@ -102,10 +94,10 @@ class TestPersistAndExhaust:
         frontier.persist_fetched(c, {"x": 1}, offset=100)
         assert DiscoveryQuery.objects.filter(campaign=c).count() == 2
 
-    def test_persist_leaves_score_null(self, db):
+    def test_persist_leaves_node_active(self, db):
         c = _campaign()
         node = frontier.persist_fetched(c, {"x": 1}, offset=0)
-        assert node.score is None and node.exhausted is False
+        assert node.exhausted is False
 
     def test_mark_exhausted_flags_whole_params_line(self, db):
         c = _campaign()
@@ -118,32 +110,48 @@ class TestPersistAndExhaust:
         assert not other.exhausted             # a different query is untouched
 
 
-# ── scoring: rerank ──────────────────────────────────────────────────
+# ── the node metric ──────────────────────────────────────────────────
 
-class TestRerank:
-    def test_rerank_scores_from_leads_in_exploit(self, db):
+class TestNodeStats:
+    def test_counts_examined_and_qualified(self, db):
         c = _campaign()
-        node = _node(c, {"x": 1}, score=99)
-        _lead(c, node, 1)
-        _lead(c, node, 2)
-        frontier.rerank(c, _exploit_qualifier(probs=[0.95, 0.10]))
-        node.refresh_from_db()
-        assert node.score == 1  # one lead clears the 0.9 acceptance gate
+        node = _node(c, {"x": 1})
+        _examined(c, node, "a")
+        _examined(c, node, "b")
+        _rejected(c, node, "c")
+        assert frontier.node_stats(c)[node.pk] == frontier.NodeStats(3, 2)
 
-    def test_rerank_is_noop_pre_exploit(self, db):
+    def test_unexamined_node_is_absent_not_zero(self, db):
         c = _campaign()
-        node = _node(c, {"x": 1}, score=7)
-        frontier.rerank(c, _explore_qualifier())
-        node.refresh_from_db()
-        assert node.score == 7  # untouched — ranking untrusted pre-exploit
+        node = _node(c, {"x": 1})
+        _lead(node, "never-ruled-on")  # discovered, but no Deal
+        # Absent, not NodeStats(0, 0) — "nobody looked" must not read as "barren".
+        assert node.pk not in frontier.node_stats(c)
 
-    def test_rerank_skips_exhausted_nodes(self, db):
+    def test_qualified_survives_the_lead_advancing(self, db):
+        """A node's value must not fall as its leads succeed down the funnel.
+
+        Counting ``state == QUALIFIED`` would do exactly that: the deal moves on to
+        READY_TO_EMAIL and the vein would look barren the moment it started paying.
+        """
         c = _campaign()
-        node = _node(c, {"x": 1}, score=42, exhausted=True)
-        _lead(c, node, 1)
-        frontier.rerank(c, _exploit_qualifier(probs=[0.95]))
-        node.refresh_from_db()
-        assert node.score == 42  # exhausted lines drop out of the re-rank
+        node = _node(c, {"x": 1})
+        _examined(c, node, "a", state=DealState.EMAILED)
+        _examined(c, node, "b", state=DealState.COMPLETED, outcome=Outcome.CONVERTED)
+        assert frontier.node_stats(c)[node.pk] == frontier.NodeStats(2, 2)
+
+    def test_operational_failure_still_counts_as_qualified(self, db):
+        """FAILED with a blank outcome is the "no email" miss — the LLM said yes."""
+        c = _campaign()
+        node = _node(c, {"x": 1})
+        _examined(c, node, "a", state=DealState.FAILED, outcome="")
+        assert frontier.node_stats(c)[node.pk] == frontier.NodeStats(1, 1)
+
+    def test_is_scoped_to_the_campaign(self, db):
+        c, other = _campaign(), _campaign(name="D")
+        node = _node(c, {"x": 1})
+        _examined(other, node, "a")  # same node, another campaign's deal
+        assert node.pk not in frontier.node_stats(c)
 
 
 # ── selection: bootstrap / deepen / wall ─────────────────────────────
@@ -153,7 +161,7 @@ class TestBootstrap:
         c = _campaign()  # no nodes yet
         with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
                    return_value={"filters": {"seed": 1}, "country_code": ""}):
-            q = frontier.next_query(c, _explore_qualifier())
+            q = frontier.next_query(c)
         assert q == frontier.NextQuery({"seed": 1}, 0, "bootstrap")
 
     def test_deepens_seed_node_without_regenerating(self, db):
@@ -162,57 +170,99 @@ class TestBootstrap:
         _node(c, {"seed": 1}, offset=100)
         with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
                    side_effect=AssertionError("seed node exists — must not regenerate")):
-            q = frontier.next_query(c, _explore_qualifier())
+            q = frontier.next_query(c)
         assert q == frontier.NextQuery({"seed": 1}, 200, "bootstrap")  # max offset + one page
 
     def test_none_when_icp_empty(self, db):
         c = _campaign()
         with patch("openoutreach.core.pipeline.icp.generate_icp_spec",
                    return_value={"filters": {}, "country_code": ""}):
-            assert frontier.next_query(c, _explore_qualifier()) is None
+            assert frontier.next_query(c) is None
 
     def test_none_when_seed_exhausted(self, db):
         c = _campaign()
         _node(c, {"seed": 1}, offset=0, exhausted=True)
-        assert frontier.next_query(c, _explore_qualifier()) is None
+        assert frontier.next_query(c) is None
+
+    def test_unexamined_nodes_do_not_end_bootstrap(self, db):
+        """Leads nobody has ruled on are not a verdict — keep paging the seed.
+
+        Were unexamined read as zero, a walled-into region would look barren the
+        instant it was fetched and the walk would wall again off no evidence.
+        """
+        c = _campaign()
+        _node(c, {"seed": 1}, offset=0)
+        fresh = _node(c, {"new": 1}, offset=0)
+        _lead(fresh, "unruled")
+        with patch("openoutreach.core.pipeline.mutate.generate_mutation",
+                   side_effect=AssertionError("unexamined must not read as a wall")):
+            q = frontier.next_query(c)
+        assert q == frontier.NextQuery({"seed": 1}, 100, "bootstrap")
 
 
 class TestDeepen:
-    def test_exploit_deepens_highest_scoring_node(self, db):
+    def test_deepens_the_node_with_most_qualified(self, db):
         c = _campaign()
-        _node(c, {"a": 1}, offset=0, score=2)
-        hot = _node(c, {"b": 1}, offset=0, score=9)
-        _node(c, {"b": 1}, offset=100, score=5)  # deepest page of the hot line
-        q = frontier.next_query(c, _exploit_qualifier())
-        assert q == frontier.NextQuery({"b": 1}, 200, "deepen")  # deepen the hot line
+        cold = _node(c, {"a": 1}, offset=0)
+        _examined(c, cold, "a1")
+        _rejected(c, cold, "a2")            # 2 examined, 1 qualified
+        hot = _node(c, {"b": 1}, offset=0)
+        for tag in ("b1", "b2", "b3"):
+            _examined(c, hot, tag)          # 3 examined, 3 qualified
+        _node(c, {"b": 1}, offset=100)      # deepest page of the hot line
+        q = frontier.next_query(c)
+        assert q == frontier.NextQuery({"b": 1}, 200, "deepen")
 
-    def test_exploit_skips_exhausted_positive_node(self, db):
+    def test_skips_exhausted_productive_node(self, db):
         c = _campaign()
-        _node(c, {"a": 1}, offset=0, score=3)
-        _node(c, {"b": 1}, offset=0, score=9, exhausted=True)  # higher, but dried up
-        q = frontier.next_query(c, _exploit_qualifier())
+        alive = _node(c, {"a": 1}, offset=0)
+        _examined(c, alive, "a1")
+        dry = _node(c, {"b": 1}, offset=0, exhausted=True)  # richer, but dried up
+        for tag in ("b1", "b2", "b3"):
+            _examined(c, dry, tag)
+        q = frontier.next_query(c)
         assert q.params == {"a": 1} and q.move == "deepen"
+
+    def test_a_seed_that_pays_is_deepened_not_walled_away_from(self, db):
+        """The bug this whole change exists to kill.
+
+        The old score asked the GP how many of a node's leads cleared 0.9 — none
+        ever did, so a seed with real qualified leads scored 0, read as a wall, and
+        got mutated away from. ``deepen`` never fired on any node, ever.
+        """
+        c = _campaign()
+        seed = _node(c, {"seed": 1}, offset=0)
+        _examined(c, seed, "won")
+        for tag in ("lost1", "lost2", "lost3"):
+            _rejected(c, seed, tag)  # a thin 1-in-4 vein is still a vein
+        with patch("openoutreach.core.pipeline.mutate.generate_mutation",
+                   side_effect=AssertionError("a paying node must be deepened, not abandoned")):
+            q = frontier.next_query(c)
+        assert q == frontier.NextQuery({"seed": 1}, 100, "deepen")
 
 
 class TestWall:
-    def test_all_zero_asks_llm_for_new_query(self, db):
+    def test_all_examined_and_none_qualified_asks_llm(self, db):
         c = _campaign()
-        _node(c, {"a": 1}, offset=0, score=0)
+        node = _node(c, {"a": 1}, offset=0)
+        _rejected(c, node, "a1")
         with patch("openoutreach.core.pipeline.mutate.generate_mutation",
                    return_value={"new": 1}) as gen:
-            q = frontier.next_query(c, _exploit_qualifier())
+            q = frontier.next_query(c)
         gen.assert_called_once()
         assert q == frontier.NextQuery({"new": 1}, 0, "wall")
 
     def test_none_when_llm_dry(self, db):
         c = _campaign()
-        _node(c, {"a": 1}, offset=0, score=0)
+        node = _node(c, {"a": 1}, offset=0)
+        _rejected(c, node, "a1")
         with patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value={}):
-            assert frontier.next_query(c, _exploit_qualifier()) is None
+            assert frontier.next_query(c) is None
 
     def test_none_when_llm_reproposes_tried_query(self, db):
         c = _campaign()
-        _node(c, {"a": 1}, offset=0, score=0)  # already tried, scored 0
+        node = _node(c, {"a": 1}, offset=0)
+        _rejected(c, node, "a1")
         with patch("openoutreach.core.pipeline.mutate.generate_mutation",
                    return_value={"a": 1}):
-            assert frontier.next_query(c, _exploit_qualifier()) is None
+            assert frontier.next_query(c) is None

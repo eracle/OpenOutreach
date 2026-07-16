@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 from openoutreach.core.db.leads import create_lead
-from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.core.models import DiscoveryQuery
 from openoutreach.core.pipeline.discover import discover
 from openoutreach.core.pipeline.frontier import params_hash
@@ -24,26 +23,21 @@ def _campaign(**kw):
     return Campaign.objects.create(**defaults)
 
 
-def _explore_qualifier():
-    """Pre-exploit qualifier (negatives don't outnumber positives)."""
-    q = MagicMock(spec=BayesianQualifier)
-    q.class_counts = (0, 0)
-    return q
-
-
-def _exploit_qualifier():
-    """Exploit qualifier (negatives outnumber positives)."""
-    q = MagicMock(spec=BayesianQualifier)
-    q.class_counts = (5, 2)
-    q.predict_probs.return_value = None
-    return q
-
-
-def _node(campaign, params, offset=0, score=None):
+def _node(campaign, params, offset=0):
     return DiscoveryQuery.objects.create(
         campaign=campaign, params=params, params_hash=params_hash(params),
-        offset=offset, score=score,
+        offset=offset,
     )
+
+
+def _rejected(campaign, node, tag):
+    """A first-touch lead of ``node`` the LLM rejected — makes the node rankable
+    and barren, which is what drives the walk to a wall."""
+    from openoutreach.crm.models import Deal, DealState, Lead, Outcome
+
+    lead = Lead.objects.create(profile_url=f"https://x/{node.pk}-{tag}/", discovered_by=node)
+    return Deal.objects.create(lead=lead, campaign=campaign, state=DealState.FAILED,
+                               outcome=Outcome.WRONG_FIT)
 
 
 def _set_key(value="k"):
@@ -104,16 +98,16 @@ class TestDiscover:
     def test_skips_freemium_campaign(self, db):
         _set_key()
         session = MagicMock(campaign=_campaign(is_freemium=True))
-        assert discover(session, _explore_qualifier()) == 0
+        assert discover(session) == 0
 
     def test_skips_without_finder_key(self, db):
         session = MagicMock(campaign=_campaign())
-        assert discover(session, _explore_qualifier()) == 0
+        assert discover(session) == 0
 
     def test_skips_without_product_or_objective(self, db):
         _set_key()
         session = MagicMock(campaign=_campaign(product_docs="", campaign_target=""))
-        assert discover(session, _explore_qualifier()) == 0
+        assert discover(session) == 0
 
     def test_bootstrap_deepens_existing_seed_node(self, db):
         _set_key()
@@ -126,7 +120,7 @@ class TestDiscover:
         ]
         with patch("openoutreach.discovery.search", return_value=rows) as search, \
              patch("openoutreach.core.db.leads.create_lead", return_value=True) as create:
-            assert discover(session, _explore_qualifier()) == 2
+            assert discover(session) == 2
 
         # bootstrap deepens the seed line to the next page
         assert search.call_args.kwargs["offset"] == 100
@@ -141,7 +135,7 @@ class TestDiscover:
         _node(campaign, {"x": 1}, offset=0)  # seed line, one page already fetched
         session = MagicMock(campaign=campaign)
         with patch("openoutreach.discovery.search", return_value=[]):
-            assert discover(session, _explore_qualifier()) == 0
+            assert discover(session) == 0
         # the dry deepen is recorded and its line marked exhausted (never re-picked)
         assert DiscoveryQuery.objects.filter(
             campaign=campaign, params_hash=params_hash({"x": 1}), exhausted=True,
@@ -149,14 +143,14 @@ class TestDiscover:
 
     def test_empty_wall_ends_move_without_looping(self, db):
         _set_key()
-        # existing barren line → exploit walls to a new region; that region is empty too
+        # existing line, examined and barren → walls to a new region; that region is empty too
         campaign = _campaign()
-        _node(campaign, {"a": 1}, offset=0, score=0)
+        _rejected(campaign, _node(campaign, {"a": 1}, offset=0), "a1")
         session = MagicMock(campaign=campaign)
         with patch("openoutreach.discovery.search", return_value=[]), \
              patch("openoutreach.core.pipeline.mutate.generate_mutation",
                    side_effect=[{"new": 1}, {"new": 2}]):
-            assert discover(session, _exploit_qualifier()) == 0
+            assert discover(session) == 0
         # exactly one new region was opened (and exhausted); the second is never fetched
         assert DiscoveryQuery.objects.filter(campaign=campaign, params_hash=params_hash({"new": 1})).exists()
         assert not DiscoveryQuery.objects.filter(campaign=campaign, params_hash=params_hash({"new": 2})).exists()
@@ -170,7 +164,7 @@ class TestDiscover:
         with patch("openoutreach.core.pipeline.icp.generate_icp_spec", return_value=spec), \
              patch("openoutreach.discovery.search", return_value=rows), \
              patch("openoutreach.core.db.leads.create_lead", return_value=True):
-            assert discover(session, _explore_qualifier()) == 1
+            assert discover(session) == 1
         campaign.refresh_from_db()
         assert campaign.country_code == "gb"  # folded from the ICP spec
         # the generated seed is embodied by its first fetched node, not cached

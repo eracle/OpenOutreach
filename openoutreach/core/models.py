@@ -1,7 +1,6 @@
 # openoutreach/core/models.py
 from __future__ import annotations
 
-import numpy as np
 from django.contrib.auth.models import User
 from django.db import models
 from django.utils import timezone
@@ -192,27 +191,20 @@ class DiscoveryQuery(models.Model):
     from. The seed itself isn't cached either: on the first move it is regenerated
     from the ICP and, once its page is fetched, embodied by the resulting node(s).
     A node is fetched exactly once (dedup on the unique
-    ``(campaign, params_hash, offset)`` triple) and never re-fetched: the per-move
-    re-rank re-scores its leads against the current GP with no API call and no
-    stored embedding matrix (the embeddings already live on each ``Lead``).
+    ``(campaign, params_hash, offset)`` triple) and never re-fetched.
 
     ``exhausted`` marks a ``params`` line whose deepen returned an empty page (the
     reactive end-of-depth signal). All nodes sharing that ``params_hash`` are
     flagged together and excluded from selection, so an exhausted query is never
     re-picked.
 
-    ``score`` is the node's value: the **number of its leads the GP would accept**
-    for the paid pipeline — i.e. how many clear the acceptance gate
-    ``P(f>0.5) > min_gp_confidence`` (see ``ready_pool.count_accepted``). It is
-    meaningful only once the qualifier is in exploit mode (``n_neg > n_pos``);
-    before that the walk pages the seed linearly (bootstrap) and ``score`` stays
-    null.
-
-    This score **steers discovery only** — it decides which query region to
-    explore next. It never gates a lead: every saved lead advances through
-    ``qualify → promote_to_ready → find_email → enrich`` on its own P, over the
-    global pool, regardless of which node discovered it. The frontier reuses the
-    acceptance threshold merely as a yardstick for a query's promise.
+    **A node's value is not a column.** It is the ``(examined, qualified)`` pair
+    that ``frontier.node_stats`` counts over its first-touch leads' deals — measured
+    ground truth, computed per move and never stored, so it can never go stale
+    against the deals it summarizes. The value **steers discovery only**: it decides
+    which query region to walk next and never gates a lead. Every saved lead advances
+    through ``qualify → promote_to_ready → find_email`` on its own P, over the global
+    pool, regardless of which node discovered it.
     """
 
     campaign = models.ForeignKey(
@@ -227,10 +219,6 @@ class DiscoveryQuery(models.Model):
     # A ``params`` line whose deepen hit an empty page (reactive end-of-depth).
     # Set on every node of that params_hash at once; excluded from selection.
     exhausted = models.BooleanField(default=False)
-    # The node's value: count of its leads the GP would accept (P(f>0.5) >
-    # min_gp_confidence), recomputed each re-rank from the leads' embeddings. Null
-    # while the qualifier is pre-exploit (untrusted) or before the node is scored.
-    score = models.FloatField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -249,19 +237,4 @@ class DiscoveryQuery(models.Model):
 
     def __str__(self):
         flag = " exhausted" if self.exhausted else ""
-        return f"DiscoveryQuery#{self.pk}{flag} offset={self.offset} score={self.score}"
-
-    @property
-    def lead_embeddings(self) -> np.ndarray:
-        """(n, 384) matrix of this node's first-touch leads' embeddings.
-
-        The re-rank scores the node from these against the current GP — no stored
-        matrix, no re-fetch. Empty (0, 384) when the node has no embedded leads.
-        """
-        embs = [
-            np.frombuffer(bytes(e), dtype=np.float32)
-            for e in self.leads.filter(embedding__isnull=False).values_list("embedding", flat=True)
-        ]
-        if not embs:
-            return np.empty((0, 384), dtype=np.float32)
-        return np.array(embs, dtype=np.float32)
+        return f"DiscoveryQuery#{self.pk}{flag} offset={self.offset}"

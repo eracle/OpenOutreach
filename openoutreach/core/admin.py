@@ -24,31 +24,53 @@ class CampaignAdmin(admin.ModelAdmin):
 @admin.register(DiscoveryQuery)
 class DiscoveryQueryAdmin(admin.ModelAdmin):
     """Per-query discovery analytics — the record the graph-search card set out
-    to expose: which queries we ran, how deep, and which actually pay."""
+    to expose: which queries we ran, how deep, and which actually pay.
+
+    The three columns are the walk's own signals, and they are three different
+    things: ``leads`` is what the query surfaced, ``examined`` how many of those the
+    LLM has ruled on, ``qualified`` how many it accepted. ``examined = 0`` with
+    ``qualified = 0`` means *nobody looked* — not a barren region.
+    """
 
     list_display = (
-        "id", "campaign", "offset", "score", "exhausted", "lead_yield",
-        "accepted_leads", "updated_at",
+        "id", "campaign", "offset", "exhausted", "lead_yield",
+        "examined", "qualified", "updated_at",
     )
     list_filter = ("exhausted", "campaign")
     readonly_fields = (
-        "campaign", "params", "params_hash", "offset", "exhausted", "score",
-        "lead_yield", "accepted_leads", "created_at", "updated_at",
+        "campaign", "params", "params_hash", "offset", "exhausted",
+        "lead_yield", "examined", "qualified", "created_at", "updated_at",
     )
     date_hierarchy = "created_at"
+
+    def _stats(self, obj):
+        """This node's counts, straight from the frontier's own metric.
+
+        One campaign-wide ``GROUP BY`` per row rather than an annotated queryset:
+        re-expressing the count here would fork the definition of "qualified" away
+        from the walk that acts on it, and this card exists because exactly that kind
+        of drift went unnoticed. An admin page renders a handful of nodes; the walk
+        is the thing that must not be wrong.
+        """
+        from openoutreach.core.pipeline.frontier import NodeStats, node_stats
+
+        return node_stats(obj.campaign).get(obj.pk, NodeStats(0, 0))
 
     @admin.display(description="leads")
     def lead_yield(self, obj):
         """First-touch leads this query surfaced."""
         return obj.leads.count()
 
-    @admin.display(description="qualified")
-    def accepted_leads(self, obj):
-        """Its first-touch leads that reached a (non-failed) Deal — the slower,
-        LLM-confirmed truth the cheap score stands in for."""
-        from openoutreach.crm.models import DealState
+    @admin.display(description="examined")
+    def examined(self, obj):
+        """Its first-touch leads the LLM has ruled on — the node's denominator."""
+        return self._stats(obj).examined
 
-        return obj.leads.filter(deal__isnull=False).exclude(deal__state=DealState.FAILED).distinct().count()
+    @admin.display(description="qualified")
+    def qualified(self, obj):
+        """Its first-touch leads the LLM accepted — the node's value, and what the
+        frontier deepens on."""
+        return self._stats(obj).qualified
 
 
 @admin.register(Task)

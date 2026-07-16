@@ -6,23 +6,41 @@ no persisted queue of candidates: the next query is computed **lazily** from the
 set of already-fetched ``DiscoveryQuery`` nodes, like the ``pools.py`` generator
 chain. One discovery *move* (``discover.py``):
 
-    rerank(current GP) → next_query → fetch → persist_fetched
-                              │                    └ empty page → mark_exhausted
-                              └ cold start → generate_seed (ICP)
+    next_query → fetch → persist_fetched
+         │                    └ empty page → mark_exhausted
+         └ cold start → generate_seed (ICP)
 
-``next_query`` picks exactly one query to fetch, driven only by real signals:
+``next_query`` picks exactly one query to fetch, scored by **ground truth**: each
+node's ``(examined, qualified)`` counts over its first-touch leads' deals, computed
+by ``node_stats`` and never stored. The three moves, and the regime that selects
+them, fall straight out of those two counts:
 
-- **Bootstrap** *(qualifier pre-exploit)* — scores aren't trustworthy yet (a null
-  score is *unknown*, not a wall), so page the seed linearly, exactly like the old
-  cursor, feeding qualification the labels that train the GP.
-- **Deepen** *(exploit, best node scores > 0)* — deepen the highest-scoring
-  non-exhausted node to mine a productive vein.
-- **Wall** *(exploit, every active node scores 0)* — ask the LLM for one new query.
+- **Bootstrap** *(no node has an examined lead — nothing is rankable)* — page the
+  seed linearly, exactly like the old cursor, feeding qualification the labels that
+  train the GP.
+- **Deepen** *(the best rankable node has ``qualified > 0``)* — deepen its line to
+  mine a productive vein.
+- **Wall** *(every rankable node has ``qualified == 0``)* — ask the LLM for one new
+  query.
 
-The regime boundary is the qualifier's own ``n_neg > n_pos`` trust gate. Exhaustion
-is reactive: a fetch that returns an empty page marks that ``params`` exhausted so
-it is never re-picked. No explore-share cadence, no width target, no size cap — the
-walk widens exactly when the current regions stop paying.
+**The frontier reads no signal from the GP.** It used to: nodes were scored by how
+many of their leads cleared ``min_gp_confidence`` (0.9 — a *spend* gate), and the
+regime was the qualifier's ``n_neg > n_pos`` **balance-driven acquisition strategy**
+read as if it were a competence gate. Neither measured what the walk needed. At a
+realistic base rate negatives outnumber positives forever, so the walk never left
+bootstrap; and no unlabelled lead ever clears 0.9, because a fitted GP reproduces
+its training points (0.755–0.829 measured) and regresses everything it has never
+seen toward the prior (0.121–0.327) — the two populations do not overlap, so a bar
+drawn from one is unreachable by the other by construction. Every node scored 0, the
+walk read a permanent wall, and ``deepen`` never fired once. Three jobs, three
+mechanisms: the frontier steers on node counts, the GP/BALD picks which lead to
+qualify next, and ``min_gp_confidence`` is *only* the spend gate.
+
+**``examined == 0`` means unknown, not barren**, so an unsampled node is not
+rankable and cannot vote for a wall. Exhaustion is reactive: a fetch that returns an
+empty page marks that ``params`` exhausted so it is never re-picked. No explore-share
+cadence, no width target, no size cap — the walk widens exactly when the regions it
+can actually see stop paying.
 
 See the roadmap card ``p2-e3-discovery-query-graph-search``.
 """
@@ -33,11 +51,10 @@ import json
 import logging
 from collections import namedtuple
 
-from django.db.models import Max
+from django.db.models import Count, Max, Q
 from termcolor import colored
 
 from openoutreach.core.models import DiscoveryQuery
-from openoutreach.core.pipeline.ready_pool import count_accepted
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +112,8 @@ def persist_fetched(campaign, params: dict, offset: int) -> DiscoveryQuery:
     """Record a just-fetched ``(params, offset)`` page, deduped on the unique triple.
 
     Returns the node (created or pre-existing) so its first-touch leads can point
-    back via ``Lead.discovered_by``. ``score`` stays null — the node is scored by
-    the next move's re-rank, once qualification has retrained the GP on its leads.
+    back via ``Lead.discovered_by`` — the link that lets ``node_stats`` count what
+    the node was worth, once qualification has ruled on those leads.
     """
     node, _ = DiscoveryQuery.objects.get_or_create(
         campaign=campaign, params_hash=params_hash(params), offset=offset,
@@ -109,45 +126,59 @@ def mark_exhausted(campaign, params: dict) -> None:
     """Flag every node of a ``params`` line exhausted — its deepen hit an empty page.
 
     A whole query line is exhausted at once (all offsets share the fate of the
-    deepest, dry page), so it drops out of ``rerank`` and ``next_query`` and is
-    never re-picked.
+    deepest, dry page), so it drops out of ``next_query`` and is never re-picked.
+    Emptiness is the **only** thing that retires a line: a barren *yield* (leads that
+    exist but don't qualify) is a verdict about a view, not about the query.
     """
     DiscoveryQuery.objects.filter(
         campaign=campaign, params_hash=params_hash(params),
     ).update(exhausted=True)
 
 
-# ── scoring ──────────────────────────────────────────────────────────
+# ── the node metric ──────────────────────────────────────────────────
 
-def _in_exploit_mode(qualifier) -> bool:
-    """The qualifier's own explore→exploit switch (negatives outnumber positives)."""
-    n_neg, n_pos = qualifier.class_counts
-    return n_neg > n_pos
+# What a node is worth, measured rather than predicted. ``examined`` is how many of
+# its first-touch leads the LLM has ruled on; ``qualified`` how many it accepted.
+# Both are needed: ``qualified == 0`` at ``examined == 0`` is *unknown*, and must
+# never sort as barren.
+NodeStats = namedtuple("NodeStats", ["examined", "qualified"])
 
 
-def rerank(campaign, qualifier) -> None:
-    """Re-score every non-exhausted node against the current GP (no re-fetch).
+def node_stats(campaign) -> dict[int, NodeStats]:
+    """``{node_pk: NodeStats}`` for the campaign — one ``GROUP BY``, nothing stored.
 
-    The GP retrained since the last move, so prior scores are stale. Scores come
-    from each node's first-touch leads' embeddings (already persisted on ``Lead``),
-    counting how many the GP would accept. No-op until the qualifier is in exploit
-    mode — before that scores stay null and the walk pages the seed (bootstrap).
+    A node's value is the count of qualified leads among the ones it first touched.
+    Denominators are comparable because every fetch is a full ``DISCOVERY_PAGE_SIZE``
+    page (a short final page inflates only the vein we are about to exhaust anyway).
 
-    This sweep is deliberately **uncapped**: a dry line is exhausted whole (all its
-    offsets at once) and so leaves the sweep, discovery only runs when the pool
-    needs leads, and the work per node is a vectorized ``predict_probs`` over
-    embeddings already in the DB. At realistic campaign scale that keeps the active
-    set small. A size cap was considered and rejected — it would be a magic constant
-    bounding a cost we have not observed. If a long campaign ever makes this sweep
-    hurt, cap it then, on evidence.
+    ``qualified`` counts the leads the **LLM accepted**, which is *not*
+    ``state == QUALIFIED``: that is a snapshot of a funnel a lead moves through, so
+    counting it would make a node's score *fall* as its leads succeed into
+    READY_TO_EMAIL and beyond — the walk would abandon a vein exactly when it starts
+    paying. An accepted lead is any deal that is not an LLM rejection, mirroring
+    ``Lead.get_labeled_arrays``' rule (``FAILED`` + ``wrong_fit`` is the rejection;
+    a ``FAILED`` deal with any other outcome is an *operational* failure — "no email"
+    — of a lead the LLM said yes to).
+
+    Nodes with no deals are absent from the mapping: never examined, so unknown.
     """
-    if not _in_exploit_mode(qualifier):
-        return
-    nodes = list(DiscoveryQuery.objects.filter(campaign=campaign, exhausted=False))
-    for node in nodes:
-        node.score = count_accepted(qualifier, node.lead_embeddings)
-    if nodes:
-        DiscoveryQuery.objects.bulk_update(nodes, ["score"])
+    from openoutreach.crm.models import Deal, DealState, Outcome
+
+    rows = (
+        Deal.objects
+        .filter(campaign=campaign, lead__discovered_by__isnull=False)
+        .values("lead__discovered_by")
+        .annotate(
+            examined=Count("pk"),
+            qualified=Count("pk", filter=~Q(
+                state=DealState.FAILED, outcome=Outcome.WRONG_FIT,
+            )),
+        )
+    )
+    return {
+        r["lead__discovered_by"]: NodeStats(r["examined"], r["qualified"])
+        for r in rows
+    }
 
 
 # ── selection ────────────────────────────────────────────────────────
@@ -164,11 +195,10 @@ def _next_offset(campaign, hash_: str) -> int:
 
 
 def _bootstrap_query(campaign) -> NextQuery | None:
-    """The next seed page to fetch pre-exploit — the old linear cursor.
+    """The next seed page to fetch while nothing is rankable — the old linear cursor.
 
-    Pre-exploit the only line is the seed, so the earliest node *is* the seed's
-    deepest-known page. Deepen it; on a cold start (no node yet) generate the seed
-    from the ICP and start at offset 0.
+    The seed is the earliest node, so it *is* the line we page. Deepen it; on a cold
+    start (no node yet) generate the seed from the ICP and start at offset 0.
     """
     seed = DiscoveryQuery.objects.filter(campaign=campaign).order_by("pk").first()
     if seed is None:
@@ -179,32 +209,41 @@ def _bootstrap_query(campaign) -> NextQuery | None:
     return NextQuery(seed.params, _next_offset(campaign, seed.params_hash), "bootstrap")
 
 
-def next_query(campaign, qualifier) -> NextQuery | None:
+def next_query(campaign) -> NextQuery | None:
     """The single query to fetch next, or None when nothing is left to walk.
 
-    Assumes ``rerank`` already ran this move. Three moves:
+    The regime is decided by ``node_stats`` alone — there is no gate to tune:
 
-    - **Bootstrap** (pre-exploit): page the seed linearly. A null score is unknown,
-      not a wall, so we stay on our best prior until the GP can score. On a cold
-      start (no nodes yet) the seed is generated from the ICP; thereafter the seed
-      node itself carries its params. None if the ICP is empty or the seed line has
-      dried up (no trustworthy scores to move elsewhere).
-    - **Deepen** (exploit, best non-exhausted score > 0): deepen that node's line.
-    - **Wall** (exploit, all scores 0): ask the LLM for one new query at offset 0.
-      None if the LLM is dry or re-proposes an already-tried query.
+    - **Bootstrap** (no active node has an examined lead): page the seed linearly.
+      Nothing has been ruled on, so we stay on our best prior until qualification
+      says otherwise. On a cold start (no nodes yet) the seed is generated from the
+      ICP; thereafter the seed node itself carries its params. None if the ICP is
+      empty or the seed line has dried up (nothing measured to move toward).
+    - **Deepen** (the best rankable node has ``qualified > 0``): deepen its line.
+    - **Wall** (every rankable node has ``qualified == 0``): ask the LLM for one new
+      query at offset 0. None if the LLM is dry or re-proposes an already-tried
+      query.
+
+    Unexamined nodes are skipped rather than scored zero, so a region nobody has
+    looked at can neither be deepened nor counted as a wall.
     """
-    if not _in_exploit_mode(qualifier):
+    active = list(DiscoveryQuery.objects.filter(campaign=campaign, exhausted=False))
+    stats = node_stats(campaign)
+    rankable = [(n, stats[n.pk]) for n in active if stats.get(n.pk, NodeStats(0, 0)).examined]
+    if not rankable:
         return _bootstrap_query(campaign)
 
-    active = list(DiscoveryQuery.objects.filter(campaign=campaign, exhausted=False))
     best = max(
-        (n for n in active if (n.score or 0) > 0),
-        key=lambda n: (n.score, n.pk), default=None,
+        ((n, s) for n, s in rankable if s.qualified > 0),
+        key=lambda pair: (pair[1].qualified, pair[0].pk), default=None,
     )
     if best is not None:
-        return NextQuery(best.params, _next_offset(campaign, best.params_hash), "deepen")
+        node = best[0]
+        return NextQuery(node.params, _next_offset(campaign, node.params_hash), "deepen")
 
-    # Wall — every active region is barren. Open one new region.
+    # Wall — every region we can see has been ruled on and pays nothing. Open a new
+    # one. A wall is a *yield* verdict, so it retires nothing: only an empty page
+    # (``mark_exhausted``) takes a line out of the walk.
     from openoutreach.core.pipeline.mutate import generate_mutation
 
     params = generate_mutation(campaign)
