@@ -128,6 +128,14 @@ def rerank(campaign, qualifier) -> None:
     from each node's first-touch leads' embeddings (already persisted on ``Lead``),
     counting how many the GP would accept. No-op until the qualifier is in exploit
     mode — before that scores stay null and the walk pages the seed (bootstrap).
+
+    This sweep is deliberately **uncapped**: a dry line is exhausted whole (all its
+    offsets at once) and so leaves the sweep, discovery only runs when the pool
+    needs leads, and the work per node is a vectorized ``predict_probs`` over
+    embeddings already in the DB. At realistic campaign scale that keeps the active
+    set small. A size cap was considered and rejected — it would be a magic constant
+    bounding a cost we have not observed. If a long campaign ever makes this sweep
+    hurt, cap it then, on evidence.
     """
     if not _in_exploit_mode(qualifier):
         return

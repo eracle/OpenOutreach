@@ -68,9 +68,16 @@ class _Filters(BaseModel):
     Typed rather than a bare dict on purpose: Lead Finder answers an unknown key
     or value with an **empty page, not an error**, and the frontier reads an empty
     page as end-of-depth — so a hallucinated filter would silently mark a healthy
-    query line exhausted. Only families the Req-2 probe cleared appear here;
-    ``lead_department``/``lead_function`` are withheld until their Title-Case label
-    vocabulary is confirmed (roadmap *What's next* 2b).
+    query line exhausted. Only families the Req-2 probe cleared appear here.
+
+    ``lead_department`` and ``lead_function`` are **deliberately excluded**: their
+    real vocabulary is undocumented and unguessable. The published enum values are
+    snake_case and match *nothing*; Title-Casing them works for only 8 of 19
+    functions (``Human Resources`` hits, ``Information Technology`` does not) with
+    no derivable rule, and ``lead_department`` has 197 values with the same defect.
+    A filter we cannot spell correctly is worse than no filter here, because the
+    empty page it returns is indistinguishable from a genuinely dry query. Revisit
+    only if BetterContact publishes the real labels.
     """
 
     company_headcount_min: int | None = Field(
