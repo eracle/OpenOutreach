@@ -57,12 +57,52 @@ EXTRA_TEXT_FIELDS = [
 EXTRA_TEXT_LIST_FIELDS = ["company_keywords"]
 
 
+def describe_filters(filters: dict) -> str:
+    """One-line human rendering of a Lead Finder filter set, for logs.
+
+    Filter sets are nested (``{"lead_job_title": {"include": [...], "exact_match":
+    false}}``) and read as machinery in a log line, which is the only place they
+    appear. Renders the two headcount bounds as the one range they describe, drops
+    the ``lead_``/``company_`` prefixes and the ``include`` wrapper, and keeps
+    ``exact_match`` since it changes what the query matches.
+    """
+    if not filters:
+        return "(no filters)"
+
+    low, high = filters.get("company_headcount_min"), filters.get("company_headcount_max")
+    parts = []
+    if low is not None or high is not None:
+        parts.append(f"headcount {low if low is not None else '?'}–"
+                     f"{high if high is not None else '?'}")
+
+    for key, value in filters.items():
+        if key in ("company_headcount_min", "company_headcount_max"):
+            continue
+        label = key.removeprefix("lead_").removeprefix("company_")
+        if isinstance(value, dict):
+            rendered = ", ".join(str(v) for v in value.get("include", [])) or "(none)"
+            if value.get("exact_match"):
+                rendered += " (exact)"
+        else:
+            rendered = str(value)
+        parts.append(f"{label} {rendered}")
+    return " · ".join(parts)
+
+
 def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
-    """Search Lead Finder by ICP filters; return the matching lead rows."""
+    """Search Lead Finder by ICP filters; return the matching lead rows.
+
+    Logs the outgoing query before the call: an unknown filter key or value is
+    answered with an empty page rather than an error, so the query itself is the
+    only evidence of why a line came back dry — and the call blocks, so logging
+    it after would lose it to a timeout.
+    """
     from openoutreach.core.models import SiteConfig
 
     api_key = SiteConfig.load().bettercontact_api_key
     body = {"filters": filters, "limit": limit, "offset": offset}
+    logger.info("leadfinder query: %s (limit %d, offset %d)",
+                describe_filters(filters), limit, offset)
     result = submit_and_poll(api_key, LEAD_FINDER_URL, body)
 
     leads = result.get("leads", [])

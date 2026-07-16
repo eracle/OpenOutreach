@@ -29,7 +29,7 @@ import jinja2
 from pydantic import BaseModel, Field
 
 from openoutreach.core.conf import PROMPTS_DIR
-from openoutreach.discovery import Seniority
+from openoutreach.discovery import Seniority, describe_filters
 
 logger = logging.getLogger(__name__)
 
@@ -140,11 +140,12 @@ def llm_generate_mutation(campaign) -> dict:
 
     from openoutreach.core.llm import get_llm_model, run_agent_sync
 
+    past = _past_query_stats(campaign)
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(PROMPTS_DIR)))
     prompt = env.get_template("mutate_queries.j2").render(
         product_docs=campaign.product_docs,
         campaign_target=campaign.campaign_target,
-        past_queries=_past_query_stats(campaign),
+        past_queries=past,
     )
     agent = Agent(
         get_llm_model(),
@@ -154,7 +155,12 @@ def llm_generate_mutation(campaign) -> dict:
     filters = run_agent_sync(agent.run(prompt)).output.filters
     # Drop the families the model left unset — Lead Finder wants only the keys we
     # actually filter on, and an all-unset set degrades to {} (== "LLM is dry").
-    return filters.model_dump(exclude_none=True)
+    proposal = filters.model_dump(exclude_none=True)
+    # Logged like the seed it widens from: the proposal is the only record of what
+    # the LLM invented, and a value it made up reads as an empty page downstream.
+    logger.info("[%s] discovery mutation from %d past quer(ies): %s",
+                campaign, len(past), describe_filters(proposal))
+    return proposal
 
 
 _generator: MutationGenerator = llm_generate_mutation

@@ -71,6 +71,7 @@ def generate_seed(campaign) -> dict:
     the campaign. Returns the filter dict, or ``{}`` when the ICP is empty.
     """
     from openoutreach.core.pipeline.icp import generate_icp_spec
+    from openoutreach.discovery import describe_filters
 
     spec = generate_icp_spec(campaign)
     filters = spec.get("filters") or {}
@@ -81,7 +82,7 @@ def generate_seed(campaign) -> dict:
     if country_code and campaign.country_code != country_code:
         campaign.country_code = country_code
         campaign.save(update_fields=["country_code"])
-    logger.info("[%s] discovery seed: %s", campaign, filters)
+    logger.info("[%s] discovery seed: %s", campaign, describe_filters(filters))
     return filters
 
 

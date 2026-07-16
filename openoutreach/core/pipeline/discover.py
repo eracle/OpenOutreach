@@ -39,7 +39,7 @@ def discover(session, qualifier) -> int:
     """
     from openoutreach.core.db.leads import create_lead
     from openoutreach.core.pipeline import frontier
-    from openoutreach.discovery import search
+    from openoutreach.discovery import describe_filters, search
     from openoutreach.emails import bettercontact
 
     campaign = session.campaign
@@ -67,11 +67,27 @@ def discover(session, qualifier) -> int:
                 create_lead(row, country_code=campaign.country_code, discovered_by=node)
                 for row in rows
             )
-            logger.info("[%s] discovery: %d new lead(s) from %d row(s) (%s, offset %d)",
-                        campaign, created, len(rows), query.move, query.offset)
+            logger.info("[%s] discovery: %d new lead(s) from %d row(s) (%s, offset %d) — %s",
+                        campaign, created, len(rows), query.move, query.offset,
+                        describe_filters(query.params))
             return created
 
         # Empty page — record the dry attempt and exhaust its line, then retry.
+        # Neither shape of empty is an error: a region that holds no leads is a
+        # real answer, and widening past it is the walk working. Offset 0 still
+        # tells them apart when reading a run back — the query matched nothing at
+        # all, versus a vein that finally ran out.
+        if query.offset == 0:
+            logger.info(
+                "[%s] discovery: %s query matched nothing — exhausting %s "
+                "(an empty region and a filter value Lead Finder doesn't know "
+                "look identical here)",
+                campaign, query.move, describe_filters(query.params),
+            )
+        else:
+            logger.info("[%s] discovery: %s vein ran dry at offset %d — exhausting %s",
+                        campaign, query.move, query.offset,
+                        describe_filters(query.params))
         frontier.persist_fetched(campaign, query.params, query.offset)
         frontier.mark_exhausted(campaign, query.params)
         if query.move == "wall":
