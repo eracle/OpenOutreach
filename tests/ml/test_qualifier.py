@@ -172,46 +172,6 @@ class TestWarmStart:
         np.testing.assert_allclose(result1[0], result2[0], atol=1e-6)
 
 
-class TestPoolHasTargets:
-    def test_exploit_mode_no_high_prob(self):
-        """Exploit mode (n_neg > n_pos), all P < 0.5 → False."""
-        qualifier, _, neg_emb = _make_trained_qualifier(n_pos=3, n_neg=10)
-        embeddings = np.tile(neg_emb, (5, 1))
-        result = qualifier.pool_has_targets(embeddings)
-        # With heavy negative training, negative embeddings should have low P
-        assert result is not None
-        # Verify the probs are indeed low
-        probs = qualifier.predict_probs(embeddings)
-        if np.all(probs <= 0.5):
-            assert result is False
-        else:
-            assert result is True  # model may still predict some high
-
-    def test_exploit_mode_has_high_prob(self):
-        """Exploit mode (n_neg > n_pos), some P > 0.5 → True."""
-        qualifier, pos_emb, neg_emb = _make_trained_qualifier(n_pos=3, n_neg=10)
-        embeddings = np.array([pos_emb, neg_emb])
-        result = qualifier.pool_has_targets(embeddings)
-        assert result is not None
-        # pos_emb should give P > 0.5 even in exploit mode
-        probs = qualifier.predict_probs(embeddings)
-        if np.any(probs > 0.5):
-            assert result is True
-
-    def test_explore_mode_has_low_prob(self):
-        """Explore mode (n_pos >= n_neg), some P <= 0.5 → True."""
-        qualifier, pos_emb, neg_emb = _make_trained_qualifier(n_pos=10, n_neg=3)
-        embeddings = np.array([neg_emb])
-        result = qualifier.pool_has_targets(embeddings)
-        assert result is not None
-
-    def test_cold_start_returns_none(self):
-        """Unfitted qualifier → None."""
-        qualifier = BayesianQualifier(seed=42)
-        embeddings = np.random.randn(3, 384).astype(np.float32)
-        assert qualifier.pool_has_targets(embeddings) is None
-
-
 class TestExplainProfile:
     def test_explain_no_embedding(self, db):
         qualifier = BayesianQualifier(seed=42)

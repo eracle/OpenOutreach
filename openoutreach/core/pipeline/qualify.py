@@ -27,11 +27,21 @@ def fetch_qualification_candidates(session):
     )
 
 
-def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
-    """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns profile_url or None."""
+def run_qualification(session, qualifier: BayesianQualifier, candidates=None) -> str | None:
+    """Qualify one unlabelled profile via the LLM. Returns profile_url or None.
+
+    ``candidates`` restricts the selection to a caller-chosen subset — the consume
+    state passes only the leads that can clear the promote gate, so an LLM call is
+    never spent on a lead that would park at QUALIFIED. Defaults to the whole
+    unlabelled pool, which is what the explore state wants.
+
+    Which candidate gets the call is the qualifier's balance-driven strategy; the
+    verdict itself is always the LLM's.
+    """
     from openoutreach.core.ml.qualifier import qualify_with_llm, format_prediction
 
-    candidates = fetch_qualification_candidates(session)
+    if candidates is None:
+        candidates = fetch_qualification_candidates(session)
     if not candidates:
         return None
 

@@ -386,19 +386,6 @@ class BayesianQualifier:
             return None
         return strategy, scores
 
-    def pool_has_targets(self, embeddings: np.ndarray) -> bool | None:
-        """Check if the unlabeled pool has any promising candidates (P > 0.5).
-
-        Returns None on cold start (model not fitted), True/False otherwise.
-        Only checks for positive-looking profiles — searching for low-P
-        profiles (explore mode) would be wasteful since you can just qualify
-        from the existing pool.
-        """
-        probs = self.predict_probs(embeddings)
-        if probs is None:
-            return None
-        return bool(np.any(probs > 0.5))
-
     # ------------------------------------------------------------------
     # Ranking & explain  (raw GP mean — no _prob_above_half)
     # ------------------------------------------------------------------

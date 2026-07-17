@@ -1,5 +1,10 @@
-# openoutreach/linkedin/pipeline/freemium_pool.py
-"""Freemium candidate selection — seed profiles (QUALIFIED Deals) first, then undiscovered."""
+# openoutreach/core/pipeline/freemium_pool.py
+"""Freemium candidate selection — seed profiles (QUALIFIED Deals) first, then undiscovered.
+
+The freemium counterpart to ``pools.find_candidate``: a freemium campaign is seeded
+from a kit and ranked by its pre-trained ``KitQualifier``, so it neither discovers
+(``discover`` returns 0 for it) nor trains a per-campaign GP.
+"""
 from __future__ import annotations
 
 import logging
@@ -10,11 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 def find_freemium_candidate(session, qualifier) -> dict | None:
-    """Return the top-ranked embedded lead eligible for connection.
+    """Return the top-ranked embedded lead eligible for the paid email lookup.
 
     Priority: seed profiles with QUALIFIED Deals are returned first (ranked by
-    the kit model).  Once all seeds are exhausted (connected / failed), falls
-    back to embedded leads without any Deal in this campaign.
+    the kit model). Once all seeds are exhausted (emailed / failed), falls back
+    to embedded leads without any Deal in this campaign.
     """
     from openoutreach.crm.models import Deal, Lead
 
@@ -23,7 +28,7 @@ def find_freemium_candidate(session, qualifier) -> dict | None:
     # All embedded lead IDs
     embedded_pks = set(Lead.objects.filter(embedding__isnull=False).values_list("pk", flat=True))
 
-    # Seed profiles: QUALIFIED Deals in this campaign (ready to connect)
+    # Seed profiles: QUALIFIED Deals in this campaign
     seed_pks = set(
         Deal.objects.filter(campaign=campaign, state=DealState.QUALIFIED)
         .values_list("lead_id", flat=True)

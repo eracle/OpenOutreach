@@ -1,10 +1,20 @@
 # openoutreach/core/pipeline/ready_pool.py
 """Find-email pool: GP confidence gate between QUALIFIED and READY_TO_FIND_EMAIL.
 
-The rank gate for the paid action — the browserless replacement for the old
-connect gate. It promotes only QUALIFIED leads the GP model is confident about
-into READY_TO_FIND_EMAIL, so a BetterContact credit is only ever spent on a
-ranked lead.
+The rank gate for the paid action. It promotes only QUALIFIED leads scoring at or
+above ``CAMPAIGN_CONFIG["min_gp_confidence"]`` into READY_TO_FIND_EMAIL, so a
+BetterContact credit is only ever spent on a ranked lead. ``pools.qualify_source``
+reads the same constant to decide its state — a lead below it would be qualified
+and then parked here, so it is only worth an LLM call for the label.
+
+That constant is the **spend gate and nothing else**. The discovery frontier used
+to borrow it to score query nodes ("how many of this query's leads would we pay
+for?"). That was a category error and it broke the walk: calibrated against
+*labelled* leads the GP has memorized, the bar is unreachable for the unlabelled
+candidates a node is made of, so every node scored zero and discovery read a
+permanent wall. The frontier now scores on ground truth and never asks. Keep it
+that way — see ``pipeline/frontier.py`` and the roadmap card
+``p2-e3-discovery-query-graph-search``.
 """
 from __future__ import annotations
 
@@ -22,24 +32,6 @@ from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)
-
-
-def acceptance_threshold() -> float:
-    """The GP confidence a lead's P(f>0.5) must clear to be worth a paid lookup.
-
-    The **spend gate, and nothing else** — one lead, one credit, one question: is
-    the model confident enough to pay for this address? Tunable via
-    ``CAMPAIGN_CONFIG["min_gp_confidence"]``.
-
-    The discovery frontier used to borrow it to score query nodes ("how many of this
-    query's leads would we pay for?"). That was a category error and it broke the
-    walk: calibrated against *labelled* leads the GP has memorized, the bar is
-    unreachable for the unlabelled candidates a node is made of, so every node scored
-    zero and discovery read a permanent wall. The frontier now scores on ground truth
-    and never asks. Keep it that way — see ``pipeline/frontier.py`` and the roadmap
-    card ``p2-e3-discovery-query-graph-search``.
-    """
-    return CAMPAIGN_CONFIG["min_gp_confidence"]
 
 
 def promote_to_ready(session, qualifier: BayesianQualifier, threshold: float) -> int:
