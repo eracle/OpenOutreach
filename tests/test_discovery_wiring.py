@@ -196,9 +196,9 @@ class TestDiscover:
         assert DiscoveryQuery.objects.filter(campaign=campaign, clause_key=clause_key(OTHER)).exists()
         assert not DiscoveryQuery.objects.filter(campaign=campaign, clause_key=clause_key(THIRD)).exists()
 
-    def test_cold_start_seeds_the_pool_then_visits_a_singleton(self, db):
+    def test_cold_start_seeds_the_pool_then_visits_the_deepest_conjunction(self, db):
         """The ICP's job is the pool, not the first query: the seed conjunction needs
-        no special case because the visit reaches level 1 before any conjunction."""
+        no special case because deepest-first makes it the head of the visit."""
         _set_key()
         campaign = _campaign()  # no nodes, no pool — cold start
         session = MagicMock(campaign=campaign)
@@ -216,7 +216,9 @@ class TestDiscover:
 
         assert set(campaign.clauses.values_list("family", "value")) == set(pool)
         node = DiscoveryQuery.objects.get(campaign=campaign, offset=0)
-        assert node.clause_pairs == [("lead_location", "Japan")], "level 1 leads"
+        assert node.clause_pairs == [
+            ("lead_location", "Japan"), ("lead_seniority", "vp"),
+        ], "level N leads — the seed conjunction"
 
 
 # ── ICP generator ────────────────────────────────────────────────────

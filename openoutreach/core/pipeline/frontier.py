@@ -20,7 +20,7 @@ can say:
   only *its own* next page, so one paying page buys exactly one more page, never a
   licence to run.
 - **Visit** *(nothing has qualified yet)* — hand back the next unvisited conjunction
-  in ``descend``'s lattice order (level 1 → N → N-1 → … → 2), and when the pool
+  in ``descend``'s lattice order (level N → N-1 → … → 2 → 1), and when the pool
   spans nothing new, ask the LLM for fresh clauses.
 
 That is the whole regime. It reads **one** number — ``qualified`` from

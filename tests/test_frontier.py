@@ -175,7 +175,7 @@ def _pool(c, clauses):
 class TestColdStart:
     def test_seeds_the_pool_when_it_is_empty(self, db):
         """The ICP's job is the pool. The seed conjunction it returns needs no special
-        case: the visit order reaches level 1 before any conjunction anyway."""
+        case: deepest-first makes it the head of the visit anyway."""
         c = _campaign()
 
         def _seed(campaign):
@@ -186,7 +186,7 @@ class TestColdStart:
             q = frontier.next_query(c)
 
         gen.assert_called_once()
-        assert q == frontier.NextQuery([("lead_job_title", "Founder")], 0, "visit")
+        assert q == frontier.NextQuery(SEED, 0, "visit")
         # nothing is cached — the first fetched page becomes the node
         assert not DiscoveryQuery.objects.filter(campaign=c).exists()
 
@@ -262,8 +262,8 @@ class TestRecordEmpty:
         assert set(entry.clauses.values_list("family", "value")) == set(OTHER)
 
     def test_a_singleton_is_a_first_class_empty_set(self, db):
-        """``k=1`` is the case ``Clause.is_live`` used to own, and the reason the visit
-        opens at level 1: only sets shorter than a candidate can prune it."""
+        """``k=1`` is the case ``Clause.is_live`` used to own: a singleton is a
+        first-class empty set, and only sets shorter than a candidate can prune it."""
         from openoutreach.core.models import EmptyClauseSet
 
         frontier.record_empty([("lead_location", "Europe")])

@@ -14,22 +14,23 @@ worth is counted from its leads' deals, not guessed at before fetching it.
 
 The visit order::
 
-    level 1  →  level N  →  level N-1  →  …  →  level 2  →  LLM refill
+    level N  →  level N-1  →  …  →  level 2  →  level 1  →  LLM refill
 
-**Singletons first, because emptiness is anti-monotone.** A clause the index
-carries nowhere kills every conjunction containing it, so asking each clause alone
-is the highest-pruning call in the lattice: ``lead_location: Europe`` — a region,
-not a country, matching zero leads — dies once and is pruned from every candidate
-forever, instead of poisoning query after query. It is also the only *sound* way to
-convict a clause: alone, a clause has nothing else to blame. And the order matters
-for pruning to work at all — the subset test only bites when the recorded empty
-sets are *shorter* than the candidates, and every full-depth conjunction is the
-same depth as its siblings, so nothing prunes anything until the short sets are in.
+**Deepest first.** A long conjunction matches fewer people and so reaches past the
+provider's famous-company head (``{lead_seniority: founder}`` → Meta, Meta, Meta)
+straight into the niche where the ICP actually lives. The seed conjunction is the
+head of level N, so the walk opens on the ICP's own strongest guess and only widens
+as depth runs out — shorter levels come later because they widen back toward that
+head, and singletons come last of all.
 
-**Then deepest, then backtrack.** A long conjunction matches fewer people and so
-reaches past the provider's famous-company head (``{lead_seniority: founder}`` →
-Meta, Meta, Meta) into the niche. Shorter levels are walked last, on the way back
-down, because they widen toward that head.
+**Pruning still runs, but pays late.** The subset test is unchanged and still
+correct, yet it does little *within* a descent now: the shortest, highest-pruning
+empty sets (the singletons) are recorded last, so a clause the index carries nowhere
+is not convicted until its singleton is finally reached, and until then it sits in
+every deep conjunction holding it — each fetched, each empty. That extra emptiness
+near the top is the accepted cost of reaching the niche first (chosen 2026-07-17).
+The subset table earns its keep mostly *across refills*: a singleton empty already
+on record then prunes freshly-composed supersets before they are ever fetched.
 
 **Emptiness prunes; yield never does.** A barren *yield* verdict — those people
 exist, they are not our ICP — writes nothing and retires nothing. Only a fetch that
@@ -63,9 +64,10 @@ def _pool(campaign) -> dict[str, list[str]]:
     """The campaign's clause pool, grouped by family, sorted by age.
 
     Nothing is excluded here. A clause the index carries nowhere is retired by the
-    subset test instead — its singleton lands in ``EmptyClauseSet`` on the level-1
-    pass and prunes every candidate holding it — so there is no second liveness
-    mechanism to keep in step with this one.
+    subset test instead — its singleton lands in ``EmptyClauseSet`` when the level-1
+    pass finally reaches it (last, under deepest-first) and prunes every remaining
+    candidate holding it — so there is no second liveness mechanism to keep in step
+    with this one.
 
     Insertion order is the ICP's own ranking, and the seed took each family's first
     value, so it survives as the tie-break the visit orders by.
@@ -89,9 +91,10 @@ def _empty_sets() -> list[frozenset]:
 def _is_pruned(candidate: frozenset, empty_sets) -> bool:
     """Is this candidate a superset of a conjunction already known to be empty?
 
-    The anti-monotone rule, and the whole return on visiting singletons first:
-    adding clauses can only ever remove rows, so a candidate containing an empty set
-    is empty too and never needs a fetch of its own.
+    The anti-monotone rule: adding clauses can only ever remove rows, so a candidate
+    containing an empty set is empty too and never needs a fetch of its own. Under a
+    deepest-first walk this bites mostly across refills, once a short empty set is on
+    record to prune later supersets.
     """
     return any(empty <= candidate for empty in empty_sets)
 
@@ -99,7 +102,7 @@ def _is_pruned(candidate: frozenset, empty_sets) -> bool:
 # ── the visit ────────────────────────────────────────────────────────
 
 def _visit_order(pool: dict[str, list[str]]) -> list[list[tuple[str, str]]]:
-    """Every conjunction the pool spans, in visit order: 1, N, N-1, …, 2.
+    """Every conjunction the pool spans, in visit order: N, N-1, …, 2, 1.
 
     Each family contributes one value or none, so a candidate is any non-empty
     sub-conjunction with at most one value per family — an OR is unrepresentable by
@@ -108,8 +111,8 @@ def _visit_order(pool: dict[str, list[str]]) -> list[list[tuple[str, str]]]:
 
     Within a level, candidates sort by how far they sit from the pool's head — the
     value the seed took in each family — because the ICP's own ranking is the only
-    prior the walk has before anything is fetched. That makes the seed conjunction
-    the first node of level N, with no special case for it anywhere.
+    prior the walk has before anything is fetched. Level N leads, so that makes the
+    seed conjunction the first node visited, with no special case for it anywhere.
     """
     families = sorted(pool)
     ranks = {family: {v: i for i, v in enumerate(pool[family])} for family in families}
@@ -123,9 +126,9 @@ def _visit_order(pool: dict[str, list[str]]) -> list[list[tuple[str, str]]]:
     deepest = max(len(c) for c in candidates)
 
     def rank(candidate):
-        # Level 1 leads; the rest run deepest-first, so depth N sorts right behind
-        # the singletons and depth 2 comes last.
-        level = 0 if len(candidate) == 1 else deepest - len(candidate) + 1
+        # Deepest first: depth N leads and depth 1 (singletons) comes last, so the
+        # walk opens in the niche and only widens toward the head as depth runs out.
+        level = deepest - len(candidate)
         distance = sum(ranks[family][value] for family, value in candidate)
         return level, distance, candidate
 

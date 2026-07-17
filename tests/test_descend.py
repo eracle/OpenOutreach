@@ -71,14 +71,14 @@ _POOL3 = [
 # ── the visit order ──────────────────────────────────────────────────
 
 class TestVisitOrder:
-    def test_singletons_come_first(self, db):
-        """Level 1 leads, because it is the only level whose emptiness prunes."""
+    def test_the_deepest_conjunction_comes_first(self, db):
+        """Level N leads: the walk opens on the seed conjunction, not a singleton."""
         c = _campaign(_POOL)
-        assert descend(c) == [("lead_job_title", "Founder")]
+        assert descend(c) == _SEED
 
-    def test_order_is_one_then_deepest_then_backtrack(self, db):
+    def test_order_is_deepest_then_backtrack_to_singletons(self, db):
         c = _campaign(_POOL3)
-        assert [len(v) for v in _walk(c)] == [1, 1, 1, 3, 2, 2, 2]
+        assert [len(v) for v in _walk(c)] == [3, 2, 2, 2, 1, 1, 1]
 
     def test_the_seed_is_the_head_of_its_level(self, db):
         """No special case for the seed anywhere — the ranking puts it there."""
@@ -104,8 +104,9 @@ class TestVisitOrder:
 
 class TestPruning:
     def test_a_dead_singleton_prunes_every_conjunction_holding_it(self, db):
-        """The anti-monotone payoff, and why level 1 goes first: `Germany` dies once,
-        not once per query that happens to mention it."""
+        """The anti-monotone payoff: once `Germany` is on record as empty it dies
+        once, not once per query that happens to mention it — regardless of the order
+        the walk reaches those queries in."""
         c = _campaign(_POOL)
         _blacklist([("lead_location", "Germany")])
 
