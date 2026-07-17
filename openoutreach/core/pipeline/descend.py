@@ -1,43 +1,45 @@
 # openoutreach/core/pipeline/descend.py
-"""The wall move as a lattice lookup — compose a query, never invent one.
+"""The lattice visit — compose a query, never invent one.
 
-When every region the walk can see stops paying, ``frontier.next_query`` walls and
-asks for one new query. That used to cost an LLM call *every time* — 7 mutations in
-a few minutes on the observed run, each a whole conjunction invented from a list,
-6 of them returning 0 rows. The clauses were already there: ``icp.generate_seed``
-gets 5 job titles from one call, the seed can carry exactly one, and the other 4
-were dropped on the floor and re-invented at the next wall.
+The LLM supplies **elements** and the descent composes **conjunctions**:
+``icp.generate_seed`` gets 5 job titles from one call, the seed can carry exactly
+one, and the other 4 used to be dropped on the floor and re-invented at the next
+wall. They are the pool (``Campaign.clauses``) now, and the walk spans it.
 
-So the LLM supplies **elements** and the descent composes **conjunctions**:
+**One iterator, one order, no probes.** Every node is a real fetch at
+``DISCOVERY_PAGE_SIZE`` whose leads are kept — there is no cheap ``limit=1``
+liveness call, because a query execution already answers the only question a probe
+asked (does this match anybody?) and pays for the rows besides. What a node is
+worth is counted from its leads' deals, not guessed at before fetching it.
 
-    pool (Campaign.clauses)  →  singleton sweep  →  deepest untried survivor
-                                     │
-                                     └ empty → Clause.is_live=False → its whole
-                                       slice of the lattice is gone, one call
+The visit order::
 
-**Probe first, fetch second — they are not the same job.** A probe is ``limit=1``
-and creates no leads; a fetch is ``limit=100`` and creates up to 100, which cost
-*examination*, the one genuinely scarce resource (5.9% of the corpus has ever had
-any). That split is what makes the singleton sweep affordable: the shortest
-conjunctions are exactly the ones whose window fills with the provider's
-famous-company head (``{lead_seniority: founder}`` → Meta, Meta, Meta), so probing
-them maps the lattice while *fetching* them would pump the head straight into the
-pool — the opposite of a ``headcount 1–20`` ICP.
+    level 1  →  level N  →  level N-1  →  …  →  level 2  →  LLM refill
 
-**Sweep singletons, then go deep.** Probing each pool clause alone is the
-highest-value call in the lattice: emptiness is anti-monotone, so a clause the
-index carries nowhere kills every conjunction containing it. ``lead_location:
-Europe`` — a region, not a country, matching zero leads — dies on one probe and is
-pruned from every candidate forever, instead of poisoning query after query. It is
-also the only *sound* way to convict a clause: alone, a clause has nothing else to
-blame. What gets fetched is then the **deepest** surviving conjunction, because a
-long conjunction matches fewer people and so reaches past the head into the niche.
+**Singletons first, because emptiness is anti-monotone.** A clause the index
+carries nowhere kills every conjunction containing it, so asking each clause alone
+is the highest-pruning call in the lattice: ``lead_location: Europe`` — a region,
+not a country, matching zero leads — dies once and is pruned from every candidate
+forever, instead of poisoning query after query. It is also the only *sound* way to
+convict a clause: alone, a clause has nothing else to blame. And the order matters
+for pruning to work at all — the subset test only bites when the recorded empty
+sets are *shorter* than the candidates, and every full-depth conjunction is the
+same depth as its siblings, so nothing prunes anything until the short sets are in.
 
-**Emptiness prunes; yield never does.** A wall is a *yield* verdict — those people
-exist, they are not our ICP — so it writes nothing to the blacklist and retires no
-clause. Only a probe that matched nobody records anything. A node whose window is
-all-Meta can have a refinement whose window is gold, so nothing about a bad view
-propagates.
+**Then deepest, then backtrack.** A long conjunction matches fewer people and so
+reaches past the provider's famous-company head (``{lead_seniority: founder}`` →
+Meta, Meta, Meta) into the niche. Shorter levels are walked last, on the way back
+down, because they widen toward that head.
+
+**Emptiness prunes; yield never does.** A barren *yield* verdict — those people
+exist, they are not our ICP — writes nothing and retires nothing. Only a fetch that
+matched nobody records an ``EmptyClauseSet``, and it convicts the whole set, never
+a clause inside it: ``lead_department: Sales`` returns rows alone yet sat in six
+0-row conjunctions. A node whose window is all-Meta can have a refinement whose
+window is gold, so nothing about a bad view propagates.
+
+This module only *reads* the pruning table. ``discover.py`` writes it, because it
+is the leg that fetches and therefore the leg that learns.
 
 See the roadmap card ``p2-e3-discovery-query-graph-search``.
 """
@@ -48,56 +50,30 @@ import logging
 
 from termcolor import colored
 
-from openoutreach.core.models import Clause, DiscoveryQuery, EmptyClauseSet
+from openoutreach.core.models import EmptyClauseSet
 from openoutreach.core.pipeline.frontier import clause_key
-from openoutreach.discovery import describe_clauses, probe
+from openoutreach.discovery import describe_clauses
 
 logger = logging.getLogger(__name__)
 
 
 # ── the pool ─────────────────────────────────────────────────────────
 
-def _live_pool(campaign) -> dict[str, list[str]]:
-    """The campaign's un-retired pool clauses, grouped by family, sorted by age.
+def _pool(campaign) -> dict[str, list[str]]:
+    """The campaign's clause pool, grouped by family, sorted by age.
 
-    Excludes only clauses a singleton probe has proven dead (``is_live=False``).
-    An *unprobed* clause is kept: it is unknown, not barren, and the sweep is what
-    resolves it. Insertion order is the ICP's own ranking, and the seed took each
-    family's first value, so it survives as the tie-break the descent orders by.
+    Nothing is excluded here. A clause the index carries nowhere is retired by the
+    subset test instead — its singleton lands in ``EmptyClauseSet`` on the level-1
+    pass and prunes every candidate holding it — so there is no second liveness
+    mechanism to keep in step with this one.
+
+    Insertion order is the ICP's own ranking, and the seed took each family's first
+    value, so it survives as the tie-break the visit orders by.
     """
     pool: dict[str, list[str]] = {}
-    clauses = campaign.clauses.exclude(is_live=False).order_by("pk")
-    for family, value in clauses.values_list("family", "value"):
+    for family, value in campaign.clauses.order_by("pk").values_list("family", "value"):
         pool.setdefault(family, []).append(value)
     return pool
-
-
-def _sweep_singletons(campaign) -> int:
-    """Probe every never-probed pool clause on its own; retire the dead. Returns the count.
-
-    One call per clause, and each one either confirms a clause or deletes an entire
-    slice of the lattice — no other probe in the walk prunes that much. Bounded by
-    the pool size and run once per clause for all time (the verdict is global: a
-    clause is dead for every campaign, because emptiness is a fact about the
-    provider's index).
-
-    Serial by requirement, not preference — concurrent probes cause 300s poll
-    timeouts and corrupt results — so this is ~45s per unprobed clause, paid at the
-    first wall and essentially never again.
-    """
-    unprobed = list(campaign.clauses.filter(is_live=None).order_by("pk"))
-    if not unprobed:
-        return 0
-
-    logger.info("[%s] %s: %d unprobed clause(s)", campaign,
-                colored("clause sweep", "magenta", attrs=["bold"]), len(unprobed))
-    for clause in unprobed:
-        clause.is_live = probe([(clause.family, clause.value)])
-        clause.save(update_fields=["is_live"])
-        logger.info("[%s]   %s %s", campaign,
-                    colored("live " if clause.is_live else "dead ", "green" if clause.is_live else "red"),
-                    colored(str(clause), "cyan"))
-    return len(unprobed)
 
 
 # ── pruning ──────────────────────────────────────────────────────────
@@ -113,49 +89,54 @@ def _empty_sets() -> list[frozenset]:
 def _is_pruned(candidate: frozenset, empty_sets) -> bool:
     """Is this candidate a superset of a conjunction already known to be empty?
 
-    The anti-monotone rule, and the whole return on probing: adding clauses can
-    only ever remove rows, so a candidate containing an empty set is empty too and
-    never needs a call of its own.
+    The anti-monotone rule, and the whole return on visiting singletons first:
+    adding clauses can only ever remove rows, so a candidate containing an empty set
+    is empty too and never needs a fetch of its own.
     """
     return any(empty <= candidate for empty in empty_sets)
 
 
-def _record_empty(clauses) -> None:
-    """Blacklist a conjunction its probe found empty. Idempotent."""
-    entry, created = EmptyClauseSet.objects.get_or_create(clause_key=clause_key(clauses))
-    if created:
-        entry.clauses.set(Clause.rows_for(clauses))
+# ── the visit ────────────────────────────────────────────────────────
 
+def _visit_order(pool: dict[str, list[str]]) -> list[list[tuple[str, str]]]:
+    """Every conjunction the pool spans, in visit order: 1, N, N-1, …, 2.
 
-# ── the descent ──────────────────────────────────────────────────────
+    Each family contributes one value or none, so a candidate is any non-empty
+    sub-conjunction with at most one value per family — an OR is unrepresentable by
+    construction (that is the point of composing from clauses rather than asking the
+    LLM for a filter dict).
 
-def _candidates(campaign, pool: dict[str, list[str]]) -> list[list[tuple[str, str]]]:
-    """Every conjunction the live pool spans, deepest and closest-to-seed first.
-
-    One value per family, every family present — an OR is unrepresentable here by
-    construction (that is the point of composing from clauses rather than asking
-    for a filter dict). A family whose values all died in the sweep simply drops
-    out, so candidates stay as deep as the surviving pool allows.
-
-    Ordered by how far each candidate sits from the pool's head — the value the
-    seed took in each family — because the ICP's own ranking is the only prior a
-    wall has. Every candidate is the same depth, so ordering is a heuristic and
-    nothing rests on it: the counts sort the regions out once they are fetched.
+    Within a level, candidates sort by how far they sit from the pool's head — the
+    value the seed took in each family — because the ICP's own ranking is the only
+    prior the walk has before anything is fetched. That makes the seed conjunction
+    the first node of level N, with no special case for it anywhere.
     """
     families = sorted(pool)
     ranks = {family: {v: i for i, v in enumerate(pool[family])} for family in families}
-    combos = itertools.product(*(pool[family] for family in families))
+    choices = [[(family, v) for v in pool[family]] + [None] for family in families]
+
     candidates = [
-        sorted(zip(families, values)) for values in combos
+        sorted(c for c in combo if c is not None)
+        for combo in itertools.product(*choices)
     ]
-    candidates.sort(key=lambda c: (
-        sum(ranks[family][value] for family, value in c), c,
-    ))
+    candidates = [c for c in candidates if c]
+    deepest = max(len(c) for c in candidates)
+
+    def rank(candidate):
+        # Level 1 leads; the rest run deepest-first, so depth N sorts right behind
+        # the singletons and depth 2 comes last.
+        level = 0 if len(candidate) == 1 else deepest - len(candidate) + 1
+        distance = sum(ranks[family][value] for family, value in candidate)
+        return level, distance, candidate
+
+    candidates.sort(key=rank)
     return candidates
 
 
 def _tried_keys(campaign) -> set[str]:
     """Clause-set keys this campaign has already fetched a page of."""
+    from openoutreach.core.models import DiscoveryQuery
+
     return set(
         DiscoveryQuery.objects
         .filter(campaign=campaign)
@@ -164,40 +145,30 @@ def _tried_keys(campaign) -> set[str]:
 
 
 def descend(campaign) -> list[tuple[str, str]]:
-    """The next untried, verified non-empty conjunction from the pool, or ``[]``.
+    """The next unvisited, unpruned conjunction from the pool, or ``[]``.
 
-    The wall move, as a lookup: sweep any unprobed clause out of the pool, then walk
-    the conjunctions it spans until one probes non-empty, and hand that to the
-    frontier to fetch. Empty ones are blacklisted on the way past, so the walk never
-    pays for them twice and their supersets are pruned for free.
+    A lookup, not a call: walk the pool's conjunctions in visit order and hand the
+    frontier the first one this campaign has not fetched and the subset test has not
+    already convicted. Whether it holds anybody is answered by fetching it.
 
-    ``[]`` means the descent is genuinely out of conjunctions — every one the pool
-    spans is fetched or empty. That is the *only* condition under which the LLM is
-    asked again (``mutate.descend_or_refill``); it is not a failure.
+    ``[]`` means the visit is genuinely out of conjunctions — every one the pool
+    spans is fetched or pruned. That is the *only* condition under which the LLM is
+    asked for new clauses (``mutate.descend_or_refill``); it is not a failure.
     """
-    pool = _live_pool(campaign)
+    pool = _pool(campaign)
     if not pool:
         return []
 
-    if _sweep_singletons(campaign):
-        pool = _live_pool(campaign)  # the sweep may have retired clauses, or a whole family
-
     tried = _tried_keys(campaign)
     empty_sets = _empty_sets()
-    probed = 0
-    for candidate in _candidates(campaign, pool):
+    for candidate in _visit_order(pool):
         if clause_key(candidate) in tried or _is_pruned(frozenset(candidate), empty_sets):
             continue
-        probed += 1
-        if probe(candidate):
-            logger.info("[%s] %s after %d probe(s): %s", campaign,
-                        colored("descent", "yellow", attrs=["bold"]), probed,
-                        colored(describe_clauses(candidate), "cyan"))
-            return candidate
-        _record_empty(candidate)
-        empty_sets.append(frozenset(candidate))
+        logger.info("[%s] %s: %s", campaign,
+                    colored("visit", "yellow", attrs=["bold"]),
+                    colored(describe_clauses(candidate), "cyan"))
+        return candidate
 
-    logger.info("[%s] %s: every conjunction the pool spans is fetched or empty "
-                "(%d probe(s) this move)", campaign,
-                colored("descent exhausted", "yellow", attrs=["bold"]), probed)
+    logger.info("[%s] %s: every conjunction the pool spans is fetched or pruned",
+                campaign, colored("visit exhausted", "yellow", attrs=["bold"]))
     return []

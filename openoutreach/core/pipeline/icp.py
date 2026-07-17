@@ -2,13 +2,18 @@
 """ICP seed generator — LLM maps a campaign to its first Lead Finder query.
 
 A single LLM pass turns ``product_docs + campaign_target`` into candidate values
-per family (titles, seniorities, countries, a size band), which are composed into
-the **seed conjunction**: the campaign's first query. Called by the frontier's
-bootstrap move on a cold start, and nowhere else.
+per family (titles, seniorities, countries, a size band), which become the campaign's
+**clause pool** — every candidate value is persisted, not just the ones the seed
+conjunction carries. Called by the frontier on a cold start, and nowhere else.
+
+The seed conjunction it returns is no longer fetched specially: the lattice visit
+orders it as the head of level N on its own, because the seed takes each family's
+first value and the visit tie-breaks on distance from exactly that head.
 
 This is the only unprompted LLM call in discovery, and it is unavoidable — with no
 positives yet, the product description is the only prior available. Thereafter the
-frontier steers on measured node counts and only asks the LLM again at a wall.
+walk composes its queries from this pool, and asks the LLM again only once the pool
+spans nothing unvisited.
 
 **A returned list per family is a set of candidates, not an OR.** A query holds at
 most one clause per family: an include-list of 5 titles compresses 5 sampling

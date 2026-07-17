@@ -85,23 +85,14 @@ class DiscoveryQueryAdmin(admin.ModelAdmin):
 class ClauseAdmin(admin.ModelAdmin):
     """The clause vocabulary — every ``(family, value)`` any query has been built from."""
 
-    list_display = ("__str__", "family", "value", "liveness", "query_count", "created_at")
-    list_filter = ("family", "is_live")
+    list_display = ("__str__", "family", "value", "query_count", "created_at")
+    list_filter = ("family",)
     search_fields = ("value",)
 
     @admin.display(description="queries")
     def query_count(self, obj):
         """How many query nodes carry this clause."""
         return obj.queries.count()
-
-    @admin.display(description="alone")
-    def liveness(self, obj):
-        """The singleton probe's verdict, with unprobed spelled out rather than blank.
-
-        Three states, and reading the middle one as "no" is the whole bug class this
-        card exists to kill: unprobed is *unknown*, not barren.
-        """
-        return {None: "unprobed", True: "live", False: "dead — pruned"}[obj.is_live]
 
 
 @admin.register(EmptyClauseSet)

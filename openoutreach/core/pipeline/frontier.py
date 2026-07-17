@@ -10,18 +10,47 @@ chain. One discovery *move* (``discover.py``):
          │                    └ empty page → mark_exhausted
          └ cold start → icp.generate_seed
 
-``next_query`` picks exactly one query to fetch, scored by **ground truth**: each
-node's ``(examined, qualified)`` counts over its first-touch leads' deals, computed
-by ``node_stats`` and never stored. The three moves, and the regime that selects
-them, fall straight out of those two counts:
+``next_query`` picks exactly one query to fetch, and there are only two things it
+can say:
 
-- **Bootstrap** *(no node has an examined lead — nothing is rankable)* — page the
-  seed linearly, exactly like the old cursor, feeding qualification the labels that
-  train the GP.
-- **Deepen** *(the best rankable node has ``qualified > 0``)* — deepen its line to
-  mine a productive vein.
-- **Wall** *(every rankable node has ``qualified == 0``)* — ask the LLM for one new
-  query.
+- **Deepen** *(some node has ``qualified > 0`` and its next page is unfetched)* —
+  page one deeper. A region that has produced a qualified lead is the only evidence
+  the walk ever gets that it is somewhere worth being, so it outranks the structural
+  visit outright — but the evidence is **re-earned at every depth**: a node earns
+  only *its own* next page, so one paying page buys exactly one more page, never a
+  licence to run.
+- **Visit** *(nothing has qualified yet)* — hand back the next unvisited conjunction
+  in ``descend``'s lattice order (level 1 → N → N-1 → … → 2), and when the pool
+  spans nothing new, ask the LLM for fresh clauses.
+
+That is the whole regime. It reads **one** number — ``qualified`` from
+``node_stats``, counted over each node's first-touch leads' deals — and it only ever
+asks whether that number is positive. There is no bar to tune and no ranking of
+barren nodes against each other, because a node with no qualified leads is not
+*bad*, it is just not yet a reason to stop walking.
+
+**Deepen votes per node, never per line, and this is load-bearing.** The metric was
+always per ``(clause set, offset)`` — a node *is* a page — but deepen used to elect
+the best node *anywhere* in a line and then page from the line's high-water mark.
+Those are two different keys, and the gap between them is a non-terminating walk: an
+offset-0 page that qualified 5 leads keeps that 5 forever, so it keeps winning the
+election, while the offset it hands back climbs 100, 200, 300 … with nothing at depth
+ever asked whether it paid. The line's own emptiness is the only brake, and a level-1
+singleton like ``headcount 1–?`` matches millions of rows, so that page never comes:
+the walk mines the broadest query in the lattice forever, harvesting the provider's
+famous-company head (the exact failure ``descend`` orders itself to avoid) and never
+visiting the other conjunctions at all. The fix reads the *node's own* count and hands
+back the *node's own* next page: a page that qualified elects exactly the page after
+it, and only until that page exists — so evidence is local to the depth that produced
+it, which is where it was measured, and no clause-set line is ever grouped to vote as
+a whole.
+
+A just-fetched frontier page has ``examined == 0`` and so does not vote — the walk
+falls back to ``visit`` until qualification rules on it. That is the ``examined == 0``
+is *unknown, not barren* distinction, and here it costs nothing: the deepen is not
+lost, only deferred to the move after the labels land, and the walk does structural
+work meanwhile instead of paging blind. Deepen firing once per new evidence rather
+than in a run is the point, not a regression.
 
 **The frontier reads no signal from the GP.** It used to: nodes were scored by how
 many of their leads cleared ``min_gp_confidence`` (0.9 — a *spend* gate), and the
@@ -36,11 +65,14 @@ walk read a permanent wall, and ``deepen`` never fired once. Three jobs, three
 mechanisms: the frontier steers on node counts, the GP/BALD picks which lead to
 qualify next, and ``min_gp_confidence`` is *only* the spend gate.
 
-**``examined == 0`` means unknown, not barren**, so an unsampled node is not
-rankable and cannot vote for a wall. Exhaustion is reactive: a fetch that returns an
-empty page marks that clause set exhausted so it is never re-picked. No explore-share
-cadence, no width target, no size cap — the walk widens exactly when the regions it
-can actually see stop paying.
+An earlier design also carried a **bootstrap** regime. It is gone and nothing was
+lost: bootstrap paged the seed because the visit had no order of its own, and the
+seed is now simply the head of level N.
+
+Exhaustion is reactive: a fetch that returns an empty page marks that clause set
+exhausted so it is never re-picked, and an empty page **at offset 0** additionally
+records the conjunction as an ``EmptyClauseSet``, pruning every superset of it for
+free. No explore-share cadence, no width target, no size cap.
 
 See the roadmap card ``p2-e3-discovery-query-graph-search``.
 """
@@ -51,19 +83,19 @@ import json
 import logging
 from collections import namedtuple
 
-from django.db.models import Count, Max, Q
+from django.db.models import Count, Q
 
-from openoutreach.core.models import Clause, DiscoveryQuery
+from openoutreach.core.models import Clause, DiscoveryQuery, EmptyClauseSet
 
 logger = logging.getLogger(__name__)
 
 DISCOVERY_PAGE_SIZE = 100
 
-# The query to fetch next, plus which move produced it — ``bootstrap``, ``deepen``,
-# or ``wall``. ``clauses`` is the clause set as ``(family, value)`` pairs; nothing is
-# persisted until the fetch returns rows. ``discover`` uses ``move`` for logging and
-# to cap a move at a single wall fetch (a freshly opened region that comes back
-# empty ends the move).
+# The query to fetch next, plus which move produced it — ``deepen`` or ``visit``.
+# ``clauses`` is the clause set as ``(family, value)`` pairs; nothing is persisted
+# until the fetch returns rows. ``discover`` uses ``move`` for logging and to cap a
+# move at a single fresh visit (a newly opened region that comes back empty ends the
+# move rather than walking the lattice at ~45s a node inside one call).
 NextQuery = namedtuple("NextQuery", ["clauses", "offset", "move"])
 
 
@@ -114,6 +146,27 @@ def mark_exhausted(campaign, clauses) -> None:
     ).update(exhausted=True)
 
 
+def record_empty(clauses) -> None:
+    """Blacklist a conjunction the index matched nobody with. Idempotent.
+
+    Written by the leg that *learns* it — ``discover``, on an empty page at offset 0
+    — and read by ``descend._is_pruned`` as the anti-monotone rule: a candidate is
+    dead iff some recorded set is a subset of it. One dry fetch therefore retires a
+    whole sublattice without another call.
+
+    **Only an offset-0 empty page belongs here.** An empty page deeper in a line
+    means a vein ran out, not that the conjunction matches nobody — recording that
+    would convict a query that has already produced leads.
+
+    **Global, with no campaign FK**, like ``Clause``: emptiness is a fact about the
+    provider's index, not about a campaign, so one campaign's dry fetch prunes every
+    campaign's lattice for free.
+    """
+    entry, created = EmptyClauseSet.objects.get_or_create(clause_key=clause_key(clauses))
+    if created:
+        entry.clauses.set(Clause.rows_for(clauses))
+
+
 # ── the node metric ──────────────────────────────────────────────────
 
 # What a node is worth, measured rather than predicted. ``examined`` is how many of
@@ -162,70 +215,62 @@ def node_stats(campaign) -> dict[int, NodeStats]:
 
 # ── selection ────────────────────────────────────────────────────────
 
-def _next_offset(campaign, key: str) -> int:
-    """The next unfetched offset for a clause-set line — max fetched offset + one
-    page, or 0 if the line has never been fetched."""
-    deepest = (
-        DiscoveryQuery.objects
-        .filter(campaign=campaign, clause_key=key)
-        .aggregate(m=Max("offset"))["m"]
-    )
-    return 0 if deepest is None else deepest + DISCOVERY_PAGE_SIZE
+def _productive_node(campaign) -> DiscoveryQuery | None:
+    """The node with the most qualified leads whose next page is still unfetched.
 
+    The walk's one piece of positive evidence, read on the exact ``(clause set,
+    offset)`` **node** that earned it — never on the clause-set line as a whole. A node
+    earns *only its own* successor page: a shallower page that once qualified cannot
+    keep voting, because the page it would open (``offset + one``) has already been
+    fetched, so it drops out and the still-open frontier is what remains. That is what
+    keeps one paying page from buying an unbounded descent.
 
-def _bootstrap_query(campaign) -> NextQuery | None:
-    """The next seed page to fetch while nothing is rankable — the old linear cursor.
-
-    The seed is the earliest node, so it *is* the line we page. Deepen it; on a cold
-    start (no node yet) the ICP generates the seed and we start at offset 0.
+    Ties break on ``pk`` — the older node, which is the one closer to the ICP's own
+    ranking.
     """
-    from openoutreach.core.pipeline.icp import generate_seed
-
-    seed = DiscoveryQuery.objects.filter(campaign=campaign).order_by("pk").first()
-    if seed is None:
-        clauses = generate_seed(campaign)
-        return NextQuery(clauses, 0, "bootstrap") if clauses else None
-    if seed.exhausted:
-        return None  # the seed line dried up before anything else was measurable
-    return NextQuery(seed.clause_pairs, _next_offset(campaign, seed.clause_key), "bootstrap")
+    stats = node_stats(campaign)
+    nodes = list(DiscoveryQuery.objects.filter(campaign=campaign))
+    fetched = {(node.clause_key, node.offset) for node in nodes}
+    scored = [
+        (node, stats[node.pk].qualified)
+        for node in nodes
+        if not node.exhausted
+        and stats.get(node.pk, NodeStats(0, 0)).qualified > 0
+        and (node.clause_key, node.offset + DISCOVERY_PAGE_SIZE) not in fetched
+    ]
+    if not scored:
+        return None
+    return max(scored, key=lambda pair: (pair[1], -pair[0].pk))[0]
 
 
 def next_query(campaign) -> NextQuery | None:
     """The single query to fetch next, or None when nothing is left to walk.
 
-    The regime is decided by ``node_stats`` alone — there is no gate to tune:
+    Two moves, and the first one that applies wins:
 
-    - **Bootstrap** (no active node has an examined lead): page the seed linearly.
-      Nothing has been ruled on, so we stay on our best prior until qualification
-      says otherwise. On a cold start (no nodes yet) the seed is generated from the
-      ICP; thereafter the seed node itself carries its clauses. None if the ICP is
-      empty or the seed line has dried up (nothing measured to move toward).
-    - **Deepen** (the best rankable node has ``qualified > 0``): deepen its line.
-    - **Wall** (every rankable node has ``qualified == 0``): ask the LLM for one new
-      query at offset 0. None if the LLM is dry or re-proposes an already-tried
-      query.
+    - **Deepen** (some node has ``qualified > 0`` and its next page is unfetched):
+      page that node one deeper. A region that has produced a qualified lead is the
+      only evidence the walk gets that it is somewhere worth being, so it pre-empts the
+      structural visit for as long as it keeps paying — but *keeps paying* is asked of
+      each page on its own, so a vein that stops qualifying releases the walk without
+      waiting for the empty page that ``mark_exhausted`` needs.
+    - **Visit** (nothing has qualified yet): the next unvisited conjunction from
+      ``descend``, at offset 0, and an LLM refill once the pool spans nothing new.
+      None if the LLM is dry or re-proposes a query already fetched.
 
-    Unexamined nodes are skipped rather than scored zero, so a region nobody has
-    looked at can neither be deepened nor counted as a wall.
+    On a cold start the ICP seeds the pool first — ``generate_seed`` persists every
+    candidate value it produced, and the seed conjunction it returns needs no special
+    case here because the visit order makes it the head of level N anyway.
     """
-    active = list(DiscoveryQuery.objects.filter(campaign=campaign, exhausted=False))
-    stats = node_stats(campaign)
-    rankable = [(n, stats[n.pk]) for n in active if stats.get(n.pk, NodeStats(0, 0)).examined]
-    if not rankable:
-        return _bootstrap_query(campaign)
-
-    best = max(
-        ((n, s) for n, s in rankable if s.qualified > 0),
-        key=lambda pair: (pair[1].qualified, pair[0].pk), default=None,
-    )
-    if best is not None:
-        node = best[0]
-        return NextQuery(node.clause_pairs, _next_offset(campaign, node.clause_key), "deepen")
-
-    # Wall — every region we can see has been ruled on and pays nothing. Open a new
-    # one. A wall is a *yield* verdict, so it retires nothing: only an empty page
-    # (``mark_exhausted``) takes a line out of the walk.
+    from openoutreach.core.pipeline.icp import generate_seed
     from openoutreach.core.pipeline.mutate import generate_mutation
+
+    node = _productive_node(campaign)
+    if node is not None:
+        return NextQuery(node.clause_pairs, node.offset + DISCOVERY_PAGE_SIZE, "deepen")
+
+    if not campaign.clauses.exists():
+        generate_seed(campaign)
 
     clauses = generate_mutation(campaign)
     if not clauses:
@@ -233,5 +278,5 @@ def next_query(campaign) -> NextQuery | None:
     if DiscoveryQuery.objects.filter(
         campaign=campaign, clause_key=clause_key(clauses),
     ).exists():
-        return None  # LLM re-proposed a query we already tried — nothing new to open
-    return NextQuery(clauses, 0, "wall")
+        return None  # re-proposed a query we already fetched — nothing new to open
+    return NextQuery(clauses, 0, "visit")

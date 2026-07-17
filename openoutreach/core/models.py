@@ -220,21 +220,6 @@ class Clause(models.Model):
         max_length=32, choices=[(f, f) for f in FILTER_FAMILIES],
     )
     value = models.CharField(max_length=200)
-    # Does this clause match anybody *on its own*? NULL = never probed. Written by
-    # the descent's singleton sweep (``descend.py``), which is the highest-value
-    # probe in the lattice: emptiness is anti-monotone, so a clause the index
-    # carries nowhere kills every conjunction containing it — one call retires a
-    # whole slice. This is what makes the ``Europe`` class of dead query
-    # (``lead_location: Europe`` matches zero leads) cost one probe instead of
-    # poisoning query after query.
-    #
-    # **Only a singleton probe may write this.** A clause is dead when *it alone*
-    # returns nothing — never because some conjunction holding it came back empty.
-    # ``lead_department: Sales`` is honored and returns rows, yet sat in six 0-row
-    # conjunctions; convicting it on that evidence is the "department is poison"
-    # error, and it is why conjunction emptiness blames the whole set
-    # (``EmptyClauseSet``) and nothing smaller.
-    is_live = models.BooleanField(null=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -347,33 +332,42 @@ class DiscoveryQuery(models.Model):
 
 
 class EmptyClauseSet(models.Model):
-    """A **multi-clause** conjunction Lead Finder matches nobody with.
+    """A conjunction Lead Finder matches nobody with, of any size down to one clause.
 
-    Written by a descent probe that came back empty, and read as a pruning rule:
-    **a candidate is dead iff some recorded set is a subset of it.** That is
-    anti-monotone — a superset of an empty conjunction is empty — so one dry probe
-    retires a sublattice without another call, and a conjunction is never probed
-    twice.
+    Written by ``discover`` when a fetch at offset 0 comes back empty, and read as a
+    pruning rule: **a candidate is dead iff some recorded set is a subset of it.**
+    That is anti-monotone — a superset of an empty conjunction is empty — so one dry
+    fetch retires a sublattice without another call.
 
-    **The unit is the whole set, and never a clause inside it.** An empty
-    conjunction convicts nothing smaller than itself: ``lead_department: Sales``
-    is honored and returns rows on its own, yet sat in six 0-row conjunctions.
-    Blaming its clauses would delete ``Sales`` from every campaign's pool on
-    evidence that says nothing about it — the "department is poison" error,
-    automated. A clause is only ever retired by its *own* singleton probe, which
-    is sound and lives on ``Clause.is_live``; that is also why the ``k=1`` case
-    never lands here.
+    **``k=1`` is the whole point, and it used to live elsewhere.** A singleton set is
+    exactly "this clause matches nobody alone", which was once a
+    ``Clause.is_live`` tri-state written by a dedicated ``limit=1`` probe sweep. It
+    was the same fact stored twice: excluding a dead clause from the pool and pruning
+    every candidate that contains it prune identically, since ``{c} ⊆ candidate`` iff
+    ``c ∈ candidate``. So the column is gone and the subset test does both jobs.
+    ``descend`` visits level 1 first for this reason — the subset test only bites when
+    the recorded sets are *shorter* than the candidates, and full-depth conjunctions
+    are all the same depth as each other, so without the singletons in here first
+    nothing prunes anything and ``lead_location: Europe`` poisons query after query.
 
-    **Only emptiness lands here — never a barren yield.** A conjunction whose
-    leads all get rejected is a verdict about *the people in that window*, not
-    about whether the query matches anybody, and yield propagates in neither
-    direction: a node whose window is all-Meta can have a refinement whose window
-    is gold. So a wall must never write a row here — it retires nothing. See the
-    roadmap card ``p2-e3-discovery-query-graph-search``.
+    **The unit is the whole set, and never a clause inside it.** An empty conjunction
+    convicts nothing smaller than itself: ``lead_department: Sales`` is honored and
+    returns rows on its own, yet sat in six 0-row conjunctions. Blaming its clauses
+    would delete ``Sales`` from every campaign's pool on evidence that says nothing
+    about it — the "department is poison" error, automated. A clause is retired here
+    only by its *own* singleton coming back empty, which is sound: alone, a clause has
+    nothing else to blame.
+
+    **Only emptiness lands here — never a barren yield.** A conjunction whose leads
+    all get rejected is a verdict about *the people in that window*, not about whether
+    the query matches anybody, and yield propagates in neither direction: a node whose
+    window is all-Meta can have a refinement whose window is gold. Nor does an empty
+    page at ``offset > 0`` belong here — that is a vein running out, not a query that
+    matches nobody. See the roadmap card ``p2-e3-discovery-query-graph-search``.
 
     **Global, with no campaign FK** — the same argument as ``Clause``. Emptiness
     is a fact about the provider's index, not about a campaign: a conjunction that
-    matches nobody matches nobody whoever asks. So one campaign's probes prune
+    matches nobody matches nobody whoever asks. So one campaign's dry fetches prune
     every campaign's lattice, free.
     """
 

@@ -193,17 +193,17 @@ def llm_generate_mutation(campaign) -> list[tuple[str, str]]:
 
 
 def descend_or_refill(campaign) -> list[tuple[str, str]]:
-    """Compose the wall's query from the clause pool; ask the LLM only if it can't.
+    """Compose the next query from the clause pool; ask the LLM only if it can't.
 
     The escalation, and the order is the point::
 
-        wall → next untried conjunction → (only when none remain) → LLM refill
+        next unvisited conjunction → (only when none remain) → LLM refill
 
     The descent is a lattice lookup over clauses the LLM already produced, so it is
     free and it cannot invent a value the index has never heard of. Only when every
-    conjunction the pool spans is fetched or probed empty is there nothing left to
-    compose, and only then is the LLM asked — which is a real answer ("this pool is
-    used up"), not a fallback for an error.
+    conjunction the pool spans is fetched or pruned is there nothing left to compose,
+    and only then is the LLM asked — which is a real answer ("this pool is used up"),
+    not a fallback for an error.
 
     A pool of 5 titles / 5 countries / 3 seniorities spans ~75 conjunctions worth up
     to ~10k rows each, so that condition is a long way off: the LLM goes from being

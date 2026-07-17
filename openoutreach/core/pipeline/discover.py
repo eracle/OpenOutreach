@@ -21,11 +21,9 @@ from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
-DISCOVERY_PAGE_SIZE = 100
-
 # One colour per move, so a run reads at a glance: green is mining a vein that
-# pays, yellow is widening blind into a new region, cyan is still paging the seed.
-_MOVE_COLORS = {"bootstrap": "cyan", "deepen": "green", "wall": "yellow"}
+# pays, yellow is widening blind into a region nothing has been ruled on yet.
+_MOVE_COLORS = {"deepen": "green", "visit": "yellow"}
 
 
 def _move(name: str) -> str:
@@ -36,12 +34,18 @@ def _move(name: str) -> str:
 def discover(session) -> int:
     """Fetch one query's page and persist its first-touch Leads. Returns the count.
 
-    One move: ask the frontier for the next query (generating the ICP seed on a cold
-    start) and fetch its Lead Finder page. A page with rows is persisted (leads
-    first-touch-stamped via ``Lead.discovered_by``) and the count returned. An
-    **empty page** marks that clause set exhausted and the move
-    retries the next-best query — deepening drains a finite set of veins, and a
-    freshly walled region that comes back empty ends the move.
+    One move: ask the frontier for the next query (seeding the ICP's clause pool on a
+    cold start) and fetch its Lead Finder page. A page with rows is persisted (leads
+    first-touch-stamped via ``Lead.discovered_by``) and the count returned.
+
+    **This is the leg that learns.** There is no cheap liveness probe anywhere in the
+    walk — a fetch is how the lattice finds out whether a conjunction holds anybody,
+    so the two shapes of empty page are recorded differently here and nowhere else:
+
+    - **offset 0** — the conjunction matches nobody. ``record_empty`` blacklists it,
+      which prunes every superset of it for free, and the line is exhausted.
+    - **offset > 0** — a vein ran out. Exhaust the line and nothing more: the query
+      matched people, we have simply seen them all.
 
     Returns 0 only when the whole walk is dry (no query left to fetch), never when
     a single branch ends — so the qualify chain's "``discover() <= 0`` means
@@ -52,6 +56,7 @@ def discover(session) -> int:
     """
     from openoutreach.core.db.leads import create_lead
     from openoutreach.core.pipeline import frontier
+    from openoutreach.core.pipeline.frontier import DISCOVERY_PAGE_SIZE
     from openoutreach.discovery import describe_clauses, filters_for, search
     from openoutreach.emails import bettercontact
 
@@ -65,13 +70,17 @@ def discover(session) -> int:
 
     logger.info(colored("▶ discover", "blue", attrs=["bold"]))
 
-    walled = False
+    visited = False
     while True:
         query = frontier.next_query(campaign)
         if query is None:
             return 0
-        if query.move == "wall" and walled:
-            return 0  # one new region per move — its emptiness ends this move
+        if query.move == "visit" and visited:
+            # One fresh region per move. Without a probe every candidate costs a real
+            # ~45s fetch, so a run of empty conjunctions would otherwise grind through
+            # the lattice inside a single call; the daemon's next move picks up where
+            # this left off, with the blacklist already one entry richer.
+            return 0
 
         filters = filters_for(query.clauses)
         rows = search(filters, limit=DISCOVERY_PAGE_SIZE, offset=query.offset)
@@ -88,14 +97,14 @@ def discover(session) -> int:
                         colored(describe_clauses(query.clauses), "cyan"))
             return created
 
-        # Empty page — record the dry attempt and exhaust its line, then retry.
-        # Neither shape of empty is an error: a region that holds no leads is a
-        # real answer, and widening past it is the walk working. Offset 0 still
-        # tells them apart when reading a run back — the query matched nothing at
-        # all, versus a vein that finally ran out.
+        # Empty page — record what it means and exhaust the line, then retry. Neither
+        # shape of empty is an error: a region that holds no leads is a real answer,
+        # and widening past it is the walk working. Only offset 0 convicts the
+        # conjunction, and it convicts nothing smaller than the whole set.
         if query.offset == 0:
+            frontier.record_empty(query.clauses)
             logger.info(
-                "[%s] %s: query matched %s — exhausting %s "
+                "[%s] %s: query matched %s — blacklisting %s "
                 "(an empty region and a filter value Lead Finder doesn't know "
                 "look identical here)",
                 campaign, _move(query.move), colored("nothing", "yellow", attrs=["bold"]),
@@ -108,5 +117,5 @@ def discover(session) -> int:
                         colored(describe_clauses(query.clauses), "cyan"))
         frontier.persist_fetched(campaign, query.clauses, query.offset)
         frontier.mark_exhausted(campaign, query.clauses)
-        if query.move == "wall":
-            walled = True
+        if query.move == "visit":
+            visited = True
