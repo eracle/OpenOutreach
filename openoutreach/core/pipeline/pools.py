@@ -115,10 +115,16 @@ def qualify_source(session, qualifier: BayesianQualifier,
 
 
 def ready_source(session, qualifier: BayesianQualifier, threshold: float | None = None) -> Generator[dict, None, None]:
-    """Yield ready-to-find-email candidates, pulling from qualify when needed."""
+    """Yield ready-to-find-email candidates, pulling from qualify when needed.
+
+    ``threshold`` reaches both the promote gate and ``qualify_source``'s state
+    switch — they must be the same number or the states are incoherent: the switch
+    would spend LLM calls on leads this gate then parks, which is the exact waste
+    the two states exist to avoid.
+    """
     if threshold is None:
         threshold = CAMPAIGN_CONFIG["min_gp_confidence"]
-    qualify = qualify_source(session, qualifier)
+    qualify = qualify_source(session, qualifier, threshold)
 
     while True:
         candidate = find_ready_candidate(session, qualifier)
