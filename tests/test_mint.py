@@ -32,19 +32,25 @@ def _qualified(campaign, url):
 
 class TestMint:
     def test_adds_fresh_clauses_and_skips_existing(self, db):
+        # Several values per family is the whole point of a mint — and the render must
+        # survive it (filters_for raises on >1 value per family, so the log renders
+        # per clause). Regression: describe_clauses(fresh) crashed the daemon here.
         campaign = _campaign()
         campaign.clauses.set(Clause.rows_for([("lead_location", "Japan")]))
         minted = _MintedClauses(
-            lead_job_title=["VP Sales"], lead_location=["Japan", "Canada"],
+            lead_job_title=["VP Sales", "Head of Sales"],
+            lead_location=["Japan", "Canada"],
+            lead_department=["Sales", "Marketing"],
         )
         with _llm_returns(minted), patch("openoutreach.core.llm.get_llm_model"), \
              patch("pydantic_ai.Agent"):
             added = mint_clauses(campaign)
 
-        assert added == 2  # VP Sales + Canada; Japan already in the pool
+        assert added == 5  # 2 titles + Canada + 2 departments; Japan already in the pool
         assert set(campaign.clauses.values_list("family", "value")) == {
             ("lead_location", "Japan"), ("lead_location", "Canada"),
-            ("lead_job_title", "VP Sales"),
+            ("lead_job_title", "VP Sales"), ("lead_job_title", "Head of Sales"),
+            ("lead_department", "Sales"), ("lead_department", "Marketing"),
         }
 
     def test_records_the_qualified_high_water_mark(self, db):

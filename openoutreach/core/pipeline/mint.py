@@ -28,12 +28,19 @@ from pydantic import BaseModel, ConfigDict, Field
 from termcolor import colored
 
 from openoutreach.core.conf import PROMPTS_DIR
-from openoutreach.discovery import LEAD_SENIORITIES, Seniority, describe_clauses
+from openoutreach.discovery import LEAD_SENIORITIES, Seniority, describe_filters, filters_for
 
 logger = logging.getLogger(__name__)
 
 # Qualified profiles shown to the mint prompt — the positive examples it generalizes.
 QUALIFIED_SAMPLE_LIMIT = 30
+
+
+def _render(clauses) -> str:
+    """A clause bag as a readable list — per clause, since a mint spans several
+    values per family and ``filters_for`` (one value per family) would raise on the
+    whole set."""
+    return ", ".join(describe_filters(filters_for([c])) for c in clauses)
 
 
 class _MintedClauses(BaseModel):
@@ -102,7 +109,7 @@ def mint_clauses(campaign) -> int:
         product_docs=campaign.product_docs,
         campaign_target=campaign.campaign_target,
         seniorities=LEAD_SENIORITIES,
-        pool=[describe_clauses([c]) for c in pool],
+        pool=[describe_filters(filters_for([c])) for c in pool],
         qualified=qualified,
     )
 
@@ -146,5 +153,5 @@ def mint_clauses(campaign) -> int:
     campaign.clauses.add(*Clause.rows_for(fresh))
     logger.info("[%s] %s: +%d clause(s) from %d qualified example(s) — %s",
                 campaign, colored("mint", "magenta", attrs=["bold"]),
-                len(fresh), len(qualified), describe_clauses(fresh))
+                len(fresh), len(qualified), _render(fresh))
     return len(fresh)
