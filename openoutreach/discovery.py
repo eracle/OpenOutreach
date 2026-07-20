@@ -188,17 +188,47 @@ def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
 
 
 def profile_text_for(row: dict) -> str:
-    """Firmographic text for one lead row — the LLM qualifier's input and the
-    embedding's source, built from the same fields so both stay comparable.
+    """Firmographic text for one lead row — the LLM qualifier's input, built from the
+    fields that vary between leads.
 
     Absent fields are skipped rather than held as empty slots, so a sparse row
-    stays short instead of padding out to the shape of a rich one.
+    stays short instead of padding out to the shape of a rich one. This is the LLM's
+    input verbatim; the *embedding* adds the retrieving query's terms on top (see
+    ``clause_terms``), which the LLM must not see or it would rubber-stamp a lead for
+    matching the very query that found it.
     """
     return " ".join(str(row[f]) for f in TEXT_FIELDS if row.get(f)).lower()
 
 
-def embed_row(row: dict) -> np.ndarray:
-    """384-dim vector for one lead row, for ML qualification."""
+def clause_terms(clauses) -> str:
+    """Readable keyword text of a clause set, lowercased — the query as words.
+
+    The single mechanism that puts queries and profiles in one embedding space: a
+    discovered lead is embedded as ``profile_text + clause_terms(its retrieving
+    query)``, and a *candidate* query is embedded as ``clause_terms`` alone. Sharing
+    the values (``head of sales``, ``united states``) that also appear in profile
+    text lets the GP — trained only on labelled profiles — score a never-run query by
+    its keywords, and learn query-term → fit as a byproduct.
+    """
+    return describe_filters(filters_for(clauses)).lower()
+
+
+def embed_profile(profile_text: str, query_terms: str = "") -> np.ndarray:
+    """384-dim vector for a lead — its firmographic text plus its retrieving query's
+    terms, so the GP learns which query keywords surface good leads."""
     from openoutreach.core.ml.embeddings import embed_text
 
-    return embed_text(profile_text_for(row))
+    text = f"{profile_text} {query_terms}".strip()
+    return embed_text(text)
+
+
+def embed_query(clauses) -> np.ndarray:
+    """384-dim vector for a candidate query — its keywords alone.
+
+    Keyword-only, so a never-run query sits at the sparse edge of the labelled cloud:
+    the GP is legitimately more uncertain there, which is exactly the explore signal
+    an unsampled region should carry.
+    """
+    from openoutreach.core.ml.embeddings import embed_text
+
+    return embed_text(clause_terms(clauses))

@@ -74,19 +74,14 @@ class Campaign(models.Model):
     # ISO-3166 alpha-2 target country for this campaign's leads — the contacts
     # geo-gate stamp put on every discovered Lead. A stable ICP attribute (one
     # country per campaign), so it lives here rather than duplicated on each query
-    # node. Set by ``frontier.generate_seed`` from the LLM's ICP spec on the first
-    # discovery move. (Discovery is a best-first walk over ``DiscoveryQuery`` nodes
-    # — the retired ``icp_filters``/``discovery_offset`` single-cursor state was
-    # dropped in migration 0007; the seed is regenerated on cold start and then
-    # embodied by the fetched seed nodes, not cached.)
+    # node. Set by ``icp.generate_seed`` from the LLM's ICP spec on the cold start.
     country_code = models.CharField(max_length=2, blank=True, default="")
 
-    # The clause pool — the seed conjunction, one value per family. With one clause
-    # per family the pool *is* the seed (``icp.generate_seed`` names a single best
-    # value per family, not a list), so the descent (``core/pipeline/descend.py``)
-    # can only broaden it — drop a clause to widen back toward the head — never OR
-    # alternatives in. It composes those sub-conjunctions without asking the LLM
-    # again, and asks only once the pool spans nothing new.
+    # The clause pool — the axes discovery searches. ``icp.generate_seed`` fills it
+    # with a few values per family; ``mint.py`` grows it from the leads that qualify.
+    # The selector (``core/pipeline/select.py``) fires the Cartesian product of the
+    # pool — the maximal conjunctions, one value per family — and the GP ranks which
+    # to fetch. Breadth is more values, never a dropped clause.
     #
     # **The pool is per-campaign; the ``Clause`` rows are global.** Not a
     # contradiction: a clause is the same fact whoever searches it
@@ -94,6 +89,12 @@ class Campaign(models.Model):
     # this campaign's ICP talking. So the membership is the campaign's and the row
     # is shared.
     clauses = models.ManyToManyField("Clause", blank=True, related_name="campaigns")
+
+    # The qualified-lead count at the last clause mint — the throughput trigger's
+    # high-water mark. ``discover`` mints again once this many new leads qualify, so
+    # what the pool learned is folded in without re-minting every move. See
+    # ``core/pipeline/mint.py``.
+    discovery_minted_at_qualified = models.IntegerField(default=0)
 
     def __str__(self):
         return self.name
@@ -249,8 +250,9 @@ class DiscoveryQuery(models.Model):
     """One **fetched** node in a campaign's discovery walk — a Lead Finder query.
 
     A node is a **set of clauses plus an offset**: at most one clause per family, all
-    ANDed, at a pagination depth that has already been pulled once. Discovery is a
-    lazy best-first walk over these nodes (see ``core/pipeline/frontier.py``).
+    ANDed, at a pagination depth that has already been pulled once. Discovery fires
+    only *maximal* conjunctions and the GP ranks which to fetch (see
+    ``core/pipeline/select.py``).
 
     **Why a clause set and not a filter dict.** A filter dict can express an
     include-list — an OR — and an OR is strictly dominated: it compresses several
@@ -270,13 +272,13 @@ class DiscoveryQuery(models.Model):
     excluded from selection. Emptiness is the **only** thing that retires a line: a
     barren *yield* is a verdict about a view, not about the query.
 
-    **A node's value is not a column.** It is the ``(examined, qualified)`` pair
-    that ``frontier.node_stats`` counts over its first-touch leads' deals — measured
-    ground truth, computed per move and never stored, so it can never go stale
-    against the deals it summarizes. The value **steers discovery only**: it decides
-    which query region to walk next and never gates a lead. Every saved lead advances
-    through ``qualify → promote_to_ready → find_email`` on its own P, over the global
-    pool, regardless of which node discovered it.
+    **A node has no value column.** Which query to fetch next is scored by the GP on
+    the candidate maximal's *keywords* (``select.py``), not by any count stored here —
+    a discovered lead carries its retrieving query's terms in its embedding, so the GP
+    that ranks leads ranks queries too. The node exists to dedup fetches, track the
+    deepen offset, and stamp ``Lead.discovered_by`` (which carries those keywords).
+    Every saved lead advances through ``qualify → promote_to_ready → find_email`` on
+    its own P, over the global pool, regardless of which node discovered it.
     """
 
     campaign = models.ForeignKey(
@@ -346,11 +348,12 @@ class EmptyClauseSet(models.Model):
     every candidate that contains it prune identically, since ``{c} ⊆ candidate`` iff
     ``c ∈ candidate``. So the column is gone and the subset test does both jobs.
 
-    An empty set does double duty in ``descend``: it prunes every superset of itself,
-    **and** it unlocks that conjunction's drop-one children — the visit is deepest-only
-    and widens to a shorter query only below one that came back empty. So once
-    ``lead_location: Europe`` is a singleton empty it both convicts every conjunction
-    holding it and routes the descent around it in one step.
+    The selector fires only *maximal* conjunctions, which are all the same depth, so
+    the subset test is inert **within** one pool — until ``mint.py`` adds a family and
+    the maximals grow deeper. Then a maximal recorded empty before the mint is a subset
+    of the new, deeper maximals, and pruning their supersets keeps the selector from
+    re-fetching a region a shorter query already proved empty. One dry fetch, a
+    sublattice retired for free, across minting rounds.
 
     **The unit is the whole set, and never a clause inside it.** An empty conjunction
     convicts nothing smaller than itself: ``lead_department: Sales`` is honored and

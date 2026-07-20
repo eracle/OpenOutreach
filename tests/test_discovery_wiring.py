@@ -1,8 +1,11 @@
 # tests/test_discovery_wiring.py
 """Discovery→qualify wiring: create_lead, the discover() leg, and the ICP generator.
 
-Mocks the Lead Finder transport (`openoutreach.discovery.search`) and the embedder
-so no network / ONNX model is touched.
+Mocks the Lead Finder transport (`openoutreach.discovery.search`), the embedder and
+the GP so no network / ONNX model is touched. The GP is the query selector now, so
+``discover`` takes a qualifier; a qualifier whose ``acquisition_scores`` returns
+``None`` is an unfitted (cold-start) model, which makes selection deterministic:
+seed-first, fresh-before-deep.
 """
 from unittest.mock import MagicMock, patch
 
@@ -13,8 +16,8 @@ from pydantic import ValidationError
 from openoutreach.core.db.leads import create_lead
 from openoutreach.core.models import Clause, DiscoveryQuery, EmptyClauseSet
 from openoutreach.core.pipeline.discover import discover
-from openoutreach.core.pipeline.frontier import clause_key
 from openoutreach.core.pipeline.icp import ICPSpec, _seed_conjunction, generate_seed
+from openoutreach.core.pipeline.select import clause_key
 
 
 def _campaign(**kw):
@@ -33,24 +36,19 @@ def _node(campaign, clauses, offset=0):
     return node
 
 
+def _cold_qualifier():
+    """An unfitted GP — ``acquisition_scores`` returns None, so selection is the
+    deterministic seed-first, fresh-first fallback."""
+    q = MagicMock()
+    q.acquisition_scores.return_value = None
+    return q
+
+
 SEED = [("lead_seniority", "owner")]
 OTHER = [("lead_location", "Japan")]
-THIRD = [("lead_location", "Germany")]
-
-
-def _rejected(campaign, node, tag):
-    """A first-touch lead of ``node`` the LLM rejected — leaves the node barren, so
-    the walk keeps visiting rather than deepening it."""
-    from openoutreach.crm.models import Deal, DealState, Lead, Outcome
-
-    lead = Lead.objects.create(profile_url=f"https://x/{node.pk}-{tag}/", discovered_by=node)
-    return Deal.objects.create(lead=lead, campaign=campaign, state=DealState.FAILED,
-                               outcome=Outcome.WRONG_FIT)
 
 
 def _qualified(campaign, node, tag):
-    """A first-touch lead of ``node`` the LLM accepted — the walk's only evidence that
-    a region is worth deepening, and the one thing that pre-empts the visit."""
     from openoutreach.crm.models import Deal, DealState, Lead
 
     lead = Lead.objects.create(profile_url=f"https://x/{node.pk}-{tag}/", discovered_by=node)
@@ -76,7 +74,7 @@ class TestCreateLead:
             "contact_linkedin_profile_url": "https://www.linkedin.com/in/alice/",
             "contact_headline": "CMO", "company_name": "Acme",
         }
-        with patch("openoutreach.discovery.embed_row", return_value=np.ones(384, dtype=np.float32)):
+        with patch("openoutreach.discovery.embed_profile", return_value=np.ones(384, dtype=np.float32)):
             assert create_lead(row, country_code="us") is True
 
         lead = Lead.objects.get(profile_url="https://www.linkedin.com/in/alice/")
@@ -84,11 +82,21 @@ class TestCreateLead:
         assert lead.profile_text == "cmo acme"
         assert lead.embedding_array is not None
 
-    def test_idempotent_on_duplicate(self, db):
-        row = {"contact_linkedin_profile_url": "https://www.linkedin.com/in/alice/"}
-        with patch("openoutreach.discovery.embed_row", return_value=np.ones(384, dtype=np.float32)):
-            assert create_lead(row) is True
-            assert create_lead(row) is False
+    def test_query_terms_go_into_the_embedding_not_the_profile_text(self, db):
+        # The keyword injection: the retrieving query's terms shape the embedding (so
+        # the GP learns query→fit) but never the profile_text the LLM reads.
+        from openoutreach.crm.models import Lead
+
+        row = {
+            "contact_linkedin_profile_url": "https://www.linkedin.com/in/alice/",
+            "contact_headline": "CMO",
+        }
+        with patch("openoutreach.discovery.embed_profile",
+                   return_value=np.ones(384, dtype=np.float32)) as embed:
+            create_lead(row, query_terms="seniority owner")
+
+        embed.assert_called_once_with("cmo", "seniority owner")
+        assert Lead.objects.get(profile_url="https://www.linkedin.com/in/alice/").profile_text == "cmo"
 
     def test_missing_profile_url_returns_false(self, db):
         assert create_lead({"contact_headline": "no url"}) is False
@@ -100,7 +108,7 @@ class TestCreateLead:
         first = _node(c, SEED)
         second = _node(c, OTHER)
         row = {"contact_linkedin_profile_url": "https://www.linkedin.com/in/alice/"}
-        with patch("openoutreach.discovery.embed_row", return_value=np.ones(384, dtype=np.float32)):
+        with patch("openoutreach.discovery.embed_profile", return_value=np.ones(384, dtype=np.float32)):
             assert create_lead(row, discovered_by=first) is True
             assert create_lead(row, discovered_by=second) is False  # re-surfaced, not re-created
 
@@ -111,117 +119,167 @@ class TestCreateLead:
 # ── discover() ───────────────────────────────────────────────────────
 
 
+def _patch_select_embed():
+    """Stub the candidate embedder so selection touches no ONNX model."""
+    return patch("openoutreach.core.pipeline.select.embed_query",
+                 return_value=np.ones(384, dtype=np.float64))
+
+
 class TestDiscover:
     def test_skips_freemium_campaign(self, db):
         _set_key()
         session = MagicMock(campaign=_campaign(is_freemium=True))
-        assert discover(session) == 0
+        assert discover(session, _cold_qualifier()) == 0
 
     def test_skips_without_finder_key(self, db):
         session = MagicMock(campaign=_campaign())
-        assert discover(session) == 0
+        assert discover(session, _cold_qualifier()) == 0
 
     def test_skips_without_product_or_objective(self, db):
         _set_key()
         session = MagicMock(campaign=_campaign(product_docs="", campaign_target=""))
-        assert discover(session) == 0
+        assert discover(session, _cold_qualifier()) == 0
 
-    def test_deepen_pages_a_line_that_qualified(self, db):
-        """One qualified lead is the whole trigger — it pre-empts the visit outright."""
+    def test_fetches_the_seed_maximal_and_injects_its_keywords(self, db):
         _set_key()
         campaign = _campaign(country_code="us")
-        _qualified(campaign, _node(campaign, SEED, offset=0), "a1")
+        campaign.clauses.set(Clause.rows_for(SEED))
         session = MagicMock(campaign=campaign)
         rows = [
             {"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"},
             {"contact_linkedin_profile_url": "https://www.linkedin.com/in/b/"},
         ]
-        with patch("openoutreach.discovery.search", return_value=rows) as search, \
+        with _patch_select_embed(), \
+             patch("openoutreach.discovery.search", return_value=rows) as search, \
              patch("openoutreach.core.db.leads.create_lead", return_value=True) as create:
-            assert discover(session) == 2
+            assert discover(session, _cold_qualifier()) == 2
 
-        assert search.call_args.kwargs["offset"] == 100
-        node = DiscoveryQuery.objects.get(campaign=campaign, offset=100)
-        assert node.clause_pairs == SEED and not node.exhausted
-        assert create.call_count == 2
-        assert create.call_args.kwargs == {"country_code": "us", "discovered_by": node}
+        assert search.call_args.kwargs["offset"] == 0
+        node = DiscoveryQuery.objects.get(campaign=campaign, offset=0)
+        assert node.clause_pairs == SEED
+        # keywords of the retrieving query ride the embedding, not profile_text
+        assert create.call_args.kwargs == {
+            "country_code": "us", "discovered_by": node, "query_terms": "seniority owner",
+        }
 
-    def test_a_barren_line_is_never_deepened(self, db):
-        """Yield retires nothing, but it earns nothing either: a line whose leads were
-        all rejected is left where it is and the visit carries on past it."""
+    def test_deepens_a_fetched_line_to_the_next_page(self, db):
+        # One maximal, already fetched at offset 0 and not exhausted: the only
+        # candidate is its next page. No qualified-lead precondition — the GP (here
+        # cold) ranks it; deepen is just the next offset of a live vein.
         _set_key()
-        campaign = _campaign()
-        campaign.clauses.set(Clause.rows_for(SEED + OTHER))
-        _rejected(campaign, _node(campaign, SEED, offset=0), "a1")
+        campaign = _campaign(country_code="us")
+        campaign.clauses.set(Clause.rows_for(SEED))
+        _node(campaign, SEED, offset=0)
         session = MagicMock(campaign=campaign)
         rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"}]
-        with patch("openoutreach.discovery.search", return_value=rows) as search, \
+        with _patch_select_embed(), \
+             patch("openoutreach.discovery.search", return_value=rows) as search, \
              patch("openoutreach.core.db.leads.create_lead", return_value=True):
-            assert discover(session) == 1
+            assert discover(session, _cold_qualifier()) == 1
 
-        assert search.call_args.kwargs["offset"] == 0, "a visit, not a deepen"
-        assert not DiscoveryQuery.objects.filter(
-            campaign=campaign, clause_key=clause_key(SEED), offset=100,
-        ).exists()
+        assert search.call_args.kwargs["offset"] == 100
 
-    def test_a_provider_timeout_retires_the_query_without_failing_the_caller(self, db):
-        """A discovery fetch is best-effort: a provider outage/timeout retires that one
-        query and returns 0 instead of raising and failing the find_email task that
-        called it. The query is exhausted (not re-picked) but not blacklisted — a
-        timeout is not proof it matches nobody."""
+    def test_a_provider_timeout_retires_the_query_without_blacklisting_it(self, db):
         from openoutreach.emails.bettercontact import BetterContactUnavailable
 
         _set_key()
         campaign = _campaign()
         campaign.clauses.set(Clause.rows_for(SEED))
         session = MagicMock(campaign=campaign)
-        with patch("openoutreach.discovery.search",
+        with _patch_select_embed(), \
+             patch("openoutreach.discovery.search",
                    side_effect=BetterContactUnavailable("poll timed out")):
-            assert discover(session) == 0
+            assert discover(session, _cold_qualifier()) == 0
 
         node = DiscoveryQuery.objects.get(campaign=campaign, clause_key=clause_key(SEED))
         assert node.exhausted
         assert not EmptyClauseSet.objects.exists()
 
     def test_a_dry_vein_exhausts_its_line_without_blacklisting_it(self, db):
-        """offset > 0 means we have seen everyone, not that the query matches nobody —
-        blacklisting here would convict a conjunction that already produced leads."""
+        # offset > 0 empty means we have seen everyone, not that the query matches
+        # nobody — blacklisting would convict a conjunction that already produced leads.
         _set_key()
         campaign = _campaign()
         campaign.clauses.set(Clause.rows_for(SEED))
-        _qualified(campaign, _node(campaign, SEED, offset=0), "a1")
+        _node(campaign, SEED, offset=0)  # already fetched → next candidate is offset 100
         session = MagicMock(campaign=campaign)
-        with patch("openoutreach.discovery.search", return_value=[]), \
-             patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value=[]):
-            assert discover(session) == 0
+        with _patch_select_embed(), \
+             patch("openoutreach.discovery.search", return_value=[]), \
+             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=0):
+            assert discover(session, _cold_qualifier()) == 0
 
         assert DiscoveryQuery.objects.filter(
             campaign=campaign, clause_key=clause_key(SEED), exhausted=True,
-        ).count() == 2
+        ).exists()
         assert not EmptyClauseSet.objects.exists()
 
-    def test_an_empty_visit_blacklists_the_query_and_ends_the_move(self, db):
+    def test_an_empty_fresh_maximal_is_blacklisted_then_the_pool_saturates(self, db):
+        # A single-value pool spans one maximal; empty at offset 0 blacklists it, the
+        # selector then has nothing, and saturation mints (here adding nothing → 0).
         _set_key()
         campaign = _campaign()
         campaign.clauses.set(Clause.rows_for(SEED))
         session = MagicMock(campaign=campaign)
-        with patch("openoutreach.discovery.search", return_value=[]), \
-             patch("openoutreach.core.pipeline.mutate.generate_mutation",
-                   side_effect=[OTHER, THIRD]):
-            assert discover(session) == 0
+        with _patch_select_embed(), \
+             patch("openoutreach.discovery.search", return_value=[]), \
+             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=0) as mint:
+            assert discover(session, _cold_qualifier()) == 0
 
-        # The dead region is convicted for every campaign, and exactly one was opened:
-        # without a probe each visit is a real fetch, so the move stops rather than
-        # walking the lattice inside one call.
-        assert EmptyClauseSet.objects.get().clause_key == clause_key(OTHER)
-        assert DiscoveryQuery.objects.filter(campaign=campaign, clause_key=clause_key(OTHER)).exists()
-        assert not DiscoveryQuery.objects.filter(campaign=campaign, clause_key=clause_key(THIRD)).exists()
+        assert EmptyClauseSet.objects.get().clause_key == clause_key(SEED)
+        mint.assert_called_once()  # saturation trigger
 
-    def test_cold_start_seeds_the_pool_then_visits_the_deepest_conjunction(self, db):
-        """The ICP's job is the pool, not the first query: the seed conjunction needs
-        no special case because deepest-first makes it the head of the visit."""
+    def test_saturation_mint_that_adds_clauses_reselects(self, db):
+        # The only maximal is exhausted (a dry vein, not blacklisted), so the pool is
+        # saturated; minting a new family opens a fresh maximal the selector then fetches.
+        from openoutreach.core.pipeline.select import mark_exhausted, persist_fetched
+
         _set_key()
-        campaign = _campaign()  # no nodes, no pool — cold start
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for(SEED))
+        persist_fetched(campaign, SEED, 0)
+        mark_exhausted(campaign, SEED)  # saturated, but SEED not recorded empty
+        session = MagicMock(campaign=campaign)
+        rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"}]
+
+        def _mint(c):
+            c.clauses.add(*Clause.rows_for(OTHER))  # widen the pool with a new family
+            return 1
+
+        with _patch_select_embed(), \
+             patch("openoutreach.discovery.search", return_value=rows), \
+             patch("openoutreach.core.pipeline.mint.mint_clauses", side_effect=_mint), \
+             patch("openoutreach.core.db.leads.create_lead", return_value=True):
+            assert discover(session, _cold_qualifier()) == 1
+
+        # fetched the minted maximal (owner AND Japan), fresh at offset 0
+        assert DiscoveryQuery.objects.filter(
+            campaign=campaign, clause_key=clause_key(sorted(SEED + OTHER)), offset=0,
+        ).exists()
+
+    def test_throughput_mint_fires_after_enough_qualified(self, db):
+        # Every mint_every_n_qualified new qualified leads, discover folds them in
+        # before selecting — the throughput trigger, on a count, not a confidence bar.
+        from openoutreach.core.conf import CAMPAIGN_CONFIG
+
+        _set_key()
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for(SEED))
+        node = _node(campaign, SEED, offset=0)
+        for i in range(CAMPAIGN_CONFIG["mint_every_n_qualified"]):
+            _qualified(campaign, node, f"q{i}")
+        session = MagicMock(campaign=campaign)
+        rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"}]
+        with _patch_select_embed(), \
+             patch("openoutreach.discovery.search", return_value=rows), \
+             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=0) as mint, \
+             patch("openoutreach.core.db.leads.create_lead", return_value=True):
+            discover(session, _cold_qualifier())
+
+        mint.assert_called_once()
+
+    def test_cold_start_seeds_the_pool_then_fetches_the_seed(self, db):
+        _set_key()
+        campaign = _campaign()  # no pool — cold start
         session = MagicMock(campaign=campaign)
         pool = [("lead_seniority", "vp"), ("lead_location", "Japan")]
 
@@ -230,16 +288,15 @@ class TestDiscover:
             return pool
 
         rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/c/"}]
-        with patch("openoutreach.core.pipeline.icp.generate_seed", side_effect=_seed), \
+        with _patch_select_embed(), \
+             patch("openoutreach.core.pipeline.icp.generate_seed", side_effect=_seed), \
              patch("openoutreach.discovery.search", return_value=rows), \
              patch("openoutreach.core.db.leads.create_lead", return_value=True):
-            assert discover(session) == 1
+            assert discover(session, _cold_qualifier()) == 1
 
         assert set(campaign.clauses.values_list("family", "value")) == set(pool)
         node = DiscoveryQuery.objects.get(campaign=campaign, offset=0)
-        assert node.clause_pairs == [
-            ("lead_location", "Japan"), ("lead_seniority", "vp"),
-        ], "level N leads — the seed conjunction"
+        assert node.clause_pairs == sorted(pool)  # the single seed maximal
 
 
 # ── ICP generator ────────────────────────────────────────────────────
@@ -253,9 +310,6 @@ def _icp_returns(spec):
 
 class TestICP:
     def test_folds_country_onto_the_campaign(self, db):
-        # The country stamps every discovered Lead for the contacts geo-gate, and
-        # the ICP is the only thing that knows it — so the fold lives with the call
-        # that produced it, not in the frontier.
         campaign = _campaign()
         spec = ICPSpec(job_title="CMO", country_code="GB")
         with _icp_returns(spec), patch("openoutreach.core.llm.get_llm_model"), \
@@ -279,16 +333,12 @@ class TestICP:
         ]
 
     def test_schema_forbids_more_than_one_value_per_family(self):
-        # One value per family is enforced by the schema, not merely asked for in the
-        # prompt: a list is an OR, and an OR compresses several ~10k-row windows into
-        # one. The scalar field makes it unrepresentable.
+        # The seed is one precise conjunction — a list is an OR, and an OR compresses
+        # several ~10k-row windows into one. Minting, not the seed, adds alternatives.
         with pytest.raises(ValidationError):
             ICPSpec(job_title=["CMO", "CTO"])
 
     def test_the_pool_is_the_seed_conjunction(self, db):
-        # With one value per family the pool *is* the seed — there is no held-back
-        # candidate for it to keep. The descent downstream can only broaden this
-        # conjunction (drop a clause), never OR alternatives in.
         campaign = _campaign()
         spec = ICPSpec(job_title="CMO", location="Germany",
                        headcount_min=1, headcount_max=50)
@@ -302,8 +352,6 @@ class TestICP:
         }
 
     def test_the_pool_convicts_nothing_on_the_way_in(self, db):
-        # The ICP proposes; only a fetch that matched nobody may retire anything. A
-        # seed that pre-blacklisted its own clauses would prune the ICP unread.
         campaign = _campaign()
         with _icp_returns(ICPSpec(job_title="CMO")), \
              patch("openoutreach.core.llm.get_llm_model"), patch("pydantic_ai.Agent"):
@@ -313,8 +361,6 @@ class TestICP:
         assert not EmptyClauseSet.objects.exists()
 
     def test_seed_carries_no_inert_family(self):
-        # lead_industry rode every seed while doing nothing (probed 2026-07-16:
-        # both a real value and an absurd control returned the unfiltered page).
         spec = ICPSpec(job_title="CMO", seniority="owner", location="Germany")
         assert not any(f == "lead_industry" for f, _ in _seed_conjunction(spec))
 

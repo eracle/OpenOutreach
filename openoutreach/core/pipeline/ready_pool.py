@@ -7,14 +7,14 @@ BetterContact credit is only ever spent on a ranked lead. ``pools.qualify_source
 reads the same constant to decide its state — a lead below it would be qualified
 and then parked here, so it is only worth an LLM call for the label.
 
-That constant is the **spend gate and nothing else**. The discovery frontier used
-to borrow it to score query nodes ("how many of this query's leads would we pay
-for?"). That was a category error and it broke the walk: calibrated against
-*labelled* leads the GP has memorized, the bar is unreachable for the unlabelled
-candidates a node is made of, so every node scored zero and discovery read a
-permanent wall. The frontier now scores on ground truth and never asks. Keep it
-that way — see ``pipeline/frontier.py`` and the roadmap card
-``p2-e3-discovery-query-graph-search``.
+That constant is the **spend gate and nothing else**. Discovery once borrowed it to
+score query nodes ("how many of this query's leads would we pay for?"). That was a
+category error: calibrated against *labelled* leads the GP has memorized, the bar is
+unreachable for the unlabelled candidates a query is made of, so every node scored
+zero and discovery read a permanent wall. Discovery now scores queries with the same
+GP that ranks leads, on keyword embeddings — never this gate. Keep it that way — see
+``pipeline/select.py`` and the roadmap card
+``p2-e3-discovery-unified-gp-query-selection``.
 """
 from __future__ import annotations
 

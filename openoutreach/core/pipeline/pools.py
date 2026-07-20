@@ -40,8 +40,9 @@ to be reintroduced:
 A fitted GP reproduces its training points and regresses everything unseen toward
 the prior, so no bar drawn from one population applies to the other. That is why
 this gate compares against the *next gate's* constant rather than inventing one.
-Discovery steering does not belong here at all — it belongs to the frontier, on
-ground-truth per-node counts. See the discovery-query-graph-search roadmap card.
+Discovery steering does not belong here at all — the GP that ranks which lead to
+label also ranks which query to fetch (``select.py``). See the roadmap card
+``p2-e3-discovery-unified-gp-query-selection``.
 
 **Measured 2026-07-17: the pool tops out at 0.327, so this runs in cold start and
 will keep doing so until many more labels exist.** That is expected — the GP has
@@ -105,7 +106,7 @@ def qualify_source(session, qualifier: BayesianQualifier,
 
         # Cold start — nothing in the pool can reach email. Widen, then spend one
         # label on the whole pool (no threshold: nothing meets it, by definition).
-        discovered = discover(session)
+        discovered = discover(session, qualifier)
         result = run_qualification(session, qualifier)
         if result is not None:
             yield result

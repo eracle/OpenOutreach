@@ -62,10 +62,12 @@ CAMPAIGN_CONFIG = {
     # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
     # (rations the paid BetterContact lookup to leads the model is confident about).
     "min_gp_confidence": 0.9,
-    # No discovery-interleave gate: discovery runs when the pool is dry, full stop.
-    # Two "is this pool promising?" bars were tried and both were constants in
-    # disguise — see the pools.py module docstring. Discovery steering lives on the
-    # frontier, on ground-truth per-node counts, not on GP scores.
+    # Throughput mint cadence: every N new qualified leads, discovery folds them into
+    # the clause pool (mint.py). Not a confidence gate — a count, so it fires at cold
+    # start the moment leads qualify. No "is this pool promising?" bar exists here;
+    # two were tried and both were constants in disguise (see pools.py). Discovery
+    # steering lives on the GP that also ranks leads (select.py), not on a threshold.
+    "mint_every_n_qualified": 5,
     "embedding_model": "BAAI/bge-small-en-v1.5",
 }
 

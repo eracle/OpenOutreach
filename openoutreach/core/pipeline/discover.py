@@ -1,17 +1,22 @@
 # openoutreach/core/pipeline/discover.py
-"""Discovery leg — one best-first move over the campaign's query walk.
+"""Discovery leg — fetch the GP's chosen maximal into first-touch Leads.
 
 The top of the funnel: a page of ICP-matched rows becomes ``Lead`` rows (embedded
-+ profile_text) awaiting qualification. Free (Lead Finder bills nothing) and
-browserless. The qualify chain calls ``discover`` whenever its candidate pool runs
-dry; each call fetches the single most promising query — the deeper page of a
-productive vein, or a fresh region when the current ones stop paying — so
-successive calls steer toward the region of the query space that feeds
-qualification best.
+with their retrieving query's keywords + profile_text) awaiting qualification. Free
+(Lead Finder bills nothing) and browserless. The qualify chain calls ``discover``
+whenever its candidate pool runs dry; each call fetches the single maximal the GP
+scores highest — a fresh region to explore or a proven vein to page deeper.
 
-The move takes no qualifier: what a query region is worth is measured from the
-deals its leads earned, not predicted by the GP. See ``frontier.py`` and the roadmap
-card ``p2-e3-discovery-query-graph-search``.
+``discover`` takes the qualifier because the GP is now the query selector too: it
+scores every candidate maximal by its keywords (``select.next_query``). Two things
+grow the vocabulary, both here, neither a GP-confidence gate:
+
+- **throughput** — every ``MINT_EVERY_N_QUALIFIED`` new qualified leads, mint clauses
+  from them (fold in what they taught us) before selecting;
+- **saturation** — the selector returns ``None`` (nothing fetchable), so mint, and
+  stop only if minting adds nothing.
+
+See ``select.py`` and the roadmap card ``p2-e3-discovery-unified-gp-query-selection``.
 """
 from __future__ import annotations
 
@@ -21,44 +26,47 @@ from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
-# One colour per move, so a run reads at a glance: green is mining a vein that
-# pays, yellow is widening blind into a region nothing has been ruled on yet.
-_MOVE_COLORS = {"deepen": "green", "visit": "yellow"}
+# Empty fetches tolerated in one call before yielding back to the caller. A fetch is
+# ~45s, so a run of dead maximals is bounded per call; each empty is recorded, so the
+# next call resumes past it rather than re-fetching it.
+MAX_EMPTY_SKIPS = 3
 
 
-def _move(name: str) -> str:
-    """The move name in its colour."""
-    return colored(name, _MOVE_COLORS.get(name, "white"), attrs=["bold"])
+def _label(offset: int) -> str:
+    """Colour the move by what it is — green deepens a vein, yellow explores fresh."""
+    name, colour = ("deepen", "green") if offset else ("explore", "yellow")
+    return colored(name, colour, attrs=["bold"])
 
 
-def discover(session) -> int:
-    """Fetch one query's page and persist its first-touch Leads. Returns the count.
+def _qualified_count(campaign) -> int:
+    """Leads the LLM has accepted — any deal that is not a ``wrong_fit`` rejection."""
+    from openoutreach.crm.models import Deal, DealState, Outcome
 
-    One move: ask the frontier for the next query (seeding the ICP's clause pool on a
-    cold start) and fetch its Lead Finder page. A page with rows is persisted (leads
-    first-touch-stamped via ``Lead.discovered_by``) and the count returned.
+    return (
+        Deal.objects.filter(campaign=campaign, lead_id__isnull=False)
+        .exclude(state=DealState.FAILED, outcome=Outcome.WRONG_FIT).count()
+    )
 
-    **This is the leg that learns.** There is no cheap liveness probe anywhere in the
-    walk — a fetch is how the lattice finds out whether a conjunction holds anybody,
-    so the two shapes of empty page are recorded differently here and nowhere else:
 
-    - **offset 0** — the conjunction matches nobody. ``record_empty`` blacklists it,
-      which prunes every superset of it for free, and the line is exhausted.
-    - **offset > 0** — a vein ran out. Exhaust the line and nothing more: the query
-      matched people, we have simply seen them all.
+def discover(session, qualifier) -> int:
+    """Fetch one maximal's page and persist its first-touch Leads. Returns the count.
 
-    Returns 0 when the whole walk is dry (no query left to fetch) — so the qualify
-    chain's "``discover() <= 0`` means exhausted" contract holds — and also when a
-    discovery fetch is unavailable: a provider outage or timeout is best-effort, so it
-    retires that one query and ends the move rather than failing the caller.
+    Seeds the pool on a cold start, folds qualified learnings in on the throughput
+    cadence, then fetches the GP's top-scored maximal. An empty page is recorded (its
+    two shapes differently) and the next candidate tried, up to ``MAX_EMPTY_SKIPS``.
+    Returns 0 when the pool is exhausted (minting adds nothing), when a fetch is
+    unavailable (best-effort — a provider outage must not fail the enclosing
+    find_email task), or when only empties came back this call.
 
-    Gated as before: freemium campaigns seed from their kit (not Lead Finder),
-    and a campaign with no finder key or no product/target can't be searched.
+    Gated as before: freemium campaigns seed from their kit, and a campaign with no
+    finder key or no product/target can't be searched.
     """
+    from openoutreach.core.conf import CAMPAIGN_CONFIG
     from openoutreach.core.db.leads import create_lead
-    from openoutreach.core.pipeline import frontier
-    from openoutreach.core.pipeline.frontier import DISCOVERY_PAGE_SIZE
-    from openoutreach.discovery import describe_clauses, filters_for, search
+    from openoutreach.core.pipeline import select
+    from openoutreach.core.pipeline.icp import generate_seed
+    from openoutreach.core.pipeline.mint import mint_clauses
+    from openoutreach.discovery import clause_terms, describe_clauses, filters_for, search
     from openoutreach.emails import bettercontact
 
     campaign = session.campaign
@@ -71,66 +79,75 @@ def discover(session) -> int:
 
     logger.info(colored("▶ discover", "blue", attrs=["bold"]))
 
-    visited = False
+    if not campaign.clauses.exists():
+        generate_seed(campaign)
+
+    # Throughput mint: fold in the leads that qualified since the last mint.
+    qualified = _qualified_count(campaign)
+    if qualified and qualified - campaign.discovery_minted_at_qualified >= CAMPAIGN_CONFIG["mint_every_n_qualified"]:
+        mint_clauses(campaign)
+
+    empties = 0
+    minted = False
     while True:
-        query = frontier.next_query(campaign)
+        query = select.next_query(campaign, qualifier)
         if query is None:
-            return 0
-        if query.move == "visit" and visited:
-            # One fresh region per move. Without a probe every candidate costs a real
-            # ~45s fetch, so a run of empty conjunctions would otherwise grind through
-            # the lattice inside a single call; the daemon's next move picks up where
-            # this left off, with the blacklist already one entry richer.
+            # Saturation: the pool spans nothing fetchable. Widen the axes once — if the
+            # new clauses open a fetchable maximal, reselect; otherwise stop (the pool
+            # is bigger now, so the next call retries). One mint per call bounds the
+            # loop when every new maximal is still empty-pruned.
+            if not minted and mint_clauses(campaign) > 0:
+                minted = True
+                continue
+            logger.info("[%s] discovery exhausted — pool fully spanned", campaign)
             return 0
 
         filters = filters_for(query.clauses)
         try:
-            rows = search(filters, limit=DISCOVERY_PAGE_SIZE, offset=query.offset)
+            rows = search(filters, limit=select.DISCOVERY_PAGE_SIZE, offset=query.offset)
         except bettercontact.BetterContactUnavailable as exc:
-            # Discovery is best-effort: a provider outage or a query the provider
-            # can't answer in time must not fail the caller (this runs inside a
-            # find_email task in cold start). Retire the query — persist it so the
-            # visit won't re-pick it, and exhaust it so deepen won't — but do NOT
-            # record it empty: we don't know it matches nobody, only that we couldn't
-            # fetch it. The walk moves to the next query on the next move.
-            logger.warning("[%s] %s: discovery fetch of %s unavailable (%s) — retiring it",
-                           campaign, _move(query.move),
+            # Best-effort: a provider outage or an un-fetchable query must not fail the
+            # caller. Retire the query (persist so it isn't re-picked, exhaust so it
+            # isn't deepened) but do NOT record it empty — we don't know it matches
+            # nobody, only that we couldn't fetch it.
+            logger.warning("[%s] %s: fetch of %s unavailable (%s) — retiring it",
+                           campaign, _label(query.offset),
                            colored(describe_clauses(query.clauses), "cyan"), exc)
-            frontier.persist_fetched(campaign, query.clauses, query.offset)
-            frontier.mark_exhausted(campaign, query.clauses)
+            select.persist_fetched(campaign, query.clauses, query.offset)
+            select.mark_exhausted(campaign, query.clauses)
             return 0
+
         if rows:
-            node = frontier.persist_fetched(campaign, query.clauses, query.offset)
+            node = select.persist_fetched(campaign, query.clauses, query.offset)
+            query_terms = clause_terms(query.clauses)
             created = sum(
-                create_lead(row, country_code=campaign.country_code, discovered_by=node)
+                create_lead(row, country_code=campaign.country_code,
+                            discovered_by=node, query_terms=query_terms)
                 for row in rows
             )
             logger.info("[%s] %s: %s new lead(s) from %d row(s) (offset %d) — %s",
-                        campaign, _move(query.move),
+                        campaign, _label(query.offset),
                         colored(str(created), "green", attrs=["bold"]),
                         len(rows), query.offset,
                         colored(describe_clauses(query.clauses), "cyan"))
             return created
 
-        # Empty page — record what it means and exhaust the line, then retry. Neither
-        # shape of empty is an error: a region that holds no leads is a real answer,
-        # and widening past it is the walk working. Only offset 0 convicts the
-        # conjunction, and it convicts nothing smaller than the whole set.
+        # Empty page — record what it means, then try the next candidate. offset 0
+        # convicts the maximal (matches nobody); a deeper empty is a vein run dry.
         if query.offset == 0:
-            frontier.record_empty(query.clauses)
-            logger.info(
-                "[%s] %s: query matched %s — blacklisting %s "
-                "(an empty region and a filter value Lead Finder doesn't know "
-                "look identical here)",
-                campaign, _move(query.move), colored("nothing", "yellow", attrs=["bold"]),
-                colored(describe_clauses(query.clauses), "cyan"),
-            )
+            select.record_empty(query.clauses)
+            logger.info("[%s] %s: matched %s — blacklisting %s",
+                        campaign, _label(query.offset),
+                        colored("nothing", "yellow", attrs=["bold"]),
+                        colored(describe_clauses(query.clauses), "cyan"))
         else:
             logger.info("[%s] %s: vein %s at offset %d — exhausting %s",
-                        campaign, _move(query.move),
+                        campaign, _label(query.offset),
                         colored("ran dry", "yellow", attrs=["bold"]), query.offset,
                         colored(describe_clauses(query.clauses), "cyan"))
-        frontier.persist_fetched(campaign, query.clauses, query.offset)
-        frontier.mark_exhausted(campaign, query.clauses)
-        if query.move == "visit":
-            visited = True
+        select.persist_fetched(campaign, query.clauses, query.offset)
+        select.mark_exhausted(campaign, query.clauses)
+
+        empties += 1
+        if empties >= MAX_EMPTY_SKIPS:
+            return 0

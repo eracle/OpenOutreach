@@ -1,28 +1,19 @@
 # openoutreach/core/pipeline/icp.py
-"""ICP seed generator — LLM maps a campaign to its first Lead Finder query.
+"""ICP seed generator — LLM maps a campaign to its first, most-precise query.
 
 A single LLM pass turns ``product_docs + campaign_target`` into **one value per
 family** (a title, a seniority, a country, a size band): the single most precise
-query the model can name. That conjunction is both the seed and the campaign's whole
-**clause pool** — with one clause per family there is no held-back candidate for a
-pool to keep, so the descent downstream can only *broaden* the seed (drop a clause),
-never OR alternatives back in. Called by the frontier on a cold start, and nowhere
-else.
-
-The seed conjunction it returns is the head of level N in the lattice visit: the
-walk opens on the ICP's strongest, deepest guess and widens toward the head only
-when nothing there qualifies.
+conjunction the model can name. That conjunction is the campaign's whole starting
+**pool**, so the initial maximal set is exactly one query — the seed. Breadth is not
+seeded; it grows from the leads that qualify (``mint.py``), which add more values per
+family and so more maximals for the selector to rank.
 
 This is the only unprompted LLM call in discovery, and it is unavoidable — with no
 positives yet, the product description is the only prior available. Thereafter the
-walk composes its queries from this pool, and asks the LLM again only once the pool
-spans nothing unvisited — which, with one value per family, comes quickly.
+LLM is asked only to widen the axes from qualified profiles, never to compose a query.
 
-**One value per family, never a list.** A query holds at most one clause per family:
-an include-list of 5 titles compresses 5 sampling windows of ~10k rows into 1, and
-is strictly dominated by 5 separate queries, which are free. The schema makes more
-than one unrepresentable, so precision is enforced, not merely requested. See
-``discovery.filters_for``.
+One value per family, never headcount as a range to search: the size band is a single
+ICP attribute that rides every maximal unchanged. See ``discovery.filters_for``.
 """
 from __future__ import annotations
 
@@ -43,12 +34,10 @@ class ICPSpec(BaseModel):
     """The LLM's provider-agnostic ICP output — one value per family.
 
     ``seniority`` is typed to Lead Finder's vocabulary, not ``str``: an unknown level
-    returns an empty page rather than an error, which the frontier would misread as
-    the seed drying up. The schema makes that unrepresentable. The other families are
-    free text — a value the index doesn't carry is a normal empty page, one move
-    spent. Each family is a single scalar, not a list: a query is one conjunction and
-    an include-list would be an OR, which is strictly dominated (see the module
-    docstring).
+    returns an empty page rather than an error, wasting a fetch. The other families
+    are free text — a value the index doesn't carry is a normal empty page, one fetch
+    spent. Each family is a single scalar: the seed is one precise conjunction, and
+    minting — not the seed — supplies the alternatives.
     """
 
     job_title: str = ""
@@ -60,8 +49,8 @@ class ICPSpec(BaseModel):
 
 
 # The ICP's free-value families, paired with the ``ICPSpec`` attr each reads. The
-# headcount bounds are deliberately absent: each is a single number that rides every
-# conjunction unchanged, not a value the seed reads from a scalar field.
+# headcount bounds are absent: each is a single number riding every maximal, not a
+# value the seed reads from a scalar field.
 _CLAUSE_FAMILIES = (
     ("lead_job_title", "job_title"),
     ("lead_seniority", "seniority"),
@@ -72,14 +61,10 @@ _CLAUSE_FAMILIES = (
 def _seed_conjunction(spec: ICPSpec) -> list[tuple[str, str]]:
     """Compose the seed clause set — one clause per family the ICP named.
 
-    This is both the seed query and the entire clause pool: with one value per family
-    there is no held-back candidate to keep, so the descent downstream can only
-    broaden this conjunction (drop a clause), never OR alternatives in. A family the
-    model left empty contributes no clause.
-
-    The headcount bounds are always present with their single value each, so they
-    appear in every conjunction the descent composes and never vary — a size band is
-    this campaign's ICP, not a knob to search.
+    Both the seed query and the whole starting pool: with one value per family the
+    initial maximal set is this single conjunction. A family the model left empty
+    contributes no clause. The headcount bounds are always present and appear in every
+    maximal unchanged — a size band is this campaign's ICP, not a knob to search.
     """
     clauses = [
         ("company_headcount_min", str(spec.headcount_min)),
@@ -95,12 +80,10 @@ def _seed_conjunction(spec: ICPSpec) -> list[tuple[str, str]]:
 def generate_seed(campaign) -> list[tuple[str, str]]:
     """LLM-generate the campaign's seed query and fold its country onto it.
 
-    The walk's cold start: with no nodes there is no line to page and nothing to
-    deepen, so this is the one place a first query comes from. The seed isn't cached
-    — its first fetched page becomes the node that carries its clauses thereafter.
-
-    Also folds ``country_code`` onto the campaign, which is what geo-stamps every
-    discovered Lead. Returns the seed's clause set, or ``[]`` when the ICP is empty.
+    The cold start: with no clauses there is nothing to fetch, so this is where the
+    pool comes from. Also folds ``country_code`` onto the campaign, which geo-stamps
+    every discovered Lead. Returns the seed's clause set, or ``[]`` when the ICP is
+    empty.
     """
     from pydantic_ai import Agent
 

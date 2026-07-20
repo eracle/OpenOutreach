@@ -26,23 +26,19 @@ class CampaignAdmin(admin.ModelAdmin):
 
 @admin.register(DiscoveryQuery)
 class DiscoveryQueryAdmin(admin.ModelAdmin):
-    """Per-query discovery analytics — the record the graph-search card set out
-    to expose: which queries we ran, how deep, and which actually pay.
-
-    The three columns are the walk's own signals, and they are three different
-    things: ``leads`` is what the query surfaced, ``examined`` how many of those the
-    LLM has ruled on, ``qualified`` how many it accepted. ``examined = 0`` with
-    ``qualified = 0`` means *nobody looked* — not a barren region.
+    """Per-query discovery analytics — which maximals we ran, how deep, and what
+    each surfaced. ``leads`` is the first-touch count a query produced; the GP scores
+    which query to fetch next on keywords (``select.py``), so there is no per-node
+    value column here to steer on.
     """
 
     list_display = (
-        "id", "query", "campaign", "offset", "exhausted", "lead_yield",
-        "examined", "qualified", "updated_at",
+        "id", "query", "campaign", "offset", "exhausted", "lead_yield", "updated_at",
     )
     list_filter = ("exhausted", "campaign")
     readonly_fields = (
         "campaign", "query", "clause_key", "offset", "exhausted",
-        "lead_yield", "examined", "qualified", "created_at", "updated_at",
+        "lead_yield", "created_at", "updated_at",
     )
     date_hierarchy = "created_at"
 
@@ -51,34 +47,10 @@ class DiscoveryQueryAdmin(admin.ModelAdmin):
         """The node's clause set, rendered as the region it searches."""
         return describe_filters(obj.to_filters())
 
-    def _stats(self, obj):
-        """This node's counts, straight from the frontier's own metric.
-
-        One campaign-wide ``GROUP BY`` per row rather than an annotated queryset:
-        re-expressing the count here would fork the definition of "qualified" away
-        from the walk that acts on it, and this card exists because exactly that kind
-        of drift went unnoticed. An admin page renders a handful of nodes; the walk
-        is the thing that must not be wrong.
-        """
-        from openoutreach.core.pipeline.frontier import NodeStats, node_stats
-
-        return node_stats(obj.campaign).get(obj.pk, NodeStats(0, 0))
-
     @admin.display(description="leads")
     def lead_yield(self, obj):
         """First-touch leads this query surfaced."""
         return obj.leads.count()
-
-    @admin.display(description="examined")
-    def examined(self, obj):
-        """Its first-touch leads the LLM has ruled on — the node's denominator."""
-        return self._stats(obj).examined
-
-    @admin.display(description="qualified")
-    def qualified(self, obj):
-        """Its first-touch leads the LLM accepted — the node's value, and what the
-        frontier deepens on."""
-        return self._stats(obj).qualified
 
 
 @admin.register(Clause)

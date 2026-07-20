@@ -91,22 +91,32 @@ class TestProfileTextFor:
         assert discovery.profile_text_for(row) == "founder"
 
 
-class TestEmbedRow:
-    def test_builds_ordered_lowercased_text(self):
-        row = {
-            "contact_headline": "Head of Growth",
-            "contact_industry": "SaaS",
-            "contact_job_title": "CMO",
-            "company_name": "Acme",
-        }
+class TestEmbedProfile:
+    def test_appends_query_terms_to_profile_text(self):
+        # The keyword injection: a lead is embedded as its firmographic text PLUS its
+        # retrieving query's terms, so the GP learns which query keywords surface good
+        # leads. Only the embedding carries the terms — profile_text (the LLM's input)
+        # does not, or the LLM would rubber-stamp a lead for matching its own query.
         with patch("openoutreach.core.ml.embeddings.embed_text", return_value=np.ones(384)) as embed:
-            discovery.embed_row(row)
-        embed.assert_called_once_with("head of growth saas cmo acme")
+            discovery.embed_profile("head of growth acme", "title cmo · seniority owner")
+        embed.assert_called_once_with("head of growth acme title cmo · seniority owner")
 
-    def test_tolerates_missing_and_null_fields(self):
+    def test_profile_only_when_no_query_terms(self):
         with patch("openoutreach.core.ml.embeddings.embed_text", return_value=np.ones(384)) as embed:
-            discovery.embed_row({"contact_headline": "Hi", "company_name": None})
+            discovery.embed_profile("hi")
         embed.assert_called_once_with("hi")
+
+
+class TestEmbedQuery:
+    def test_embeds_the_clause_keywords_alone(self):
+        # A candidate query is scored by its keywords alone — keyword-only, so a
+        # never-run query sits at the sparse edge of the labelled cloud (high GP
+        # variance → explore). The text must match the terms injected into leads.
+        clauses = [("lead_job_title", "CMO"), ("lead_seniority", "owner")]
+        with patch("openoutreach.core.ml.embeddings.embed_text", return_value=np.ones(384)) as embed:
+            discovery.embed_query(clauses)
+        embed.assert_called_once_with(discovery.clause_terms(clauses))
+        assert discovery.clause_terms(clauses) == "job_title cmo · seniority owner"
 
 
 class TestDescribeFilters:
