@@ -47,9 +47,10 @@ def discover(session) -> int:
     - **offset > 0** — a vein ran out. Exhaust the line and nothing more: the query
       matched people, we have simply seen them all.
 
-    Returns 0 only when the whole walk is dry (no query left to fetch), never when
-    a single branch ends — so the qualify chain's "``discover() <= 0`` means
-    exhausted" contract still holds.
+    Returns 0 when the whole walk is dry (no query left to fetch) — so the qualify
+    chain's "``discover() <= 0`` means exhausted" contract holds — and also when a
+    discovery fetch is unavailable: a provider outage or timeout is best-effort, so it
+    retires that one query and ends the move rather than failing the caller.
 
     Gated as before: freemium campaigns seed from their kit (not Lead Finder),
     and a campaign with no finder key or no product/target can't be searched.
@@ -83,7 +84,21 @@ def discover(session) -> int:
             return 0
 
         filters = filters_for(query.clauses)
-        rows = search(filters, limit=DISCOVERY_PAGE_SIZE, offset=query.offset)
+        try:
+            rows = search(filters, limit=DISCOVERY_PAGE_SIZE, offset=query.offset)
+        except bettercontact.BetterContactUnavailable as exc:
+            # Discovery is best-effort: a provider outage or a query the provider
+            # can't answer in time must not fail the caller (this runs inside a
+            # find_email task in cold start). Retire the query — persist it so the
+            # visit won't re-pick it, and exhaust it so deepen won't — but do NOT
+            # record it empty: we don't know it matches nobody, only that we couldn't
+            # fetch it. The walk moves to the next query on the next move.
+            logger.warning("[%s] %s: discovery fetch of %s unavailable (%s) — retiring it",
+                           campaign, _move(query.move),
+                           colored(describe_clauses(query.clauses), "cyan"), exc)
+            frontier.persist_fetched(campaign, query.clauses, query.offset)
+            frontier.mark_exhausted(campaign, query.clauses)
+            return 0
         if rows:
             node = frontier.persist_fetched(campaign, query.clauses, query.offset)
             created = sum(

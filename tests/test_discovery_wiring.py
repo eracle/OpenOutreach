@@ -164,6 +164,25 @@ class TestDiscover:
             campaign=campaign, clause_key=clause_key(SEED), offset=100,
         ).exists()
 
+    def test_a_provider_timeout_retires_the_query_without_failing_the_caller(self, db):
+        """A discovery fetch is best-effort: a provider outage/timeout retires that one
+        query and returns 0 instead of raising and failing the find_email task that
+        called it. The query is exhausted (not re-picked) but not blacklisted — a
+        timeout is not proof it matches nobody."""
+        from openoutreach.emails.bettercontact import BetterContactUnavailable
+
+        _set_key()
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for(SEED))
+        session = MagicMock(campaign=campaign)
+        with patch("openoutreach.discovery.search",
+                   side_effect=BetterContactUnavailable("poll timed out")):
+            assert discover(session) == 0
+
+        node = DiscoveryQuery.objects.get(campaign=campaign, clause_key=clause_key(SEED))
+        assert node.exhausted
+        assert not EmptyClauseSet.objects.exists()
+
     def test_a_dry_vein_exhausts_its_line_without_blacklisting_it(self, db):
         """offset > 0 means we have seen everyone, not that the query matches nobody —
         blacklisting here would convict a conjunction that already produced leads."""
