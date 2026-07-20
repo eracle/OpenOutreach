@@ -1,11 +1,10 @@
 # tests/test_descend.py
-"""The lattice visit — its order, and the anti-monotone pruning that order exists for.
+"""The lattice visit: deepest-first, widening only below an empty query.
 
-``descend`` makes **no provider call**: it is a pure lookup over the campaign's
-clause pool, the nodes already fetched, and the blacklist. So these tests drive it
-the way the walk does — take a candidate, mark it fetched, ask again — and assert on
-the *sequence*, because the order is the whole design. A test that only checked one
-return value could not tell a pruned lattice from an exhaustively walked one.
+``descend`` makes no provider call — it is a lookup over the clause pool, the fetched
+nodes, and the blacklist. These tests drive it as the walk does (take a candidate,
+mark it fetched, ask again) and assert on the sequence, because the order and the
+empty-gated widening are the whole design.
 """
 from openoutreach.core.models import Campaign, Clause, DiscoveryQuery, EmptyClauseSet
 from openoutreach.core.pipeline import descend as descend_mod
@@ -23,11 +22,9 @@ def _campaign(pool=(), **kw):
     return c
 
 
-def _node(c, clauses, offset=0):
-    """A fetched node — what makes a conjunction 'already visited'."""
-    node = DiscoveryQuery.objects.create(
-        campaign=c, clause_key=clause_key(clauses), offset=offset,
-    )
+def _fetched(c, clauses):
+    """A conjunction fetched with rows — a live query, so the visit won't widen it."""
+    node = DiscoveryQuery.objects.create(campaign=c, clause_key=clause_key(clauses), offset=0)
     node.clauses.set(Clause.rows_for(clauses))
     return node
 
@@ -36,102 +33,124 @@ def _blacklist(clauses):
     """Record a conjunction as empty — what ``discover`` does on an offset-0 miss."""
     entry = EmptyClauseSet.objects.create(clause_key=clause_key(sorted(clauses)))
     entry.clauses.set(Clause.rows_for(clauses))
-    return entry
+
+
+def _empty(c, clauses):
+    """A conjunction fetched *and* empty — both the node and the blacklist entry."""
+    _fetched(c, clauses)
+    _blacklist(clauses)
 
 
 def _walk(c, limit=32):
-    """Every conjunction the visit yields, fetching each one as the walk would."""
+    """Every conjunction the visit yields, fetching each (with rows) as it goes."""
     visited = []
     for _ in range(limit):
         candidate = descend(c)
         if not candidate:
             return visited
         visited.append(candidate)
-        _node(c, candidate)
+        _fetched(c, candidate)
     raise AssertionError("the visit never exhausted")
 
 
-# A two-family pool, ordered by the ICP's own ranking: Founder/US is the seed (each
-# family's first value), then one hop out, then two.
+# A two-family pool, each family with two values: the maximal conjunctions are the
+# four pairs, ordered by distance from the seed (each family's first value).
 _POOL = [
     ("lead_job_title", "Founder"), ("lead_job_title", "CTO"),
     ("lead_location", "United States"), ("lead_location", "Germany"),
 ]
 _SEED = [("lead_job_title", "Founder"), ("lead_location", "United States")]
+_MAXIMAL = [
+    _SEED,
+    [("lead_job_title", "Founder"), ("lead_location", "Germany")],
+    [("lead_job_title", "CTO"), ("lead_location", "United States")],
+    [("lead_job_title", "CTO"), ("lead_location", "Germany")],
+]
 
-# A one-value-per-family pool, so the lattice has three distinct levels and the
-# backtrack is visible: 3 singletons, 1 triple, 3 pairs.
+# A one-value-per-family pool: a single maximal conjunction, the triple.
 _POOL3 = [
     ("lead_job_title", "Founder"),
     ("lead_location", "United States"),
     ("lead_seniority", "founder"),
 ]
+_TRIPLE = sorted(_POOL3)
 
 
-# ── the visit order ──────────────────────────────────────────────────
+# ── deepest-only ─────────────────────────────────────────────────────
 
-class TestVisitOrder:
-    def test_the_deepest_conjunction_comes_first(self, db):
-        """Level N leads: the walk opens on the seed conjunction, not a singleton."""
-        c = _campaign(_POOL)
-        assert descend(c) == _SEED
+class TestDeepestOnly:
+    def test_opens_on_the_seed_conjunction(self, db):
+        assert descend(_campaign(_POOL)) == _SEED
 
-    def test_order_is_deepest_then_backtrack_to_singletons(self, db):
+    def test_visits_only_the_maximal_conjunctions_by_seed_distance(self, db):
+        """One value per family, all families — never a shorter widening while they hold people."""
+        visited = _walk(_campaign(_POOL))
+        assert visited == _MAXIMAL
+        assert all(len(v) == 2 for v in visited)
+
+    def test_a_one_value_pool_visits_just_the_seed(self, db):
+        assert _walk(_campaign(_POOL3)) == [_TRIPLE]
+
+    def test_a_live_maximal_never_widens(self, db):
+        """A query that returns rows is a dead end for the visit; only emptiness widens."""
         c = _campaign(_POOL3)
-        assert [len(v) for v in _walk(c)] == [3, 2, 2, 2, 1, 1, 1]
-
-    def test_the_seed_is_the_head_of_its_level(self, db):
-        """No special case for the seed anywhere — the ranking puts it there."""
-        c = _campaign(_POOL)
-        conjunctions = [v for v in _walk(c) if len(v) > 1]
-        assert conjunctions[0] == _SEED
-
-    def test_visits_every_conjunction_the_pool_spans_exactly_once(self, db):
-        c = _campaign(_POOL)
-        visited = _walk(c)
-        assert len(visited) == 8, "4 singletons + 4 pairs"
-        assert len({clause_key(v) for v in visited}) == 8
+        _fetched(c, _TRIPLE)
+        assert descend(c) == []
 
     def test_never_proposes_an_or(self, db):
-        """One clause per family is what makes an OR unrepresentable at this seam."""
-        c = _campaign(_POOL)
-        for candidate in _walk(c):
+        for candidate in _walk(_campaign(_POOL)):
             families = [family for family, _ in candidate]
             assert len(families) == len(set(families))
 
 
-# ── pruning ──────────────────────────────────────────────────────────
+# ── widening below an empty query ────────────────────────────────────
 
-class TestPruning:
-    def test_a_dead_singleton_prunes_every_conjunction_holding_it(self, db):
-        """The anti-monotone payoff: once `Germany` is on record as empty it dies
-        once, not once per query that happens to mention it — regardless of the order
-        the walk reaches those queries in."""
+class TestEmptyWidening:
+    def test_an_empty_maximal_unlocks_its_drop_one_children(self, db):
+        """`{a,b,c}` empty → visit `{a,b}`, `{a,c}`, `{b,c}` and nothing shallower."""
+        c = _campaign(_POOL3)
+        _empty(c, _TRIPLE)
+        children = _walk(c)
+        assert sorted(len(v) for v in children) == [2, 2, 2]
+        a, b, cc = _TRIPLE
+        assert {clause_key(v) for v in children} == {
+            clause_key([a, b]), clause_key([a, cc]), clause_key([b, cc]),
+        }
+
+    def test_widening_recurses_through_empties(self, db):
+        """An empty child widens again: below empty `{a,b}` come `{a}` and `{b}`."""
+        c = _campaign(_POOL3)
+        a, b, cc = _TRIPLE
+        _empty(c, _TRIPLE)
+        _empty(c, [a, b])
+        keys = {clause_key(v) for v in _walk(c)}
+        assert clause_key([a, cc]) in keys and clause_key([b, cc]) in keys  # live pairs
+        assert clause_key([a]) in keys and clause_key([b]) in keys          # below empty {a,b}
+        assert clause_key([a, b]) not in keys                               # empty, never re-fetched
+
+    def test_a_dead_singleton_reroutes_the_descent_around_it(self, db):
+        """A known-empty singleton kills every conjunction holding it; widening below
+        those drops the dead clause, so the descent routes around it."""
         c = _campaign(_POOL)
         _blacklist([("lead_location", "Germany")])
+        assert not any(("lead_location", "Germany") in v for v in _walk(c))
 
-        visited = _walk(c)
-        assert not any(("lead_location", "Germany") in v for v in visited)
-        assert len(visited) == 5, "3 surviving singletons + 2 pairs"
 
-    def test_a_blacklisted_conjunction_is_never_revisited(self, db):
-        c = _campaign(_POOL)
-        _blacklist(_SEED)
+# ── pruning (the subset test) ────────────────────────────────────────
 
-        assert _SEED not in _walk(c)
-
+class TestPruning:
     def test_prunes_a_superset_of_a_known_empty_set(self, db):
-        empty = [("lead_job_title", "CTO"), ("lead_location", "Germany")]
-        _blacklist(empty)
-
-        candidate = frozenset(empty + [("lead_seniority", "founder")])
+        _blacklist([("lead_job_title", "CTO"), ("lead_location", "Germany")])
+        candidate = frozenset([
+            ("lead_job_title", "CTO"), ("lead_location", "Germany"),
+            ("lead_seniority", "founder"),
+        ])
         assert descend_mod._is_pruned(candidate, descend_mod._empty_sets())
 
     def test_keeps_a_candidate_that_merely_overlaps_a_known_empty_set(self, db):
-        """Emptiness convicts the set, never a clause inside it — `Sales` returns
-        rows alone and must survive the conjunctions it happened to sit in."""
+        """Emptiness convicts the set, never a clause inside it — `Sales` returns rows
+        alone and must survive the conjunctions it happened to sit in."""
         _blacklist([("lead_department", "Sales"), ("lead_location", "Japan")])
-
         candidate = frozenset([("lead_department", "Sales"), ("lead_location", "Germany")])
         assert not descend_mod._is_pruned(candidate, descend_mod._empty_sets())
 
@@ -139,17 +158,12 @@ class TestPruning:
 # ── exhaustion ───────────────────────────────────────────────────────
 
 class TestExhaustion:
-    def test_returns_the_next_unvisited_conjunction(self, db):
-        """The seed is already fetched, so the visit must hop, not re-propose it."""
+    def test_returns_the_next_unfetched_maximal(self, db):
         c = _campaign(_POOL)
-        for clauses in ([("lead_job_title", "Founder")], [("lead_job_title", "CTO")],
-                        [("lead_location", "United States")], [("lead_location", "Germany")]):
-            _node(c, clauses)
-        _node(c, _SEED)
+        _fetched(c, _SEED)
+        assert descend(c) == [("lead_job_title", "Founder"), ("lead_location", "Germany")]
 
-        assert descend(c) == [("lead_job_title", "CTO"), ("lead_location", "United States")]
-
-    def test_returns_empty_when_every_conjunction_is_fetched(self, db):
+    def test_returns_empty_when_every_maximal_is_live(self, db):
         """The one honest 'the pool is used up' — what licenses the LLM refill."""
         c = _campaign(_POOL)
         _walk(c)

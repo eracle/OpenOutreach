@@ -270,75 +270,103 @@ class TestRecordEmpty:
         assert EmptyClauseSet.objects.get().clauses.count() == 1
 
 
-class TestDeepen:
-    def test_deepens_the_node_with_most_qualified(self, db):
-        """The winner is the productive node whose next page is still open, and it is
-        paged by *its own* offset — not the line's high-water mark."""
+class TestLineStats:
+    def test_sums_qualified_across_a_lines_offsets(self, db):
+        """A conjunction's value is its qualified count over ALL offsets, not per page."""
         c = _campaign()
-        cold = _node(c, SEED, offset=0)
-        _examined(c, cold, "a1")
-        _rejected(c, cold, "a2")            # 2 examined, 1 qualified — page 100 open
-        hot = _node(c, OTHER, offset=0)
+        p0 = _node(c, SEED, offset=0)
+        p1 = _node(c, SEED, offset=100)
+        _examined(c, p0, "a")        # qualified at offset 0
+        _examined(c, p1, "b")        # qualified at offset 100
+        _rejected(c, p1, "c")
+        assert frontier.line_stats(c)[frontier.clause_key(SEED)] == frontier.NodeStats(3, 2)
+
+
+class TestProductiveLine:
+    """Deepen *selection* — which line to page, independent of the visit alternation."""
+
+    def test_deepens_the_line_with_most_qualified(self, db):
+        """The winner is the conjunction with the most qualified leads, paged past its
+        deepest offset — even when that deepest page itself qualified nobody."""
+        c = _campaign()
+        thin = _node(c, SEED, offset=0)
+        _examined(c, thin, "a1")                 # SEED line: 1 qualified
+        rich0 = _node(c, OTHER, offset=0)
+        rich1 = _node(c, OTHER, offset=100)      # deepest page of the OTHER line…
         for tag in ("b1", "b2", "b3"):
-            _examined(c, hot, tag)          # 3 examined, 3 qualified — but page 100…
-        _node(c, OTHER, offset=100)      # …already fetched, so hot cannot re-vote
-        q = frontier.next_query(c)
-        assert q == frontier.NextQuery(SEED, 100, "deepen")
+            _examined(c, rich0, tag)             # …3 qualified, all at offset 0
+        _rejected(c, rich1, "c")                 # offset 100 qualified nobody
+        assert frontier._productive_line(c) == frontier.NextQuery(OTHER, 200, "deepen")
 
-    def test_a_shallow_page_cannot_re_elect_a_line_it_already_paged(self, db):
-        """The bug being fixed: an offset-0 page that qualified must not keep voting a
-        line deeper. Once its own next page exists, it is spent — only a page whose
-        successor is still unfetched deepens, so a barren-but-examined frontier ends
-        the descent instead of the shallow page driving the offset up forever."""
+    def test_a_qualified_lead_at_offset_0_keeps_paging_the_line(self, db):
+        """The behaviour the old per-node rule forbade: offset 0's qualified leads
+        justify offset 100, 200 … for as long as the line has not emptied."""
         c = _campaign()
-        _pool(c, SEED)
-        root = _node(c, OTHER, offset=0)
-        for tag in ("b1", "b2", "b3", "b4", "b5"):
-            _examined(c, root, tag)          # 5 qualified at offset 0 — kept forever
-        frontier_pg = _node(c, OTHER, offset=100)
-        _rejected(c, frontier_pg, "c1")      # examined, nothing qualified → dead end
-        with patch("openoutreach.core.pipeline.mutate.generate_mutation",
-                   return_value=SEED):
-            q = frontier.next_query(c)
-        # not NextQuery(OTHER, 200, ...): the frontier page didn't pay, and offset 0
-        # cannot re-elect the line just because it once did.
-        assert q == frontier.NextQuery(SEED, 0, "visit")
+        p0 = _node(c, SEED, offset=0)
+        _examined(c, p0, "a")            # qualified only at offset 0
+        _node(c, SEED, offset=100)       # offset 100 fetched, qualified nobody
+        assert frontier._productive_line(c) == frontier.NextQuery(SEED, 200, "deepen")
 
-    def test_a_paying_frontier_page_earns_the_next_one(self, db):
-        """The complement: when the deepest page itself qualifies, deepen continues —
-        from that page's offset, one page on."""
-        c = _campaign()
-        _node(c, OTHER, offset=0)
-        frontier_pg = _node(c, OTHER, offset=100)
-        _examined(c, frontier_pg, "c1")      # the frontier page paid
-        q = frontier.next_query(c)
-        assert q == frontier.NextQuery(OTHER, 200, "deepen")
-
-    def test_skips_exhausted_productive_node(self, db):
+    def test_skips_an_exhausted_line(self, db):
         c = _campaign()
         alive = _node(c, SEED, offset=0)
         _examined(c, alive, "a1")
         dry = _node(c, OTHER, offset=0, exhausted=True)  # richer, but dried up
         for tag in ("b1", "b2", "b3"):
             _examined(c, dry, tag)
-        q = frontier.next_query(c)
-        assert q.clauses == SEED and q.move == "deepen"
+        line = frontier._productive_line(c)
+        assert line.clauses == SEED and line.move == "deepen"
 
-    def test_a_seed_that_pays_is_deepened_not_walled_away_from(self, db):
-        """The bug this whole change exists to kill.
-
-        The old score asked the GP how many of a node's leads cleared 0.9 — none
-        ever did, so a seed with real qualified leads scored 0, read as a wall, and
-        got mutated away from. ``deepen`` never fired on any node, ever.
-        """
+    def test_none_until_something_qualifies(self, db):
         c = _campaign()
-        seed = _node(c, SEED, offset=0)
-        _examined(c, seed, "won")
-        for tag in ("lost1", "lost2", "lost3"):
-            _rejected(c, seed, tag)  # a thin 1-in-4 vein is still a vein
+        fresh = _node(c, SEED, offset=0)
+        _lead(fresh, "unruled")          # discovered, never examined → no vote
+        assert frontier._productive_line(c) is None
+
+
+class TestInterleave:
+    """The 1:1 alternation in ``next_query``, keyed on the newest node's offset."""
+
+    def test_deepens_after_a_visit(self, db):
+        """Last move opened a conjunction (offset 0) → this move deepens, no LLM call."""
+        c = _campaign()
+        _pool(c, SEED)
+        seed0 = _node(c, SEED, offset=0)          # newest node: a visit
+        _examined(c, seed0, "a")                  # productive line
         with patch("openoutreach.core.pipeline.mutate.generate_mutation",
-                   side_effect=AssertionError("a paying node must be deepened, not abandoned")):
+                   side_effect=AssertionError("after a visit, deepen — don't compose")):
             q = frontier.next_query(c)
         assert q == frontier.NextQuery(SEED, 100, "deepen")
+
+    def test_visits_after_a_deepen(self, db):
+        """Last move deepened (offset > 0) → this move opens a new conjunction."""
+        c = _campaign()
+        _pool(c, SEED)
+        seed0 = _node(c, SEED, offset=0)
+        _examined(c, seed0, "a")
+        _node(c, SEED, offset=100)                # newest node: a deepen
+        with patch("openoutreach.core.pipeline.mutate.generate_mutation",
+                   return_value=OTHER) as gen:
+            q = frontier.next_query(c)
+        gen.assert_called_once()
+        assert q == frontier.NextQuery(OTHER, 0, "visit")
+
+    def test_visits_when_nothing_has_qualified(self, db):
+        """Deepen is unavailable in cold start, so every move is a visit."""
+        c = _campaign()
+        _pool(c, SEED)
+        with patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value=SEED):
+            assert frontier.next_query(c) == frontier.NextQuery(SEED, 0, "visit")
+
+    def test_falls_back_to_deepen_when_the_visit_is_dry(self, db):
+        """After a deepen we'd visit, but the composer has nothing new — deepen anyway."""
+        c = _campaign()
+        _pool(c, SEED)
+        seed0 = _node(c, SEED, offset=0)
+        _examined(c, seed0, "a")
+        _node(c, SEED, offset=100)                # newest node: a deepen → prefer visit
+        with patch("openoutreach.core.pipeline.mutate.generate_mutation", return_value=[]):
+            q = frontier.next_query(c)
+        assert q == frontier.NextQuery(SEED, 200, "deepen")
 
 

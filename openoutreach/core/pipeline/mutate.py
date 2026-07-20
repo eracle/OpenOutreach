@@ -193,27 +193,30 @@ def llm_generate_mutation(campaign) -> list[tuple[str, str]]:
 
 
 def descend_or_refill(campaign) -> list[tuple[str, str]]:
-    """Compose the next query from the clause pool; ask the LLM only if it can't.
+    """Compose the deepest query from the clause pool; refill the pool if it can't.
 
-    The escalation, and the order is the point::
+    The escalation::
 
-        next unvisited conjunction → (only when none remain) → LLM refill
+        deepest unfetched conjunction → (only when none remain) → LLM refill → recompose
 
-    The descent is a lattice lookup over clauses the LLM already produced, so it is
-    free and it cannot invent a value the index has never heard of. Only when every
-    conjunction the pool spans is fetched or pruned is there nothing left to compose,
-    and only then is the LLM asked — which is a real answer ("this pool is used up"),
-    not a fallback for an error.
-
-    The seed carries one value per family, so the pool is the seed itself and the
-    descent only broadens it — a ~5-clause seed spans just its subset lattice (a
-    handful of conjunctions), so that condition arrives quickly and the LLM is asked
-    again not long after cold start. The refill still invents a whole query today;
-    making it mint *clauses* from returned rows is the next item on the card.
+    The descent composes from clauses the pool already holds, so it is free. When the
+    pool spans nothing new, the LLM proposes fresh clauses; those **join the pool**
+    (``campaign.clauses``), so they recombine with the existing ones into new maximal
+    conjunctions, and the descent picks the deepest of them. A refill that adds nothing
+    new leaves the descent empty — the honest "this pool is used up".
     """
+    from openoutreach.core.models import Clause
     from openoutreach.core.pipeline.descend import descend
 
-    return descend(campaign) or llm_generate_mutation(campaign)
+    composed = descend(campaign)
+    if composed:
+        return composed
+
+    clauses = llm_generate_mutation(campaign)
+    if not clauses:
+        return []
+    campaign.clauses.add(*Clause.rows_for(clauses))
+    return descend(campaign)
 
 
 _generator: MutationGenerator = descend_or_refill

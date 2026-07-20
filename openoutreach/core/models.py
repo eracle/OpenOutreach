@@ -345,12 +345,12 @@ class EmptyClauseSet(models.Model):
     was the same fact stored twice: excluding a dead clause from the pool and pruning
     every candidate that contains it prune identically, since ``{c} ⊆ candidate`` iff
     ``c ∈ candidate``. So the column is gone and the subset test does both jobs.
-    The subset test only bites when the recorded sets are *shorter* than the
-    candidates, so it prunes most within a *pass* when the short sets are recorded
-    first. ``descend`` walks deepest-first (chosen 2026-07-17), which records the
-    singletons last, so the pruning it earns is mostly *cross-refill*: once
-    ``lead_location: Europe`` is on record as a singleton empty, it prunes every
-    freshly-composed superset before that superset is ever fetched.
+
+    An empty set does double duty in ``descend``: it prunes every superset of itself,
+    **and** it unlocks that conjunction's drop-one children — the visit is deepest-only
+    and widens to a shorter query only below one that came back empty. So once
+    ``lead_location: Europe`` is a singleton empty it both convicts every conjunction
+    holding it and routes the descent around it in one step.
 
     **The unit is the whole set, and never a clause inside it.** An empty conjunction
     convicts nothing smaller than itself: ``lead_department: Sales`` is honored and

@@ -29,6 +29,9 @@ def _enums_in(schema) -> list[list]:
     return found
 
 
+SEED = [("lead_job_title", "Founder"), ("lead_location", "United States")]
+
+
 def _campaign():
     return Campaign.objects.create(name="C", product_docs="widgets", campaign_target="demos")
 
@@ -167,7 +170,7 @@ class TestGeneratorInterface:
 
 
 class TestEscalation:
-    """wall → next untried conjunction → (only when none remain) → LLM refill."""
+    """wall → deepest untried conjunction → (none remain) → LLM refill → recompose."""
 
     def test_a_composed_conjunction_costs_no_llm_call(self, db):
         c = _campaign()
@@ -178,10 +181,16 @@ class TestEscalation:
         assert descend.called
         assert not llm.called, "the LLM was asked while the pool still spanned a query"
 
-    def test_the_llm_is_asked_only_once_the_pool_is_used_up(self, db):
+    def test_a_refill_grows_the_pool_and_recomposes_the_deepest_query(self, db):
+        """When the pool is spanned, the LLM's clauses join the pool and the descent
+        recombines them with the old ones into a new maximal conjunction."""
         c = _campaign()
-        with patch("openoutreach.core.pipeline.descend.descend", return_value=[]), \
-             patch.object(mutate, "llm_generate_mutation",
-                          return_value=[("lead_location", "Italy")]) as llm:
-            assert mutate.descend_or_refill(c) == [("lead_location", "Italy")]
+        c.clauses.set(Clause.rows_for(SEED))
+        _node(c, SEED)  # the only maximal, fetched → descend returns []
+        with patch.object(mutate, "llm_generate_mutation",
+                          return_value=[("lead_seniority", "founder")]) as llm:
+            result = mutate.descend_or_refill(c)
         assert llm.called
+        assert set(c.clauses.values_list("family", "value")) == \
+            set(SEED) | {("lead_seniority", "founder")}
+        assert result == sorted(SEED + [("lead_seniority", "founder")])

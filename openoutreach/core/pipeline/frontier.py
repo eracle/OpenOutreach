@@ -1,78 +1,33 @@
 # openoutreach/core/pipeline/frontier.py
 """Discovery frontier — a lazy best-first walk over a campaign's query nodes.
 
-Replaces the single ``(Campaign.icp_filters, discovery_offset)`` cursor. There is
-no persisted queue of candidates: the next query is computed **lazily** from the
-set of already-fetched ``DiscoveryQuery`` nodes, like the ``pools.py`` generator
-chain. One discovery *move* (``discover.py``):
+No persisted queue: the next query is computed from the already-fetched
+``DiscoveryQuery`` rows. One move (``discover.py``) is ``next_query → fetch →
+persist_fetched``; a cold start seeds the pool via ``icp.generate_seed`` first.
 
-    next_query → fetch → persist_fetched
-         │                    └ empty page → mark_exhausted
-         └ cold start → icp.generate_seed
+``next_query`` has two moves and interleaves them **1:1**:
 
-``next_query`` picks exactly one query to fetch, and there are only two things it
-can say:
+- **Deepen** — page a productive conjunction one offset deeper. Productive means
+  ``qualified > 0`` summed over *all* its offsets (``line_stats``, grouped by
+  ``clause_key``), so a lead qualified at offset 0 keeps paging the line deeper and
+  does not expire when one deep page qualifies nobody.
+- **Visit** — the deepest unfetched conjunction from ``descend`` (widening only below
+  an empty query), and an LLM refill once the pool spans nothing new.
 
-- **Deepen** *(some node has ``qualified > 0`` and its next page is unfetched)* —
-  page one deeper. A region that has produced a qualified lead is the only evidence
-  the walk ever gets that it is somewhere worth being, so it outranks the structural
-  visit outright — but the evidence is **re-earned at every depth**: a node earns
-  only *its own* next page, so one paying page buys exactly one more page, never a
-  licence to run.
-- **Visit** *(nothing has qualified yet)* — hand back the next unvisited conjunction
-  in ``descend``'s lattice order (level N → N-1 → … → 2 → 1), and when the pool
-  spans nothing new, ask the LLM for fresh clauses.
+The 1:1 balance is stateless strict alternation: a deepen leaves a page at
+``offset > 0``, a visit a conjunction at ``offset == 0``, so the newest node's offset
+says which move came last and ``next_query`` takes the other. Deepen is unavailable
+until something qualifies, so cold-start moves are all visits and the first deepen
+fires the move after the first label lands — no catch-up burst.
 
-That is the whole regime. It reads **one** number — ``qualified`` from
-``node_stats``, counted over each node's first-touch leads' deals — and it only ever
-asks whether that number is positive. There is no bar to tune and no ranking of
-barren nodes against each other, because a node with no qualified leads is not
-*bad*, it is just not yet a reason to stop walking.
+Per-line deepen paging from a line's high-water mark once ran forever on a broad
+singleton (``headcount 1–?``, never empties). It is safe now because ``descend`` is
+deepest-only — the only lines that exist are deep conjunctions, which empty in bounded
+pages — and 1:1 caps any one line at half the moves.
 
-**Deepen votes per node, never per line, and this is load-bearing.** The metric was
-always per ``(clause set, offset)`` — a node *is* a page — but deepen used to elect
-the best node *anywhere* in a line and then page from the line's high-water mark.
-Those are two different keys, and the gap between them is a non-terminating walk: an
-offset-0 page that qualified 5 leads keeps that 5 forever, so it keeps winning the
-election, while the offset it hands back climbs 100, 200, 300 … with nothing at depth
-ever asked whether it paid. The line's own emptiness is the only brake, and a level-1
-singleton like ``headcount 1–?`` matches millions of rows, so that page never comes:
-the walk mines the broadest query in the lattice forever, harvesting the provider's
-famous-company head (the exact failure ``descend`` orders itself to avoid) and never
-visiting the other conjunctions at all. The fix reads the *node's own* count and hands
-back the *node's own* next page: a page that qualified elects exactly the page after
-it, and only until that page exists — so evidence is local to the depth that produced
-it, which is where it was measured, and no clause-set line is ever grouped to vote as
-a whole.
-
-A just-fetched frontier page has ``examined == 0`` and so does not vote — the walk
-falls back to ``visit`` until qualification rules on it. That is the ``examined == 0``
-is *unknown, not barren* distinction, and here it costs nothing: the deepen is not
-lost, only deferred to the move after the labels land, and the walk does structural
-work meanwhile instead of paging blind. Deepen firing once per new evidence rather
-than in a run is the point, not a regression.
-
-**The frontier reads no signal from the GP.** It used to: nodes were scored by how
-many of their leads cleared ``min_gp_confidence`` (0.9 — a *spend* gate), and the
-regime was the qualifier's ``n_neg > n_pos`` **balance-driven acquisition strategy**
-read as if it were a competence gate. Neither measured what the walk needed. At a
-realistic base rate negatives outnumber positives forever, so the walk never left
-bootstrap; and no unlabelled lead ever clears 0.9, because a fitted GP reproduces
-its training points (0.755–0.829 measured) and regresses everything it has never
-seen toward the prior (0.121–0.327) — the two populations do not overlap, so a bar
-drawn from one is unreachable by the other by construction. Every node scored 0, the
-walk read a permanent wall, and ``deepen`` never fired once. Three jobs, three
-mechanisms: the frontier steers on node counts, the GP/BALD picks which lead to
-qualify next, and ``min_gp_confidence`` is *only* the spend gate.
-
-An earlier design also carried a **bootstrap** regime. It is gone and nothing was
-lost: bootstrap paged the seed because the visit had no order of its own, and the
-seed is now simply the head of level N.
-
-Exhaustion is reactive: a fetch that returns an empty page marks that clause set
-exhausted so it is never re-picked, and an empty page **at offset 0** additionally
-records the conjunction as an ``EmptyClauseSet``, pruning every superset of it for
-free. No explore-share cadence, no width target, no size cap.
+The walk reads **no GP signal**: it steers on counted deals, never on
+``min_gp_confidence`` (a spend gate) or the qualifier's acquisition balance. A just-
+fetched page has ``examined == 0`` and does not vote — unknown is not barren.
 
 See the roadmap card ``p2-e3-discovery-query-graph-search``.
 """
@@ -167,39 +122,29 @@ def record_empty(clauses) -> None:
         entry.clauses.set(Clause.rows_for(clauses))
 
 
-# ── the node metric ──────────────────────────────────────────────────
+# ── the query metric ─────────────────────────────────────────────────
 
-# What a node is worth, measured rather than predicted. ``examined`` is how many of
-# its first-touch leads the LLM has ruled on; ``qualified`` how many it accepted.
-# Both are needed: ``qualified == 0`` at ``examined == 0`` is *unknown*, and must
-# never sort as barren.
+# What a query is worth, measured rather than predicted. ``examined`` is how many of
+# its first-touch leads the LLM has ruled on; ``qualified`` how many it accepted
+# (any deal that is not an LLM rejection — ``FAILED`` + ``wrong_fit`` — mirroring
+# ``Lead.get_labeled_arrays``). Counting ``state == QUALIFIED`` would make the value
+# fall as leads succeed down the funnel, so a paying vein would read barren. Both
+# fields are needed: ``qualified == 0`` at ``examined == 0`` is *unknown*, not barren.
 NodeStats = namedtuple("NodeStats", ["examined", "qualified"])
 
 
-def node_stats(campaign) -> dict[int, NodeStats]:
-    """``{node_pk: NodeStats}`` for the campaign — one ``GROUP BY``, nothing stored.
+def _deal_counts(campaign, group_by: str) -> dict:
+    """``{group value: NodeStats}`` over first-touch leads' deals — one ``GROUP BY``.
 
-    A node's value is the count of qualified leads among the ones it first touched.
-    Denominators are comparable because every fetch is a full ``DISCOVERY_PAGE_SIZE``
-    page (a short final page inflates only the vein we are about to exhaust anyway).
-
-    ``qualified`` counts the leads the **LLM accepted**, which is *not*
-    ``state == QUALIFIED``: that is a snapshot of a funnel a lead moves through, so
-    counting it would make a node's score *fall* as its leads succeed into
-    READY_TO_EMAIL and beyond — the walk would abandon a vein exactly when it starts
-    paying. An accepted lead is any deal that is not an LLM rejection, mirroring
-    ``Lead.get_labeled_arrays``' rule (``FAILED`` + ``wrong_fit`` is the rejection;
-    a ``FAILED`` deal with any other outcome is an *operational* failure — "no email"
-    — of a lead the LLM said yes to).
-
-    Nodes with no deals are absent from the mapping: never examined, so unknown.
+    ``group_by`` is a field path on ``Deal`` (e.g. the discovering node, or its
+    clause set). Groups with no deals are absent: never examined, so unknown.
     """
     from openoutreach.crm.models import Deal, DealState, Outcome
 
     rows = (
         Deal.objects
         .filter(campaign=campaign, lead__discovered_by__isnull=False)
-        .values("lead__discovered_by")
+        .values(group_by)
         .annotate(
             examined=Count("pk"),
             qualified=Count("pk", filter=~Q(
@@ -207,77 +152,93 @@ def node_stats(campaign) -> dict[int, NodeStats]:
             )),
         )
     )
-    return {
-        r["lead__discovered_by"]: NodeStats(r["examined"], r["qualified"])
-        for r in rows
-    }
+    return {r[group_by]: NodeStats(r["examined"], r["qualified"]) for r in rows}
+
+
+def node_stats(campaign) -> dict[int, NodeStats]:
+    """``{node_pk: NodeStats}`` — value per fetched page. Used by the LLM-refill prompt."""
+    return _deal_counts(campaign, "lead__discovered_by")
+
+
+def line_stats(campaign) -> dict[str, NodeStats]:
+    """``{clause_key: NodeStats}`` — value per conjunction, summed over its offsets.
+
+    The deepen metric: a lead qualified at any offset counts for the whole line, so
+    one paying page keeps the line paging deeper instead of expiring per page.
+    """
+    return _deal_counts(campaign, "lead__discovered_by__clause_key")
 
 
 # ── selection ────────────────────────────────────────────────────────
 
-def _productive_node(campaign) -> DiscoveryQuery | None:
-    """The node with the most qualified leads whose next page is still unfetched.
+def _productive_line(campaign) -> NextQuery | None:
+    """Deepen the most-qualified open conjunction, paged from its deepest offset.
 
-    The walk's one piece of positive evidence, read on the exact ``(clause set,
-    offset)`` **node** that earned it — never on the clause-set line as a whole. A node
-    earns *only its own* successor page: a shallower page that once qualified cannot
-    keep voting, because the page it would open (``offset + one``) has already been
-    fetched, so it drops out and the still-open frontier is what remains. That is what
-    keeps one paying page from buying an unbounded descent.
-
-    Ties break on ``pk`` — the older node, which is the one closer to the ICP's own
-    ranking.
+    A conjunction is a line of pages sharing a ``clause_key``; its value is the
+    qualified count summed over all of them (``line_stats``). The winner is the open
+    (non-exhausted) line with the most qualified leads, paged one ``DISCOVERY_PAGE_SIZE``
+    past its high-water offset. Ties break toward the oldest line (nearest the seed).
+    None when nothing has qualified yet.
     """
-    stats = node_stats(campaign)
-    nodes = list(DiscoveryQuery.objects.filter(campaign=campaign))
-    fetched = {(node.clause_key, node.offset) for node in nodes}
-    scored = [
-        (node, stats[node.pk].qualified)
-        for node in nodes
-        if not node.exhausted
-        and stats.get(node.pk, NodeStats(0, 0)).qualified > 0
-        and (node.clause_key, node.offset + DISCOVERY_PAGE_SIZE) not in fetched
+    stats = line_stats(campaign)
+    lines: dict[str, dict] = {}
+    for node in DiscoveryQuery.objects.filter(campaign=campaign):
+        line = lines.get(node.clause_key)
+        if line is None:
+            lines[node.clause_key] = {"top": node, "max_offset": node.offset,
+                                      "exhausted": node.exhausted}
+        else:
+            line["max_offset"] = max(line["max_offset"], node.offset)
+            line["exhausted"] = line["exhausted"] or node.exhausted
+            if node.pk < line["top"].pk:
+                line["top"] = node
+
+    open_lines = [
+        (key, line) for key, line in lines.items()
+        if not line["exhausted"] and stats.get(key, NodeStats(0, 0)).qualified > 0
     ]
-    if not scored:
+    if not open_lines:
         return None
-    return max(scored, key=lambda pair: (pair[1], -pair[0].pk))[0]
+    key, line = max(open_lines, key=lambda kv: (stats[kv[0]].qualified, -kv[1]["top"].pk))
+    return NextQuery(line["top"].clause_pairs, line["max_offset"] + DISCOVERY_PAGE_SIZE, "deepen")
 
 
-def next_query(campaign) -> NextQuery | None:
-    """The single query to fetch next, or None when nothing is left to walk.
+def _visit_move(campaign) -> NextQuery | None:
+    """Open the next conjunction from the composer, or None if it has nothing new.
 
-    Two moves, and the first one that applies wins:
-
-    - **Deepen** (some node has ``qualified > 0`` and its next page is unfetched):
-      page that node one deeper. A region that has produced a qualified lead is the
-      only evidence the walk gets that it is somewhere worth being, so it pre-empts the
-      structural visit for as long as it keeps paying — but *keeps paying* is asked of
-      each page on its own, so a vein that stops qualifying releases the walk without
-      waiting for the empty page that ``mark_exhausted`` needs.
-    - **Visit** (nothing has qualified yet): the next unvisited conjunction from
-      ``descend``, at offset 0, and an LLM refill once the pool spans nothing new.
-      None if the LLM is dry or re-proposes a query already fetched.
-
-    On a cold start the ICP seeds the pool first — ``generate_seed`` persists its
-    one-value-per-family conjunction (which *is* the whole pool), and the seed it
-    returns needs no special case here because the visit order makes it the head of
-    level N anyway.
+    None when the composer is dry or re-proposes a query already fetched.
     """
-    from openoutreach.core.pipeline.icp import generate_seed
     from openoutreach.core.pipeline.mutate import generate_mutation
-
-    node = _productive_node(campaign)
-    if node is not None:
-        return NextQuery(node.clause_pairs, node.offset + DISCOVERY_PAGE_SIZE, "deepen")
-
-    if not campaign.clauses.exists():
-        generate_seed(campaign)
 
     clauses = generate_mutation(campaign)
     if not clauses:
         return None
-    if DiscoveryQuery.objects.filter(
-        campaign=campaign, clause_key=clause_key(clauses),
-    ).exists():
-        return None  # re-proposed a query we already fetched — nothing new to open
+    if DiscoveryQuery.objects.filter(campaign=campaign, clause_key=clause_key(clauses)).exists():
+        return None
     return NextQuery(clauses, 0, "visit")
+
+
+def next_query(campaign) -> NextQuery | None:
+    """The single query to fetch next, alternating deepen and visit 1:1, or None.
+
+    Strict alternation off the last move: a deepen leaves a page at ``offset > 0``, a
+    visit a conjunction at ``offset == 0``, so the newest node's offset says which came
+    last and this move takes the other — falling back when its own side is empty
+    (deepen is unavailable until something qualifies, so cold-start moves are all
+    visits). On a cold start the ICP seeds the pool first (``generate_seed``).
+    """
+    from openoutreach.core.pipeline.icp import generate_seed
+
+    deepen = _productive_line(campaign)
+    last_offset = (
+        DiscoveryQuery.objects.filter(campaign=campaign)
+        .order_by("-pk").values_list("offset", flat=True).first()
+    )
+    last_was_deepen = last_offset is not None and last_offset > 0
+
+    if deepen is not None and not last_was_deepen:
+        return deepen
+
+    if not campaign.clauses.exists():  # deepen needs no pool; visit composes from it
+        generate_seed(campaign)
+    return _visit_move(campaign) or deepen
