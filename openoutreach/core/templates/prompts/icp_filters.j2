@@ -7,10 +7,10 @@ You are a B2B go-to-market analyst. Translate the product and campaign below int
 {{ campaign_target }}
 
 ## Instructions
-Produce the firmographic filters that select the people most likely to be a good prospect for this target. Be specific but not so narrow that the search returns almost nothing:
+Produce the firmographic filters that select the single most likely prospect profile for this target. The search runs **one precise query**, so give **one value per field — the single best one, not a list**. Commit to your strongest guess in each field rather than hedging across several; a narrower, more precise profile is the goal.
 
-- **job_titles**: 2-6 role titles the buyer/decision-maker actually holds (e.g. "Head of Sales", "Founder"). Plain titles, no boolean syntax.
-- **seniorities**: the seniority levels that fit. Use ONLY these exact values: {{ seniorities|join(", ") }}. Any other value silently matches zero leads.
-- **locations**: the countries to search, by real country name (e.g. "United States", "Germany"). Regions ("Europe", "APAC", "Eastern Europe") are NOT countries and match zero leads. Leave empty for no geographic restriction.
+- **job_title**: the one role title the buyer/decision-maker actually holds (e.g. "Head of Sales", "Founder"). A plain title, no boolean syntax.
+- **seniority**: the one seniority level that best fits. Use ONLY one of these exact values: {{ seniorities|join(", ") }}. Any other value silently matches zero leads.
+- **location**: the one country to search, by real country name (e.g. "United States", "Germany"). A region ("Europe", "APAC", "Eastern Europe") is NOT a country and matches zero leads. Leave empty for no geographic restriction.
 - **headcount_min / headcount_max**: the company-size band, in employees, that fits the target.
 - **country_code**: the ISO-3166-1 alpha-2 code (lowercase) of the primary target country if the search is country-specific, else "" (empty). This tags discovered leads for the data-collection geo-gate.

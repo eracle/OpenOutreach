@@ -205,11 +205,11 @@ def descend_or_refill(campaign) -> list[tuple[str, str]]:
     and only then is the LLM asked — which is a real answer ("this pool is used up"),
     not a fallback for an error.
 
-    A pool of 5 titles / 5 countries / 3 seniorities spans ~75 conjunctions worth up
-    to ~10k rows each, so that condition is a long way off: the LLM goes from being
-    asked at *every* wall to being asked at cold start and then essentially not
-    again. The refill still invents a whole query today; making it mint *clauses*
-    from returned rows is the next item on the card.
+    The seed carries one value per family, so the pool is the seed itself and the
+    descent only broadens it — a ~5-clause seed spans just its subset lattice (a
+    handful of conjunctions), so that condition arrives quickly and the LLM is asked
+    again not long after cold start. The refill still invents a whole query today;
+    making it mint *clauses* from returned rows is the next item on the card.
     """
     from openoutreach.core.pipeline.descend import descend
 

@@ -1,34 +1,35 @@
 # openoutreach/core/pipeline/icp.py
 """ICP seed generator — LLM maps a campaign to its first Lead Finder query.
 
-A single LLM pass turns ``product_docs + campaign_target`` into candidate values
-per family (titles, seniorities, countries, a size band), which become the campaign's
-**clause pool** — every candidate value is persisted, not just the ones the seed
-conjunction carries. Called by the frontier on a cold start, and nowhere else.
+A single LLM pass turns ``product_docs + campaign_target`` into **one value per
+family** (a title, a seniority, a country, a size band): the single most precise
+query the model can name. That conjunction is both the seed and the campaign's whole
+**clause pool** — with one clause per family there is no held-back candidate for a
+pool to keep, so the descent downstream can only *broaden* the seed (drop a clause),
+never OR alternatives back in. Called by the frontier on a cold start, and nowhere
+else.
 
-The seed conjunction it returns is no longer fetched specially: the lattice visit
-orders it as the head of level N on its own, because the seed takes each family's
-first value and the visit tie-breaks on distance from exactly that head.
+The seed conjunction it returns is the head of level N in the lattice visit: the
+walk opens on the ICP's strongest, deepest guess and widens toward the head only
+when nothing there qualifies.
 
 This is the only unprompted LLM call in discovery, and it is unavoidable — with no
 positives yet, the product description is the only prior available. Thereafter the
 walk composes its queries from this pool, and asks the LLM again only once the pool
-spans nothing unvisited.
+spans nothing unvisited — which, with one value per family, comes quickly.
 
-**A returned list per family is a set of candidates, not an OR.** A query holds at
-most one clause per family: an include-list of 5 titles compresses 5 sampling
-windows of ~10k rows into 1, and is strictly dominated by 5 separate queries, which
-are free. Only the top value of each family reaches the seed; composing the rest
-into further conjunctions needs the descent (next item on the roadmap card
-``p2-e3-discovery-query-graph-search``), so until that lands the LLM re-proposes
-them at a wall. See ``discovery.filters_for``.
+**One value per family, never a list.** A query holds at most one clause per family:
+an include-list of 5 titles compresses 5 sampling windows of ~10k rows into 1, and
+is strictly dominated by 5 separate queries, which are free. The schema makes more
+than one unrepresentable, so precision is enforced, not merely requested. See
+``discovery.filters_for``.
 """
 from __future__ import annotations
 
 import logging
 
 import jinja2
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from termcolor import colored
 
 from openoutreach.core.conf import PROMPTS_DIR
@@ -39,72 +40,56 @@ logger = logging.getLogger(__name__)
 
 
 class ICPSpec(BaseModel):
-    """The LLM's provider-agnostic ICP output — candidate values per family.
+    """The LLM's provider-agnostic ICP output — one value per family.
 
-    ``seniorities`` is typed to Lead Finder's vocabulary, not ``list[str]``: an
-    unknown level returns an empty page rather than an error, which the frontier
-    would misread as the seed drying up. The schema makes that unrepresentable.
-    The other families are free text — a value the index doesn't carry is a normal
-    empty page, one move spent.
+    ``seniority`` is typed to Lead Finder's vocabulary, not ``str``: an unknown level
+    returns an empty page rather than an error, which the frontier would misread as
+    the seed drying up. The schema makes that unrepresentable. The other families are
+    free text — a value the index doesn't carry is a normal empty page, one move
+    spent. Each family is a single scalar, not a list: a query is one conjunction and
+    an include-list would be an OR, which is strictly dominated (see the module
+    docstring).
     """
 
-    job_titles: list[str] = Field(default_factory=list)
-    seniorities: list[Seniority] = Field(default_factory=list)
-    locations: list[str] = Field(default_factory=list)
+    job_title: str = ""
+    seniority: Seniority | None = None
+    location: str = ""
     headcount_min: int = 1
     headcount_max: int = 10000
     country_code: str = ""
 
 
-# The ICP's multi-value families — the ones a descent has something to vary. The
-# headcount bounds are deliberately absent: each is a single number, so they ride
-# every conjunction unchanged (see ``_pool_clauses``).
-_VARYING_FAMILIES = (
-    ("lead_job_title", "job_titles"),
-    ("lead_seniority", "seniorities"),
-    ("lead_location", "locations"),
+# The ICP's free-value families, paired with the ``ICPSpec`` attr each reads. The
+# headcount bounds are deliberately absent: each is a single number that rides every
+# conjunction unchanged, not a value the seed reads from a scalar field.
+_CLAUSE_FAMILIES = (
+    ("lead_job_title", "job_title"),
+    ("lead_seniority", "seniority"),
+    ("lead_location", "location"),
 )
 
 
 def _seed_conjunction(spec: ICPSpec) -> list[tuple[str, str]]:
-    """Compose the seed's clause set — the LLM's top pick in each family.
+    """Compose the seed clause set — one clause per family the ICP named.
 
-    Taking the first value per family takes the model's own ranking at face value,
-    which is the only prior a cold start has. The remaining values are dropped
-    rather than ORed in, because an OR would collapse their windows into one — they
-    are kept as the campaign's *pool* instead (``_pool_clauses``), where the descent
-    composes them into further conjunctions one at a time.
+    This is both the seed query and the entire clause pool: with one value per family
+    there is no held-back candidate to keep, so the descent downstream can only
+    broaden this conjunction (drop a clause), never OR alternatives in. A family the
+    model left empty contributes no clause.
+
+    The headcount bounds are always present with their single value each, so they
+    appear in every conjunction the descent composes and never vary — a size band is
+    this campaign's ICP, not a knob to search.
     """
     clauses = [
         ("company_headcount_min", str(spec.headcount_min)),
         ("company_headcount_max", str(spec.headcount_max)),
     ]
-    for family, attr in _VARYING_FAMILIES:
-        values = getattr(spec, attr)
-        if values:
-            clauses.append((family, values[0]))
+    for family, attr in _CLAUSE_FAMILIES:
+        value = getattr(spec, attr)
+        if value:
+            clauses.append((family, value))
     return sorted(clauses)
-
-
-def _pool_clauses(spec: ICPSpec) -> list[tuple[str, str]]:
-    """Every candidate clause the ICP produced — the campaign's clause pool.
-
-    The seed is one point in the lattice this spans; the descent walks the rest
-    without another LLM call. That is the whole point of keeping them: the model
-    hands back 5 job titles, the seed can carry exactly one, and the other 4 used
-    to be dropped on the floor and re-invented at the next wall.
-
-    The headcount bounds are included with their single value each, so they appear
-    in every conjunction the descent composes and never vary — a size band is this
-    campaign's ICP, not a knob to search.
-    """
-    clauses = [
-        ("company_headcount_min", str(spec.headcount_min)),
-        ("company_headcount_max", str(spec.headcount_max)),
-    ]
-    for family, attr in _VARYING_FAMILIES:
-        clauses.extend((family, value) for value in getattr(spec, attr))
-    return sorted(set(clauses))
 
 
 def generate_seed(campaign) -> list[tuple[str, str]]:
@@ -139,14 +124,13 @@ def generate_seed(campaign) -> list[tuple[str, str]]:
     if not clauses:
         return []
 
-    pool = _pool_clauses(spec)
-    campaign.clauses.set(Clause.rows_for(pool))
+    campaign.clauses.set(Clause.rows_for(clauses))
 
     country_code = spec.country_code.lower()
     if country_code and campaign.country_code != country_code:
         campaign.country_code = country_code
         campaign.save(update_fields=["country_code"])
-    logger.info("[%s] %s: %s (pool: %d clause(s))", campaign,
+    logger.info("[%s] %s: %s", campaign,
                 colored("discovery seed", "cyan", attrs=["bold"]),
-                colored(describe_clauses(clauses), "cyan"), len(pool))
+                colored(describe_clauses(clauses), "cyan"))
     return clauses

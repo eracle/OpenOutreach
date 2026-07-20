@@ -258,9 +258,10 @@ def next_query(campaign) -> NextQuery | None:
       ``descend``, at offset 0, and an LLM refill once the pool spans nothing new.
       None if the LLM is dry or re-proposes a query already fetched.
 
-    On a cold start the ICP seeds the pool first — ``generate_seed`` persists every
-    candidate value it produced, and the seed conjunction it returns needs no special
-    case here because the visit order makes it the head of level N anyway.
+    On a cold start the ICP seeds the pool first — ``generate_seed`` persists its
+    one-value-per-family conjunction (which *is* the whole pool), and the seed it
+    returns needs no special case here because the visit order makes it the head of
+    level N anyway.
     """
     from openoutreach.core.pipeline.icp import generate_seed
     from openoutreach.core.pipeline.mutate import generate_mutation

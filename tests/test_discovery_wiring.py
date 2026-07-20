@@ -7,6 +7,8 @@ so no network / ONNX model is touched.
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
+from pydantic import ValidationError
 
 from openoutreach.core.db.leads import create_lead
 from openoutreach.core.models import Clause, DiscoveryQuery, EmptyClauseSet
@@ -236,7 +238,7 @@ class TestICP:
         # the ICP is the only thing that knows it — so the fold lives with the call
         # that produced it, not in the frontier.
         campaign = _campaign()
-        spec = ICPSpec(job_titles=["CMO"], country_code="GB")
+        spec = ICPSpec(job_title="CMO", country_code="GB")
         with _icp_returns(spec), patch("openoutreach.core.llm.get_llm_model"), \
              patch("pydantic_ai.Agent"):
             clauses = generate_seed(campaign)
@@ -246,8 +248,8 @@ class TestICP:
 
     def test_composes_the_seed_from_the_spec(self):
         spec = ICPSpec(
-            job_titles=["CMO"], seniorities=["owner"],
-            locations=["United States"], headcount_min=1, headcount_max=50, country_code="us",
+            job_title="CMO", seniority="owner",
+            location="United States", headcount_min=1, headcount_max=50, country_code="us",
         )
         assert _seed_conjunction(spec) == [
             ("company_headcount_max", "50"),
@@ -257,20 +259,19 @@ class TestICP:
             ("lead_seniority", "owner"),
         ]
 
-    def test_takes_one_value_per_family_not_an_or(self):
-        # An include-list of 5 titles packs 5 sampling windows into 1. The seed takes
-        # the model's top pick; the rest are not ORed in.
-        spec = ICPSpec(job_titles=["CMO", "CTO", "Founder"], locations=["Germany", "Italy"])
-        seed = dict(_seed_conjunction(spec))
-        assert seed["lead_job_title"] == "CMO"
-        assert seed["lead_location"] == "Germany"
+    def test_schema_forbids_more_than_one_value_per_family(self):
+        # One value per family is enforced by the schema, not merely asked for in the
+        # prompt: a list is an OR, and an OR compresses several ~10k-row windows into
+        # one. The scalar field makes it unrepresentable.
+        with pytest.raises(ValidationError):
+            ICPSpec(job_title=["CMO", "CTO"])
 
-    def test_the_pool_keeps_every_value_the_seed_could_not_carry(self, db):
-        # The seed takes one title and the other two are what the descent composes
-        # the *next* conjunctions from. They used to be dropped on the floor and
-        # re-invented by an LLM call at every wall.
+    def test_the_pool_is_the_seed_conjunction(self, db):
+        # With one value per family the pool *is* the seed — there is no held-back
+        # candidate for it to keep. The descent downstream can only broaden this
+        # conjunction (drop a clause), never OR alternatives in.
         campaign = _campaign()
-        spec = ICPSpec(job_titles=["CMO", "CTO", "Founder"], locations=["Germany", "Italy"],
+        spec = ICPSpec(job_title="CMO", location="Germany",
                        headcount_min=1, headcount_max=50)
         with _icp_returns(spec), patch("openoutreach.core.llm.get_llm_model"), \
              patch("pydantic_ai.Agent"):
@@ -278,16 +279,14 @@ class TestICP:
 
         assert set(campaign.clauses.values_list("family", "value")) == {
             ("company_headcount_min", "1"), ("company_headcount_max", "50"),
-            ("lead_job_title", "CMO"), ("lead_job_title", "CTO"),
-            ("lead_job_title", "Founder"),
-            ("lead_location", "Germany"), ("lead_location", "Italy"),
+            ("lead_job_title", "CMO"), ("lead_location", "Germany"),
         }
 
     def test_the_pool_convicts_nothing_on_the_way_in(self, db):
         # The ICP proposes; only a fetch that matched nobody may retire anything. A
         # seed that pre-blacklisted its own clauses would prune the ICP unread.
         campaign = _campaign()
-        with _icp_returns(ICPSpec(job_titles=["CMO"])), \
+        with _icp_returns(ICPSpec(job_title="CMO")), \
              patch("openoutreach.core.llm.get_llm_model"), patch("pydantic_ai.Agent"):
             generate_seed(campaign)
 
@@ -297,7 +296,7 @@ class TestICP:
     def test_seed_carries_no_inert_family(self):
         # lead_industry rode every seed while doing nothing (probed 2026-07-16:
         # both a real value and an absurd control returned the unfiltered page).
-        spec = ICPSpec(job_titles=["CMO"], seniorities=["owner"], locations=["Germany"])
+        spec = ICPSpec(job_title="CMO", seniority="owner", location="Germany")
         assert not any(f == "lead_industry" for f, _ in _seed_conjunction(spec))
 
     def test_omits_empty_families(self):

@@ -27,12 +27,11 @@ class TestSeniorityVocabulary:
 
     def test_seed_spec_rejects_a_level_lead_finder_does_not_know(self):
         with pytest.raises(ValidationError):
-            ICPSpec(seniorities=["other"])
+            ICPSpec(seniority="other")
 
     def test_seed_spec_accepts_every_real_level(self):
-        assert ICPSpec(seniorities=list(discovery.LEAD_SENIORITIES)).seniorities == list(
-            discovery.LEAD_SENIORITIES
-        )
+        for level in discovery.LEAD_SENIORITIES:
+            assert ICPSpec(seniority=level).seniority == level
 
     def test_vocabulary_is_derived_from_the_type_so_prompt_and_schema_cannot_drift(self):
         # The prompts render this tuple; the schema validates the same Literal.

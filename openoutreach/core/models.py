@@ -81,12 +81,12 @@ class Campaign(models.Model):
     # embodied by the fetched seed nodes, not cached.)
     country_code = models.CharField(max_length=2, blank=True, default="")
 
-    # The clause pool — every candidate value the ICP produced, not just the ones
-    # the seed used. The descent composes conjunctions from these without asking
-    # the LLM again (``core/pipeline/descend.py``), which is the whole reason the
-    # pool exists: ``icp.generate_seed`` gets 5 job titles and the seed can only
-    # carry one, and the other 4 used to be dropped on the floor and re-invented
-    # at every wall.
+    # The clause pool — the seed conjunction, one value per family. With one clause
+    # per family the pool *is* the seed (``icp.generate_seed`` names a single best
+    # value per family, not a list), so the descent (``core/pipeline/descend.py``)
+    # can only broaden it — drop a clause to widen back toward the head — never OR
+    # alternatives in. It composes those sub-conjunctions without asking the LLM
+    # again, and asks only once the pool spans nothing new.
     #
     # **The pool is per-campaign; the ``Clause`` rows are global.** Not a
     # contradiction: a clause is the same fact whoever searches it
