@@ -31,7 +31,8 @@ Order: campaign → LLM (live-verified) → **mailbox** (SMTP auth-checked) →
 **BetterContact key** → account (your email + country + newsletter + legal, then
 the operator ``User``). The mailbox and the BetterContact key are mandatory —
 BetterContact powers both discovery and enrichment. The account step asks the
-operator's **own email** (the human's inbox — BCC-copy + newsletter target),
+operator's **own email** (the human's inbox — contacts key + newsletter target,
+plus optional send-copies via ``conf.BCC_OPERATOR_ON_SEND``),
 deliberately distinct from the mailbox ``from_address``; the ``User`` is created
 last, after a mailbox exists.
 """
@@ -363,7 +364,8 @@ def _run_bettercontact() -> None:
 
 def _account_done() -> bool:
     """Done only when an operator exists *with a non-blank email* — the operator's
-    own inbox, where send-copies (BCC) and the newsletter go. Requiring a real
+    own inbox (contacts key + newsletter target, and optional send-copies via
+    conf.BCC_OPERATOR_ON_SEND). Requiring a real
     email (not merely 'a staff user exists') stops a legacy blank-email account
     from short-circuiting the address prompt."""
     from django.contrib.auth.models import User
@@ -380,13 +382,14 @@ def _run_account() -> None:
     """
     from openoutreach.core.geo import is_gdpr_protected
 
-    # The operator's own inbox — where we BCC a copy of every send and, if opted
-    # in, subscribe them to the newsletter. Deliberately NOT the mailbox
-    # from_address: that is the sending robot, this is the human reading the copies.
+    # The operator's own inbox — the contacts-give-back key and (if opted in) the
+    # newsletter target. Optionally the daemon BCCs a copy of every send here too,
+    # gated by conf.BCC_OPERATOR_ON_SEND (off by default). Deliberately NOT the
+    # mailbox from_address: that is the sending robot, this is the human.
     operator_email = _required(wiz.text(
-        "Your email address — we'll BCC you a copy of every outreach email sent, "
-        "and (if you opt in below) send product updates here. This is your own "
-        "inbox, not the sending mailbox.",
+        "Your email address — your own inbox (not the sending mailbox). We'll send "
+        "product updates here if you opt in below, and can BCC you a copy of every "
+        "outreach email if you enable that in config.",
         validate=_looks_like_email,
     )).strip()
 
@@ -449,8 +452,9 @@ def _require_legal() -> None:
 def _finalize_account(operator_email: str, country: str, newsletter: bool) -> None:
     """Persist country, create the operator ``User`` from their own email, subscribe once.
 
-    ``operator_email`` is the human's inbox (BCC + newsletter target), distinct
-    from the mailbox ``from_address`` used as the sending identity.
+    ``operator_email`` is the human's inbox (contacts key + newsletter target,
+    plus optional send-copies via ``conf.BCC_OPERATOR_ON_SEND``), distinct from
+    the mailbox ``from_address`` used as the sending identity.
     """
     from openoutreach.core.models import Campaign, SiteConfig
     from openoutreach.emails.models import Mailbox

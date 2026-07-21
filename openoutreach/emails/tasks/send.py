@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 def handle_email(task, session, qualifiers):
     from openoutreach.core.agents.email_opener import compose_opener_email
+    from openoutreach.core.conf import BCC_OPERATOR_ON_SEND
     from openoutreach.core.db.deals import get_emailable_deals
     from openoutreach.core.db.summaries import materialize_profile_summary_if_missing
     from openoutreach.emails.models import Mailbox
@@ -50,7 +51,7 @@ def handle_email(task, session, qualifiers):
 
     message_id = send_email(
         mailbox, deal.lead.email, draft.subject, draft.body,
-        bcc=session.django_user.email,
+        bcc=session.django_user.email if BCC_OPERATOR_ON_SEND else None,
     )
     _record_sent_email(session, deal, mailbox, draft, message_id)
     logger.info("[%s] email sent to %s (%s): %s\n%s",

@@ -59,7 +59,7 @@ The submit leg only fires when there's mailbox send-headroom for the result toda
 
 **Where:** `emails/tasks/send.py` → `core/agents/email_opener.py`
 
-An ungated FIFO queue (paced only by the per-box daily cap) picks the oldest `READY_TO_EMAIL` deal, composes a personalized opener, sends it over SMTP (BCC to the operator's own address), records the outgoing `ChatMessage`, and parks the deal at `EMAILED`. `next_follow_up_at` is seeded from the opener agent's own `follow_up_hours`.
+An ungated FIFO queue (paced only by the per-box daily cap) picks the oldest `READY_TO_EMAIL` deal, composes a personalized opener, sends it over SMTP (optionally BCC to the operator's own address, gated by `conf.BCC_OPERATOR_ON_SEND` — off by default), records the outgoing `ChatMessage`, and parks the deal at `EMAILED`. `next_follow_up_at` is seeded from the opener agent's own `follow_up_hours`.
 
 ## 7. Agentic follow-up (EMAILED ⟲ → COMPLETED / FAILED)
 

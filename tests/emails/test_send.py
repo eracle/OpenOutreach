@@ -218,9 +218,10 @@ class TestHandleEmail:
         deal = _ready(fake_session.campaign, "lead@corp.com")
         send = self._run(fake_session)
 
+        # BCC_OPERATOR_ON_SEND is off by default → no operator BCC.
         send.assert_called_once_with(
             box, "lead@corp.com", "Hi there", "Short opener.",
-            bcc="testuser@example.com",
+            bcc=None,
         )
         deal.refresh_from_db()
         assert deal.state == DealState.EMAILED
@@ -228,6 +229,14 @@ class TestHandleEmail:
         assert deal.email_subject == "Hi there"
         assert deal.email_message_id == "<mid@corp.com>"
         assert deal.email_sent_at is not None
+
+    def test_bccs_operator_when_flag_enabled(self, fake_session):
+        _box(daily_limit=10)
+        _ready(fake_session.campaign, "lead@corp.com")
+        with patch("openoutreach.core.conf.BCC_OPERATOR_ON_SEND", True):
+            send = self._run(fake_session)
+
+        assert send.call_args.kwargs["bcc"] == "testuser@example.com"
 
     def test_no_op_when_every_box_is_capped(self, fake_session):
         box = _box(daily_limit=1)

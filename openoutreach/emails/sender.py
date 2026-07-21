@@ -29,9 +29,10 @@ def send_email(
     The mailbox's signature is appended to ``body`` here rather than at the call
     sites, so every send — opener and follow-up — carries it.
 
-    ``bcc`` blind-copies the operator's own address so they keep a private record
-    of every send; ``send_message`` strips the Bcc header before transmission, so
-    the To recipient never sees it.
+    ``bcc`` (when set) blind-copies the operator's own address so they keep a
+    private record of every send; ``send_message`` strips the Bcc header before
+    transmission, so the To recipient never sees it. The call sites pass it only
+    when ``conf.BCC_OPERATOR_ON_SEND`` is enabled (off by default), else ``None``.
 
     ``in_reply_to``/``references`` thread a reply onto an existing email thread
     (both are prior Message-IDs). The returned Message-ID is stored on the
