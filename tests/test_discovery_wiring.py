@@ -37,9 +37,10 @@ def _node(campaign, clauses, offset=0):
 
 
 def _cold_qualifier():
-    """An unfitted GP — ``acquisition_scores`` returns None, so selection is the
-    deterministic seed-first, fresh-first fallback."""
+    """An unfitted GP — ``acquisition_mode`` returns None, so selection is the
+    deterministic seed-first, fresh-first fallback (no exact-embed, no scoring)."""
     q = MagicMock()
+    q.acquisition_mode.return_value = None
     q.acquisition_scores.return_value = None
     return q
 

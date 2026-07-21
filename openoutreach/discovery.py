@@ -183,7 +183,12 @@ def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
     result = submit_and_poll(api_key, LEAD_FINDER_URL, body)
 
     leads = result.get("leads", [])
-    logger.info("leadfinder: %d lead(s) returned", len(leads))
+    if leads:
+        logger.info("leadfinder: %d lead(s) returned", len(leads))
+    else:
+        logger.info("leadfinder: %s — no profile in the index matches every filter above "
+                    "at once (an over-narrow ICP, not an error or a provider outage)",
+                    colored("0 leads", "yellow", attrs=["bold"]))
     return leads
 
 
@@ -232,3 +237,15 @@ def embed_query(clauses) -> np.ndarray:
     from openoutreach.core.ml.embeddings import embed_text
 
     return embed_text(clause_terms(clauses))
+
+
+def embed_queries(clause_sets) -> np.ndarray:
+    """(N, 384) keyword-only vectors for a batch of candidate queries.
+
+    The batch form of ``embed_query`` — one embedding per clause set, in order. Used
+    by the selector's exact-embed stage so a whole prefiltered slice goes through the
+    model in one call instead of N.
+    """
+    from openoutreach.core.ml.embeddings import embed_texts
+
+    return embed_texts([clause_terms(cs) for cs in clause_sets])

@@ -16,6 +16,13 @@ Every next move is one candidate, scored by one value function:
 Both are scored the same way: embed the maximal's *keywords* (``discovery.embed_query``)
 and read the GP's balance-driven acquisition (``qualifier.acquisition_scores`` —
 predicted P in exploit mode, BALD info-gain in explore mode). Argmax picks the fetch.
+
+Exact-embedding every maximal is too costly once the pool is large, so ``_prefilter``
+first ranks the *whole* pool by a cheap composed score — embed only the pool's few
+dozen distinct clause phrases, then pool them per query — and keeps the top-K on the
+live axis (``qualifier.acquisition_mode``), and only those K are exact-embedded. Mean
+pooling tracks exploit's P well and is complete at a small K; explore's BALD is a
+variance that doesn't decompose over clauses, so it gets a larger K (see ``PREFILTER_K``).
 There is no deepen/visit alternation and no counted-deal metric: the GP that ranks
 which lead to label also ranks which query to fetch, because a discovered lead carries
 its retrieving query's keywords in its embedding (``db/leads.create_lead``), so the GP
@@ -42,17 +49,28 @@ from collections import namedtuple
 import numpy as np
 
 from openoutreach.core.models import Clause, DiscoveryQuery, EmptyClauseSet
-from openoutreach.discovery import embed_query
+from openoutreach.discovery import embed_queries, embed_query
 
 logger = logging.getLogger(__name__)
 
 DISCOVERY_PAGE_SIZE = 100
 
-# Most maximals scored (hence embedded) per move. A large clause pool spans a huge
-# Cartesian product; scoring is free but embedding each candidate is not, so we cap
-# to the seed-closest slice. Not a coverage cut — as those exhaust, deeper-ranked
-# maximals enter the window on later moves.
-MAX_CANDIDATES = 64
+# Exact-embedding every fetchable maximal is the cost — a large clause pool spans a
+# huge Cartesian product, and each candidate is a model forward pass (~10 ms). So the
+# selector prefilters the *whole* pool with a cheap composed score (embed only the
+# pool's few dozen distinct clause phrases, then pool them per query — free), keeps
+# the top-K on the live acquisition axis, and exact-embeds only those K.
+#
+# The two axes have very different prefilter accuracy, so each gets its own K:
+#   exploit — a query's embedding is ~the mean of its clause embeddings, so composed
+#     P(f>0.5) tracks the truth (Spearman ~0.9); the true top is recovered with recall
+#     1.0 by K≈128. A small K is genuinely complete here.
+#   explore — BALD rewards posterior *variance*, a quadratic form that does not
+#     decompose over clauses, so the cheap proxy (summed per-clause variance) is much
+#     weaker (recall ~0.44 at K=1024). It gets a larger budget; K=1024 is the knee of
+#     the recall/cost curve (~10 s) before deep diminishing returns.
+# See the roadmap card ``p2-e3-discovery-unified-gp-query-selection``.
+PREFILTER_K = {"exploit (p)": 256, "explore (BALD)": 1024}
 
 # The query to fetch next: a clause set and the offset to page it at. Nothing is
 # persisted until the fetch returns rows. offset 0 is a fresh maximal; offset > 0 is
@@ -184,6 +202,37 @@ def _candidates(campaign, pool: dict[str, list[str]]) -> list[NextQuery]:
 
 # ── selection ────────────────────────────────────────────────────────
 
+def _prefilter(candidates: list[NextQuery], qualifier, strategy: str) -> list[NextQuery]:
+    """The top-K maximals to exact-embed, ranked by a cheap composed score.
+
+    Embeds only the pool's distinct clause phrases (dozens), never the Cartesian
+    product (thousands), then scores every candidate on the live acquisition axis:
+
+    - exploit — composed query embedding (mean of its clause embeddings) → P(f>0.5),
+    - explore — summed per-clause posterior variance, a cheap BALD proxy.
+
+    Returns the whole list unchanged when it already fits within K.
+    """
+    phrases = sorted({pair for q in candidates for pair in q.clauses})
+    idx = {pair: i for i, pair in enumerate(phrases)}
+    phrase_emb = embed_queries([[pair] for pair in phrases]).astype(np.float64)
+
+    if strategy == "exploit (p)":
+        composed = np.array([phrase_emb[[idx[p] for p in q.clauses]].mean(axis=0)
+                             for q in candidates])
+        scores = qualifier.predict_probs(composed)
+    else:
+        variance = qualifier.posterior_std(phrase_emb) ** 2
+        scores = np.array([variance[[idx[p] for p in q.clauses]].sum()
+                           for q in candidates])
+
+    K = PREFILTER_K[strategy]
+    if len(candidates) <= K:
+        return candidates
+    keep = np.argsort(-np.asarray(scores, dtype=np.float64))[:K]
+    return [candidates[i] for i in keep]
+
+
 def next_query(campaign, qualifier) -> NextQuery | None:
     """The single maximal to fetch next, chosen by the GP, or ``None`` if saturated.
 
@@ -199,20 +248,23 @@ def next_query(campaign, qualifier) -> NextQuery | None:
         return None
 
     # Seed-first, fresh-before-deep — the deterministic order, and the cold-start
-    # choice when the GP has no signal. Cap the slice we embed to bound cost.
+    # choice when the GP has no signal.
     ranker = _ranker(pool)
     candidates.sort(key=lambda q: (q.offset, ranker(q.clauses)))
-    if len(candidates) > MAX_CANDIDATES:
-        logger.debug("[%s] scoring %d of %d maximals (seed-closest)",
-                     campaign, MAX_CANDIDATES, len(candidates))
-        candidates = candidates[:MAX_CANDIDATES]
 
-    embeddings = np.array([embed_query(q.clauses) for q in candidates], dtype=np.float64)
-    scored = qualifier.acquisition_scores(embeddings)
-    if scored is None:
+    # The live acquisition axis, known before any exact-embed. None → cold start.
+    strategy = qualifier.acquisition_mode()
+    if strategy is None:
         return candidates[0]  # cold start — seed-first, fresh-first
 
-    strategy, scores = scored
-    best = candidates[int(np.argmax(scores))]
+    # Prefilter the whole pool cheaply, then exact-embed and score only the top-K.
+    subset = _prefilter(candidates, qualifier, strategy)
+    if len(candidates) > len(subset):
+        logger.debug("[%s] %s: exact-scoring %d of %d maximals (prefiltered)",
+                     campaign, strategy, len(subset), len(candidates))
+
+    embeddings = embed_queries([q.clauses for q in subset]).astype(np.float64)
+    _, scores = qualifier.acquisition_scores(embeddings)
+    best = subset[int(np.argmax(scores))]
     logger.debug("[%s] query %s: %s", campaign, strategy, best.clauses)
     return best

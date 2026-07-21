@@ -27,25 +27,48 @@ def _campaign(**kw):
 
 
 class _GP:
-    """A fitted GP returning fixed acquisition scores over the candidates."""
+    """A fitted GP returning fixed acquisition scores over the candidates.
 
-    def __init__(self, scores):
+    The prefilter ranks by ``predict_probs`` (exploit) or ``posterior_std`` (explore);
+    both return per-candidate values so the top-K slice — and the final argmax over the
+    exact-embedded subset — land on the same fixed scores. Small test pools fit within K,
+    so the subset is the whole (seed-first) candidate list and index ``i`` still maps to
+    candidate ``i``.
+    """
+
+    def __init__(self, scores, mode="exploit (p)"):
         self._scores = scores
+        self._mode = mode
+
+    def _slice(self, embeddings):
+        return np.array(self._scores[: len(embeddings)], dtype=np.float64)
+
+    def acquisition_mode(self):
+        return self._mode
+
+    def predict_probs(self, embeddings):
+        return self._slice(embeddings)
+
+    def posterior_std(self, embeddings):
+        return np.ones(len(embeddings), dtype=np.float64)
 
     def acquisition_scores(self, embeddings):
-        return "exploit (p)", np.array(self._scores[: len(embeddings)])
+        return self._mode, self._slice(embeddings)
 
 
 class _ColdGP:
     """An unfitted GP — no signal, so selection uses the deterministic fallback."""
+
+    def acquisition_mode(self):
+        return None
 
     def acquisition_scores(self, embeddings):
         return None
 
 
 def _stub_embed():
-    return patch("openoutreach.core.pipeline.select.embed_query",
-                 return_value=np.ones(384, dtype=np.float64))
+    return patch("openoutreach.core.pipeline.select.embed_queries",
+                 side_effect=lambda sets: np.ones((len(list(sets)), 384), dtype=np.float64))
 
 
 # ── the maximals the pool spans ──────────────────────────────────────
@@ -94,6 +117,17 @@ class TestNextQuery:
             q = next_query(campaign, _GP([0.1, 0.9]))
         assert q.clauses == [("lead_job_title", "CTO"), ("lead_location", "Japan")]
 
+    def test_explore_mode_argmax_wins(self, db):
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_job_title", "CTO"),
+            ("lead_location", "Japan"),
+        ]))
+        # Explore prefilter ranks by posterior_std; final argmax is over BALD scores.
+        with _stub_embed():
+            q = next_query(campaign, _GP([0.1, 0.9], mode="explore (BALD)"))
+        assert q.clauses == [("lead_job_title", "CTO"), ("lead_location", "Japan")]
+
     def test_fetched_line_becomes_a_deepen_candidate(self, db):
         campaign = _campaign()
         seed = [("lead_location", "Japan")]
@@ -122,6 +156,37 @@ class TestNextQuery:
         record_empty([("lead_job_title", "CMO")])
         with _stub_embed():
             assert next_query(campaign, _ColdGP()) is None
+
+
+# ── prefilter ────────────────────────────────────────────────────────
+
+
+class TestPrefilter:
+    def test_keeps_only_top_k_on_the_live_axis(self, db, monkeypatch):
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_job_title", "CTO"),
+            ("lead_job_title", "CFO"), ("lead_location", "Japan"),
+        ]))
+        candidates = select._candidates(campaign, _pool(campaign))  # 3 maximals
+        assert len(candidates) == 3
+        monkeypatch.setitem(select.PREFILTER_K, "exploit (p)", 2)
+        # Scores align to _candidates order [CMO, CTO, CFO]·Japan — CMO is lowest.
+        with _stub_embed():
+            kept = select._prefilter(candidates, _GP([0.2, 0.9, 0.5]), "exploit (p)")
+        assert len(kept) == 2
+        assert candidates[0] not in kept  # the lowest-scored maximal is dropped
+
+    def test_returns_all_when_pool_fits_within_k(self, db):
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_job_title", "CTO"),
+            ("lead_location", "Japan"),
+        ]))
+        candidates = select._candidates(campaign, _pool(campaign))
+        with _stub_embed():
+            kept = select._prefilter(candidates, _GP([0.1, 0.9]), "exploit (p)")
+        assert kept == candidates  # 2 ≤ K → unchanged, order preserved
 
 
 # ── persistence primitives ───────────────────────────────────────────

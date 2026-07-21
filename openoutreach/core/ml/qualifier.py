@@ -367,6 +367,30 @@ class BayesianQualifier:
         mean, std = _gpr_predict(self._pipeline, embeddings)
         return _prob_above_half(mean, std)
 
+    def posterior_std(self, embeddings: np.ndarray) -> np.ndarray | None:
+        """GP posterior std at each embedding — the uncertainty BALD rewards.
+
+        The explore prefilter ranks candidate queries by summed per-clause variance
+        (posterior_std²) as a cheap BALD proxy, so only the top slice is exact-embedded.
+        Returns None when the model cannot be fitted yet.
+        """
+        if not self._fit_if_needed():
+            return None
+        _, std = _gpr_predict(self._pipeline, embeddings)
+        return std
+
+    def acquisition_mode(self, embeddings: np.ndarray | None = None) -> str | None:
+        """The live acquisition axis: ``"exploit (p)"``, ``"explore (BALD)"``, or None.
+
+        Balance-driven: exploit once negatives outnumber positives, explore while the
+        classes are still even. None on cold start (model not fitted yet). Exposed so
+        the selector can pick which cheap prefilter to run *before* it exact-embeds.
+        """
+        if not self._fit_if_needed():
+            return None
+        n_neg, n_pos = self.class_counts
+        return "exploit (p)" if n_neg > n_pos else "explore (BALD)"
+
     def acquisition_scores(self, embeddings: np.ndarray) -> tuple[str, np.ndarray] | None:
         """Score candidates using the balance-driven acquisition strategy.
 
@@ -375,15 +399,11 @@ class BayesianQualifier:
 
         Returns ``(strategy_name, scores)`` or ``None`` on cold start.
         """
-        n_neg, n_pos = self.class_counts
-        if n_neg > n_pos:
-            scores = self.predict_probs(embeddings)
-            strategy = "exploit (p)"
-        else:
-            scores = self.compute_bald(embeddings)
-            strategy = "explore (BALD)"
-        if scores is None:
+        strategy = self.acquisition_mode()
+        if strategy is None:
             return None
+        scores = self.predict_probs(embeddings) if strategy == "exploit (p)" \
+            else self.compute_bald(embeddings)
         return strategy, scores
 
     # ------------------------------------------------------------------
