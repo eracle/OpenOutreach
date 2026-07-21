@@ -26,11 +26,6 @@ from termcolor import colored
 
 logger = logging.getLogger(__name__)
 
-# Empty fetches tolerated in one call before yielding back to the caller. A fetch is
-# ~45s, so a run of dead maximals is bounded per call; each empty is recorded, so the
-# next call resumes past it rather than re-fetching it.
-MAX_EMPTY_SKIPS = 3
-
 
 def _label(offset: int) -> str:
     """Colour the move by what it is — green deepens a vein, yellow explores fresh."""
@@ -53,10 +48,16 @@ def discover(session, qualifier) -> int:
 
     Seeds the pool on a cold start, folds qualified learnings in on the throughput
     cadence, then fetches the GP's top-scored maximal. An empty page is recorded (its
-    two shapes differently) and the next candidate tried, up to ``MAX_EMPTY_SKIPS``.
-    Returns 0 when the pool is exhausted (minting adds nothing), when a fetch is
-    unavailable (best-effort — a provider outage must not fail the enclosing
-    find_email task), or when only empties came back this call.
+    two shapes differently) and the next candidate tried — the loop keeps firing the
+    next-best query until one returns leads, so a run of dead maximals never yields an
+    empty-handed pass while any live query remains. Returns 0 only when the pool is
+    exhausted (minting adds nothing) or when a fetch is unavailable (best-effort — a
+    provider outage must not fail the enclosing find_email task).
+
+    Cost of never capping: on a mostly-dead ICP one call can fire the whole remaining
+    pool serially before it saturates, and each fetch is a blocking ~45s provider
+    call. Termination is still guaranteed — the pool is finite and every empty query
+    is recorded + exhausted, so the candidate set strictly shrinks each iteration.
 
     Gated as before: freemium campaigns seed from their kit, and a campaign with no
     finder key or no product/target can't be searched.
@@ -99,7 +100,8 @@ def discover(session, qualifier) -> int:
             if not minted and mint_clauses(campaign) > 0:
                 minted = True
                 continue
-            logger.info("[%s] discovery exhausted — pool fully spanned", campaign)
+            logger.info("[%s] discovery exhausted — pool fully spanned (%d dead quer%s this pass)",
+                        campaign, empties, "y" if empties == 1 else "ies")
             return 0
 
         filters = filters_for(query.clauses)
@@ -136,18 +138,20 @@ def discover(session, qualifier) -> int:
         # convicts the maximal (matches nobody); a deeper empty is a vein run dry.
         if query.offset == 0:
             select.record_empty(query.clauses)
-            logger.info("[%s] %s: matched %s — blacklisting %s",
+            logger.info("[%s] %s: %s — no one matches this whole combination (%s); recording it "
+                        "so it, and any narrower query that also contains these clauses, is "
+                        "skipped from now on",
                         campaign, _label(query.offset),
-                        colored("nothing", "yellow", attrs=["bold"]),
+                        colored("dead end", "yellow", attrs=["bold"]),
                         colored(describe_clauses(query.clauses), "cyan"))
         else:
-            logger.info("[%s] %s: vein %s at offset %d — exhausting %s",
+            logger.info("[%s] %s: %s — no more leads past offset %d for %s; marking it used up",
                         campaign, _label(query.offset),
-                        colored("ran dry", "yellow", attrs=["bold"]), query.offset,
+                        colored("vein empty", "yellow", attrs=["bold"]), query.offset,
                         colored(describe_clauses(query.clauses), "cyan"))
         select.persist_fetched(campaign, query.clauses, query.offset)
         select.mark_exhausted(campaign, query.clauses)
-
         empties += 1
-        if empties >= MAX_EMPTY_SKIPS:
-            return 0
+        # No cap: loop back and try the next-best query. Each empty is now recorded +
+        # exhausted, so next_query won't re-pick it and the candidate set shrinks —
+        # the loop ends at saturation (next_query is None), not on a dead-query count.
