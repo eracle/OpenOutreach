@@ -163,8 +163,9 @@ def materialize_profile_summary_if_missing(deal, session) -> None:
     deal.profile_summary = {"facts": facts}
     deal.save(update_fields=["profile_summary"])
     logger.info(
-        "profile_summary built for deal=%s lead=%s (%d facts)",
+        "profile_summary built for deal=%s lead=%s (%d facts)%s",
         deal.pk, lead.profile_url, len(facts),
+        "".join(f"\n  • {fact}" for fact in facts),
     )
 
 
