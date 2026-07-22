@@ -36,7 +36,7 @@ _HANDLERS = {
 
 HEARTBEAT_INTERVAL = 300  # 5 minutes
 HEARTBEAT_SLICE = 60      # wake every minute during long sleeps
-READ_PACE_SECONDS = 15    # pause between actions so each status line is readable
+READ_PACE_SECONDS = 5     # pause between actions so each status line is readable
 
 
 # ── Heartbeat ────────────────────────────────────────────────────────
