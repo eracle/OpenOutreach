@@ -83,13 +83,18 @@ def _prescreen(campaign, new_pairs) -> int:
 
     Runs at clause generation — the cold-start seed and every mint — so each value is
     probed exactly once, before it enters the Cartesian product. The probe is an
-    ordinary fetch: a value with support harvests its page like any other query, a value
-    that matches nobody is removed from the pool and its ``{value, headcount}`` set
-    recorded empty — idempotent (a re-minted dead value is dropped without another fetch,
-    and the global record even spares a *different* campaign the probe) and, as a
-    recorded empty, pruning any maximal that later contains it. Best-effort: a provider
-    outage leaves the value in the pool, since a timeout is not proof of zero support.
-    Returns the number of values dropped. See ``p2-e3-discovery-empty-set-backoff``.
+    ordinary fetch (the value ANDed with the headcount band): a value with support
+    harvests its page like any other query, a value that matches nobody is removed from
+    the pool and recorded empty **as a size-1 set of the value alone** — never the
+    ``{value, headcount}`` probe. A singleton empty prunes every maximal that contains
+    the value (the band is fixed per campaign, so recording it band-independently loses
+    nothing) *and* generates no backoff generalization, so a pre-screened-dead value can
+    never be resurrected into a candidate whose family the pool no longer holds. The
+    record is idempotent and global — a re-minted dead value is dropped without another
+    fetch, and the record even spares a *different* campaign the probe. Best-effort: a
+    provider outage leaves the value in the pool, since a timeout is not proof of zero
+    support. Returns the number of values dropped. See
+    ``p2-e3-discovery-empty-set-backoff``.
     """
     from openoutreach.core.models import Clause, EmptyClauseSet
     from openoutreach.core.pipeline import select
@@ -107,11 +112,13 @@ def _prescreen(campaign, new_pairs) -> int:
     for family, value in new_pairs:
         if family in _HEADCOUNT_FAMILIES:
             continue
-        probe = sorted([(family, value), *headcount])
+        pair = (family, value)
+        probe = sorted([pair, *headcount])  # fetch the value inside the ICP band
 
-        # Proven dead on an earlier pass (records are global) — drop without a fetch.
-        if select.clause_key(probe) in known_empty:
-            campaign.clauses.remove(*Clause.rows_for([(family, value)]))
+        # Proven dead on an earlier pass (records are global, keyed on the value alone)
+        # — drop without a fetch.
+        if select.clause_key([pair]) in known_empty:
+            campaign.clauses.remove(*Clause.rows_for([pair]))
             dropped += 1
             continue
 
@@ -124,11 +131,14 @@ def _prescreen(campaign, new_pairs) -> int:
             _harvest(campaign, probe, 0, rows)
             continue
 
-        select.record_empty(probe)
-        campaign.clauses.remove(*Clause.rows_for([(family, value)]))
+        # Record the value alone, never the {value, band} probe: a size-1 empty prunes
+        # every maximal that contains it and — crucially — generates no backoff child,
+        # so the pruned value can't be resurrected into an un-rankable candidate.
+        select.record_empty([pair])
+        campaign.clauses.remove(*Clause.rows_for([pair]))
         logger.info("[%s] %s: %s matches nobody in the size band — dropped from the pool",
                     campaign, colored("pre-screen", "magenta", attrs=["bold"]),
-                    colored(describe_clauses([(family, value)]), "cyan"))
+                    colored(describe_clauses([pair]), "cyan"))
         dropped += 1
     return dropped
 

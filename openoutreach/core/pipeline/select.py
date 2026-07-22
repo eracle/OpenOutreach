@@ -59,6 +59,12 @@ logger = logging.getLogger(__name__)
 
 DISCOVERY_PAGE_SIZE = 100
 
+# The campaign's fixed ICP size band — it rides every maximal unchanged and is never a
+# backoff axis (dropping a bound queries off-ICP; the provider fills a half-open or
+# inverted band with any-size companies rather than returning nothing). Mirrors
+# ``discover._HEADCOUNT_FAMILIES``.
+_HEADCOUNT_FAMILIES = ("company_headcount_min", "company_headcount_max")
+
 # Exact-embedding every fetchable maximal is the cost — a large clause pool spans a
 # huge Cartesian product, and each candidate is a model forward pass (~10 ms). So the
 # selector prefilters the *whole* pool with a cheap composed score (embed only the
@@ -132,9 +138,9 @@ def record_empty(clauses) -> None:
     out, not a conjunction that matches nobody. The set can be any depth: a fired
     maximal, a backed-off generalization, or a size-1 pre-screen probe. Read back as the
     anti-monotone prune — a candidate is dead iff some recorded set is a subset of it —
-    so recording a *sub*-maximal empty (e.g. ``{headcount, location=Oman}``) prunes
-    every maximal that contains it in one shot, which is the leverage the backoff walks
-    toward. See ``p2-e3-discovery-empty-set-backoff``.
+    so recording a *sub*-maximal empty (e.g. the size-1 ``{location=Oman}`` a pre-screen
+    writes) prunes every maximal that contains it in one shot, which is the leverage the
+    backoff walks toward. See ``p2-e3-discovery-empty-set-backoff``.
     """
     entry, created = EmptyClauseSet.objects.get_or_create(clause_key=clause_key(clauses))
     if created:
@@ -201,15 +207,22 @@ def _generalizations(empty_sets: list[frozenset]) -> list[list[tuple[str, str]]]
     each drops a single clause and may well match someone. A child that itself fetches
     empty is recorded in turn, so its own children surface next pass: the descent walks
     one level at a time toward the non-empty frontier, generating only the children of
-    empties actually hit, never the whole lattice. A singleton empty contributes none —
-    the only query below it is the empty conjunction, which is not a candidate. See the
-    roadmap card ``p2-e3-discovery-empty-set-backoff``.
+    empties actually hit, never the whole lattice.
+
+    Only *value* clauses are dropped; the headcount band rides every child unchanged
+    (``_HEADCOUNT_FAMILIES``) — loosening a bound queries off-ICP. A set with one value
+    clause (or none) contributes no child: its only value-less descent is the bare band,
+    which matches everyone and is not a candidate. This is what makes a size-1 pre-screen
+    empty inert here, and — since a legacy band-bundled pre-screen empty has exactly one
+    value clause too — keeps it from resurrecting a pruned value. See the roadmap card
+    ``p2-e3-discovery-empty-set-backoff``.
     """
     children = []
     for empty in empty_sets:
-        if len(empty) <= 1:
+        droppable = [c for c in empty if c[0] not in _HEADCOUNT_FAMILIES]
+        if len(droppable) <= 1:
             continue
-        for clause in empty:
+        for clause in droppable:
             children.append(sorted(empty - {clause}))
     return children
 

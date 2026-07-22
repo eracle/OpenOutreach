@@ -205,6 +205,54 @@ class TestBackoff:
         cands = select._candidates(campaign, _pool(campaign))
         assert sorted(c.clauses for c in cands) == [[("lead_job_title", "CMO")]]
 
+    def test_backoff_never_drops_the_headcount_band(self, db):
+        # The band is the fixed ICP, not a search axis: every backoff child keeps both
+        # bounds. Loosening one queries off-ICP (the provider fills a half-open band with
+        # any-size companies), so only value clauses are dropped.
+        band = [("company_headcount_min", "1"), ("company_headcount_max", "50")]
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for(
+            band + [("lead_job_title", "CMO"), ("lead_location", "Japan")]))
+        record_empty(band + [("lead_job_title", "CMO"), ("lead_location", "Japan")])
+        cands = select._candidates(campaign, _pool(campaign))
+        # the empty maximal is pruned; its children are the two n−1 value-loosenings,
+        # each still carrying the full band.
+        assert sorted(c.clauses for c in cands) == [
+            sorted(band + [("lead_job_title", "CMO")]),
+            sorted(band + [("lead_location", "Japan")]),
+        ]
+
+    def test_band_bundled_empty_does_not_resurrect_a_pruned_family(self, db):
+        # Regression for KeyError('lead_department'). A pre-screen empty that still
+        # carries the band (legacy data, pre-migration) has one value clause; backoff
+        # drops only value clauses, so it yields no child and the pruned family — absent
+        # from the pool — is never handed to the ranker.
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_location", "Japan"),
+        ]))
+        record_empty([
+            ("company_headcount_min", "1"), ("company_headcount_max", "50"),
+            ("lead_department", "Technology"),  # family absent from the pool
+        ])
+        with _stub_embed():
+            q = next_query(campaign, _ColdGP())  # must not raise KeyError
+        assert q is not None
+        assert all(family != "lead_department" for family, _ in q.clauses)
+
+    def test_singleton_prescreen_empty_generates_no_child(self, db):
+        # A dead value recorded as a size-1 set (the current pre-screen shape) is inert
+        # in backoff — no n−1 child — so it prunes but never resurrects.
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_location", "Japan"),
+        ]))
+        record_empty([("lead_department", "Technology")])
+        cands = select._candidates(campaign, _pool(campaign))
+        assert sorted(c.clauses for c in cands) == [
+            [("lead_job_title", "CMO"), ("lead_location", "Japan")],  # the sole maximal
+        ]
+
 
 # ── prefilter ────────────────────────────────────────────────────────
 
