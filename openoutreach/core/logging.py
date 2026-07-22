@@ -86,6 +86,19 @@ def brand(service: str, text: str | None = None) -> str:
     return f"\033[38;2;{r};{g};{b}m{label}\033[0m"
 
 
+def hyperlink(url: str, text: str | None = None) -> str:
+    """Render `text` (default: the URL) as an OSC 8 clickable terminal link.
+
+    On a non-TTY (or NO_COLOR) we return the plain URL so piped logs stay
+    clean; terminals without OSC 8 support ignore the escapes and still show
+    the label.
+    """
+    label = text if text is not None else url
+    if not _color_enabled():
+        return label
+    return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
+
+
 # ── Public API ──────────────────────────────────────────────────────
 
 SILENCED_LOGGERS = (

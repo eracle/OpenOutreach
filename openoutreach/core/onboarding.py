@@ -228,7 +228,7 @@ _MAILBOX_GUIDANCE = """
   unless the login succeeds.
 
   No good sending box yet? IceMail sets up a warmed, ready-to-send Google
-  Workspace inbox in minutes (~$2.50/mo): https://icemail.ai?via=openoutreach
+  Workspace inbox in minutes (~$2.50/mo): {icemail_link}
 
   The SMTP/IMAP host + port fields below default to Gmail / Google Workspace
   (smtp.gmail.com:587, imap.gmail.com:993). If you're on Gmail, Workspace, or
@@ -269,7 +269,10 @@ def _mailbox_done() -> bool:
 def _run_mailbox() -> None:
     from openoutreach.emails.models import Mailbox, has_mailbox
 
-    print(_MAILBOX_GUIDANCE)
+    from openoutreach.core.logging import hyperlink
+
+    icemail_url = "https://icemail.ai?via=openoutreach"
+    print(_MAILBOX_GUIDANCE.format(icemail_link=hyperlink(icemail_url)))
     entry = dict(_MAILBOX_DEFAULTS)
     while True:
         try:
