@@ -20,7 +20,8 @@ class DealState(models.TextChoices):
             FINDING_EMAIL ─(collect_email/poll request_id)─▶
                 hit:  READY_TO_EMAIL ─(email opener)─▶ EMAILED ⟲ (agentic follow-up)
                                                        ─▶ COMPLETED / FAILED
-                miss: FAILED (reason="no email", outcome blank → ML-skipped)
+                miss: NO_EMAIL_BETTERCONTACT (provider found no address — a distinct
+                      terminal, not a failure; still a fit positive → ML label=1)
 
     - **READY_TO_FIND_EMAIL** — passed the GP confidence gate; queued for the
       *paid* provider lookup (one credit per verified hit). The GP gate rations
@@ -38,8 +39,11 @@ class DealState(models.TextChoices):
       IMAP replies and decides send/wait/complete until the deal reaches a
       terminal COMPLETED / FAILED. Pacing is the agent's own ``follow_up_hours``.
 
-    A lookup *miss* is terminal (FAILED, ``reason="no email"``, outcome blank so
-    the ML labeler skips it rather than scoring it a bad fit); a *couldn't-run*
+    A lookup *miss* is terminal (NO_EMAIL_BETTERCONTACT — the provider resolved no
+    address). It is a *distinct* terminal from FAILED so downstream work can build
+    on it (e.g. retry once another enrichment provider exists). The lead was an LLM
+    fit positive, so the ML labeler keeps it as label=1 — only reachability failed,
+    not fit. A *couldn't-run*
     (no key / API down at submit) leaves the deal at READY_TO_FIND_EMAIL to
     retry, and a job that never terminates within the poll deadline reverts
     FINDING_EMAIL → READY_TO_FIND_EMAIL for a fresh submit. The LinkedIn connect
@@ -53,6 +57,7 @@ class DealState(models.TextChoices):
     FINDING_EMAIL = "Finding Email"
     READY_TO_EMAIL = "Ready to Email"
     EMAILED = "Emailed"
+    NO_EMAIL_BETTERCONTACT = "No Email (BetterContact)"
     COMPLETED = "Completed"
     FAILED = "Failed"
 
@@ -81,7 +86,7 @@ class Deal(models.Model):
         "core.Campaign", on_delete=models.CASCADE, related_name="deals",
     )
     state = models.CharField(
-        max_length=20,
+        max_length=32,
         choices=DealState.choices,
         default=DealState.QUALIFIED,
     )

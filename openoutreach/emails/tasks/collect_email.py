@@ -6,7 +6,7 @@ The bound counterpart to ``find_email``: it polls one in-flight provider job
 then acts on the outcome:
 
     hit          → READY_TO_EMAIL   (address set + given back to the hub; 1 credit)
-    miss         → FAILED, reason="no email" (terminal — outcome blank → ML-skipped)
+    miss         → NO_EMAIL_BETTERCONTACT (terminal — a fit positive the ML keeps)
     still running → chain the next poll with a doubled backoff, unless past the
                     give-up deadline → revert FINDING_EMAIL → READY_TO_FIND_EMAIL
     couldn't poll → retry with the same backoff (transient outage, deadline-bounded)
@@ -98,12 +98,14 @@ def _on_hit(session, campaign, deal, public_id, email) -> None:
 
 
 def _on_miss(session, public_id) -> None:
-    """Terminal miss — enrichment found no address. Parks at FAILED with a blank
-    outcome so the ML labeler skips it (a miss is not a qualification signal),
-    but it logs as a benign miss, not an operational error."""
-    from openoutreach.core.db.deals import NO_EMAIL_REASON, set_profile_state
+    """Terminal miss — enrichment found no address. Parks at its own terminal state
+    (NO_EMAIL_BETTERCONTACT), distinct from FAILED: the lead was a fit positive
+    (the ML labeler keeps it as label=1), only reachability failed. The dedicated
+    state also gives downstream work a hook to build on (e.g. retry via another
+    provider)."""
+    from openoutreach.core.db.deals import set_profile_state
 
-    set_profile_state(session, public_id, DealState.FAILED.value, reason=NO_EMAIL_REASON)
+    set_profile_state(session, public_id, DealState.NO_EMAIL_BETTERCONTACT.value)
     logger.info("collect_email: no email for %s (miss)", public_id)
 
 

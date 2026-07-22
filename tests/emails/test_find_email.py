@@ -3,8 +3,8 @@
 
 Submit resolves free-hub-first, else fires a provider job and parks the deal at
 FINDING_EMAIL with a bound collect task carrying the request_id. Collect polls
-that job once and routes hit → READY_TO_EMAIL, miss → FAILED, still-running →
-chained backoff (or revert past the deadline).
+that job once and routes hit → READY_TO_EMAIL, miss → NO_EMAIL_BETTERCONTACT,
+still-running → chained backoff (or revert past the deadline).
 """
 from datetime import timedelta
 from unittest.mock import patch
@@ -164,14 +164,13 @@ class TestCollectLeg:
         contribute.assert_called_once()
         assert _email_tasks(fake_session.campaign).count() == 1
 
-    def test_miss_fails_deal(self, fake_session):
+    def test_miss_parks_no_email_state(self, fake_session):
         deal = _deal(fake_session.campaign, DealState.FINDING_EMAIL)
         task = self._task(fake_session, deal)
         self._run(fake_session, task, outcome=PollOutcome(running=False, email=""))
 
         deal.refresh_from_db()
-        assert deal.state == DealState.FAILED
-        assert deal.reason == "no email"
+        assert deal.state == DealState.NO_EMAIL_BETTERCONTACT
 
     def test_running_before_deadline_chains_next_poll(self, fake_session):
         deal = _deal(fake_session.campaign, DealState.FINDING_EMAIL)

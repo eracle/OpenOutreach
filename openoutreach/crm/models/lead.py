@@ -80,10 +80,14 @@ class Lead(models.Model):
     def get_labeled_arrays(cls, campaign) -> tuple[np.ndarray, np.ndarray]:
         """Labeled embeddings for a campaign as (X, y) numpy arrays for warm start.
 
-        Labels are derived from Deal state and outcome:
-        - label=1: Deals at any non-FAILED state (QUALIFIED and beyond)
+        The label is the LLM *fit* verdict, not the pipeline outcome — a qualified
+        lead whose enrichment later missed (NO_EMAIL_BETTERCONTACT) is still a fit
+        positive; only reachability failed. Since that miss now has its own terminal
+        state (not FAILED), FAILED means exactly "wrong_fit" here:
+        - label=1: Deals at any non-FAILED state (QUALIFIED and beyond, incl. a
+          NO_EMAIL_BETTERCONTACT miss)
         - label=0: FAILED Deals with outcome "wrong_fit" (LLM rejection)
-        - Skipped: FAILED Deals with other outcomes (operational failures)
+        - Skipped: any other FAILED outcome (defensive — none are produced today)
         """
         from openoutreach.crm.models import Outcome
         from openoutreach.crm.models.deal import Deal
