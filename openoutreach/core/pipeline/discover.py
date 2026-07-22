@@ -17,10 +17,13 @@ vocabulary, both here, neither a GP-confidence gate:
   stop only if minting adds a value that survives the pre-screen.
 
 Every batch of new clauses — the cold-start seed and every mint — is **pre-screened**
-(``_prescreen``) before it composes any maximal: each new value is fetched alone (with
-the ICP headcount band), its page harvested like any other query, and a value that
-matches nobody is dropped from the pool so no product slab is ever built on a dead
-axis. When a fired query matches nobody, ``select`` backs off to its one-clause-looser
+(``_prescreen``) before it composes any maximal: each new value is fetched **truly
+alone** (no headcount band, no sibling clauses — the check is only whether the keyword
+means anything to Lead Finder), its full page harvested like any other query, and a
+value that matches nobody is dropped from the pool so no product slab is ever built on
+a dead axis. Probing the value alone is what makes the size-1 empty record *sound* to
+write globally — it convicts the value itself, not the value-within-this-band. When a
+fired query matches nobody, ``select`` backs off to its one-clause-looser
 generalizations — the ``discover`` loop just keeps recording empties and re-selecting;
 the backoff itself lives in ``select._candidates``. See ``select.py``, ``mint.py`` and
 the roadmap cards ``p2-e3-discovery-unified-gp-query-selection`` and
@@ -51,10 +54,6 @@ def _qualified_count(campaign) -> int:
     )
 
 
-# Headcount is the campaign's fixed ICP band — it rides every maximal unchanged and is
-# never probed alone or dropped. See ``icp.py`` / ``discovery.filters_for``.
-_HEADCOUNT_FAMILIES = ("company_headcount_min", "company_headcount_max")
-
 
 def _harvest(campaign, clauses, offset: int, rows: list[dict]) -> int:
     """Persist a fetched page as first-touch Leads, each keyworded by the retrieving
@@ -78,42 +77,38 @@ def _harvest(campaign, clauses, offset: int, rows: list[dict]) -> int:
 
 
 def _prescreen(campaign, new_pairs) -> int:
-    """Probe each new non-headcount clause value alone (with the ICP headcount band) and
-    drop any that matches nobody, so no maximal is ever composed from a dead axis value.
+    """Probe each new clause value **truly alone** and drop any the provider matches
+    nobody with, so no maximal is ever composed from a dead axis value.
 
     Runs at clause generation — the cold-start seed and every mint — so each value is
     probed exactly once, before it enters the Cartesian product. The probe is an
-    ordinary fetch (the value ANDed with the headcount band): a value with support
-    harvests its page like any other query, a value that matches nobody is removed from
-    the pool and recorded empty **as a size-1 set of the value alone** — never the
-    ``{value, headcount}`` probe. A singleton empty prunes every maximal that contains
-    the value (the band is fixed per campaign, so recording it band-independently loses
-    nothing) *and* generates no backoff generalization, so a pre-screened-dead value can
-    never be resurrected into a candidate whose family the pool no longer holds. The
-    record is idempotent and global — a re-minted dead value is dropped without another
-    fetch, and the record even spares a *different* campaign the probe. Best-effort: a
-    provider outage leaves the value in the pool, since a timeout is not proof of zero
-    support. Returns the number of values dropped. See
-    ``p2-e3-discovery-empty-set-backoff``.
+    ordinary fetch of the value **by itself** — no headcount band, no sibling clauses:
+    the only question is whether the keyword means anything to Lead Finder at all. A
+    value with support harvests its full page like any other query (the CRM holds every
+    profile; which of them to act on is decided downstream, not here); a value that
+    matches nobody is removed from the pool and recorded empty as the size-1 set of the
+    value alone. Probing the value alone is exactly what makes that singleton record
+    **sound to write globally**: it convicts the value itself — nothing else to blame —
+    so the cross-campaign prune it drives (``EmptyClauseSet`` carries no campaign FK) is
+    a true fact about the provider's index, not "empty within this campaign's size
+    band". A singleton empty prunes every maximal that contains the value *and*
+    generates no backoff generalization, so a pre-screened-dead value can never be
+    resurrected into a candidate whose family the pool no longer holds. The record is
+    idempotent and global — a re-minted dead value is dropped without another fetch, and
+    the record even spares a *different* campaign the probe. Best-effort: a provider
+    outage leaves the value in the pool, since a timeout is not proof of zero support.
+    Returns the number of values dropped. See ``p2-e3-discovery-empty-set-backoff``.
     """
     from openoutreach.core.models import Clause, EmptyClauseSet
     from openoutreach.core.pipeline import select
     from openoutreach.discovery import describe_clauses, filters_for, search
     from openoutreach.emails import bettercontact
 
-    headcount = sorted(
-        (family, value)
-        for family, value in campaign.clauses.values_list("family", "value")
-        if family in _HEADCOUNT_FAMILIES
-    )
     known_empty = set(EmptyClauseSet.objects.values_list("clause_key", flat=True))
 
     dropped = 0
-    for family, value in new_pairs:
-        if family in _HEADCOUNT_FAMILIES:
-            continue
-        pair = (family, value)
-        probe = sorted([pair, *headcount])  # fetch the value inside the ICP band
+    for pair in new_pairs:
+        pair = tuple(pair)
 
         # Proven dead on an earlier pass (records are global, keyed on the value alone)
         # — drop without a fetch.
@@ -123,20 +118,17 @@ def _prescreen(campaign, new_pairs) -> int:
             continue
 
         try:
-            rows = search(filters_for(probe), limit=select.DISCOVERY_PAGE_SIZE, offset=0)
+            rows = search(filters_for([pair]), limit=select.DISCOVERY_PAGE_SIZE, offset=0)
         except bettercontact.BetterContactUnavailable:
             continue  # can't fetch ≠ matches nobody — leave the value in the pool
 
         if rows:
-            _harvest(campaign, probe, 0, rows)
+            _harvest(campaign, [pair], 0, rows)
             continue
 
-        # Record the value alone, never the {value, band} probe: a size-1 empty prunes
-        # every maximal that contains it and — crucially — generates no backoff child,
-        # so the pruned value can't be resurrected into an un-rankable candidate.
         select.record_empty([pair])
         campaign.clauses.remove(*Clause.rows_for([pair]))
-        logger.info("[%s] %s: %s matches nobody in the size band — dropped from the pool",
+        logger.info("[%s] %s: %s means nothing to Lead Finder — dropped from the pool",
                     campaign, colored("pre-screen", "magenta", attrs=["bold"]),
                     colored(describe_clauses([pair]), "cyan"))
         dropped += 1

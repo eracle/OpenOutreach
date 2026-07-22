@@ -321,13 +321,13 @@ class TestPrescreen:
         assert dropped == 1
         assert ("lead_location", "Atlantis") not in set(
             campaign.clauses.values_list("family", "value"))
-        # the value is recorded empty as a size-1 set (never band-bundled): it prunes
-        # every maximal that contains it, yet generates no backoff child to resurrect it.
+        # the value is recorded empty as a size-1 set: it prunes every maximal that
+        # contains it, yet generates no backoff child to resurrect it.
         assert EmptyClauseSet.objects.get().clause_pairs == [("lead_location", "Atlantis")]
-        # but probed once with the headcount band ANDed in — support is judged in-band
+        # probed truly alone — no headcount band ANDed in — so the size-1 empty it writes
+        # is a sound, campaign-independent fact about the provider's index.
         assert search.call_count == 1
-        assert search.call_args.args[0].get("lead_location") == {"include": ["Atlantis"]}
-        assert search.call_args.args[0].get("company_headcount_max") == 50
+        assert search.call_args.args[0] == {"lead_location": {"include": ["Atlantis"]}}
 
     def test_keeps_and_harvests_a_supported_value(self, db):
         # No diagnostic fetch: a supported value's page is harvested like any query.
@@ -362,17 +362,23 @@ class TestPrescreen:
         assert dropped == 1
         search.assert_not_called()
 
-    def test_headcount_is_never_probed_or_dropped(self, db):
+    def test_headcount_values_are_probed_alone_like_any_other(self, db):
+        # The band is no longer special-cased: each bound is probed by itself and, having
+        # support, kept and harvested like any clause value.
         from openoutreach.core.pipeline.discover import _prescreen
 
         _set_key()
         campaign = _campaign()
         campaign.clauses.set(Clause.rows_for(HEADCOUNT))
-        with patch("openoutreach.discovery.search") as search:
+        rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"}]
+        with patch("openoutreach.discovery.search", return_value=rows) as search, \
+             patch("openoutreach.core.db.leads.create_lead", return_value=True):
             dropped = _prescreen(campaign, HEADCOUNT)
 
         assert dropped == 0
-        search.assert_not_called()  # the ICP band is not a value to screen
+        assert search.call_count == len(HEADCOUNT)  # each bound probed once, on its own
+        for call in search.call_args_list:  # single-family filter, no sibling clause
+            assert len(call.args[0]) == 1
         assert set(campaign.clauses.values_list("family", "value")) == set(HEADCOUNT)
 
 
