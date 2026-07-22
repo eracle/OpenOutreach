@@ -8,15 +8,23 @@ whenever its candidate pool runs dry; each call fetches the single maximal the G
 scores highest — a fresh region to explore or a proven vein to page deeper.
 
 ``discover`` takes the qualifier because the GP is now the query selector too: it
-scores every candidate maximal by its keywords (``select.next_query``). Two things
-grow the vocabulary, both here, neither a GP-confidence gate:
+scores every candidate by its keywords (``select.next_query``). Two things grow the
+vocabulary, both here, neither a GP-confidence gate:
 
 - **throughput** — every ``MINT_EVERY_N_QUALIFIED`` new qualified leads, mint clauses
   from them (fold in what they taught us) before selecting;
 - **saturation** — the selector returns ``None`` (nothing fetchable), so mint, and
-  stop only if minting adds nothing.
+  stop only if minting adds a value that survives the pre-screen.
 
-See ``select.py`` and the roadmap card ``p2-e3-discovery-unified-gp-query-selection``.
+Every batch of new clauses — the cold-start seed and every mint — is **pre-screened**
+(``_prescreen``) before it composes any maximal: each new value is fetched alone (with
+the ICP headcount band), its page harvested like any other query, and a value that
+matches nobody is dropped from the pool so no product slab is ever built on a dead
+axis. When a fired query matches nobody, ``select`` backs off to its one-clause-looser
+generalizations — the ``discover`` loop just keeps recording empties and re-selecting;
+the backoff itself lives in ``select._candidates``. See ``select.py``, ``mint.py`` and
+the roadmap cards ``p2-e3-discovery-unified-gp-query-selection`` and
+``p2-e3-discovery-empty-set-backoff``.
 """
 from __future__ import annotations
 
@@ -43,31 +51,117 @@ def _qualified_count(campaign) -> int:
     )
 
 
-def discover(session, qualifier) -> int:
-    """Fetch one maximal's page and persist its first-touch Leads. Returns the count.
+# Headcount is the campaign's fixed ICP band — it rides every maximal unchanged and is
+# never probed alone or dropped. See ``icp.py`` / ``discovery.filters_for``.
+_HEADCOUNT_FAMILIES = ("company_headcount_min", "company_headcount_max")
 
-    Seeds the pool on a cold start, folds qualified learnings in on the throughput
-    cadence, then fetches the GP's top-scored maximal. An empty page is recorded (its
-    two shapes differently) and the next candidate tried — the loop keeps firing the
-    next-best query until one returns leads, so a run of dead maximals never yields an
-    empty-handed pass while any live query remains. Returns 0 only when the pool is
-    exhausted (minting adds nothing) or when a fetch is unavailable (best-effort — a
+
+def _harvest(campaign, clauses, offset: int, rows: list[dict]) -> int:
+    """Persist a fetched page as first-touch Leads, each keyworded by the retrieving
+    query so its terms ride the embedding (``db/leads.create_lead``).
+
+    Shared by the main walk and the pre-screen phase: every query that returns rows
+    creates leads, at any depth — there is no diagnostic-only fetch. Returns the count
+    of leads newly created (a re-surfaced profile keeps its original ``discovered_by``).
+    """
+    from openoutreach.core.db.leads import create_lead
+    from openoutreach.core.pipeline import select
+    from openoutreach.discovery import clause_terms
+
+    node = select.persist_fetched(campaign, clauses, offset)
+    query_terms = clause_terms(clauses)
+    return sum(
+        create_lead(row, country_code=campaign.country_code,
+                    discovered_by=node, query_terms=query_terms)
+        for row in rows
+    )
+
+
+def _prescreen(campaign, new_pairs) -> int:
+    """Probe each new non-headcount clause value alone (with the ICP headcount band) and
+    drop any that matches nobody, so no maximal is ever composed from a dead axis value.
+
+    Runs at clause generation — the cold-start seed and every mint — so each value is
+    probed exactly once, before it enters the Cartesian product. The probe is an
+    ordinary fetch: a value with support harvests its page like any other query, a value
+    that matches nobody is removed from the pool and its ``{value, headcount}`` set
+    recorded empty — idempotent (a re-minted dead value is dropped without another fetch,
+    and the global record even spares a *different* campaign the probe) and, as a
+    recorded empty, pruning any maximal that later contains it. Best-effort: a provider
+    outage leaves the value in the pool, since a timeout is not proof of zero support.
+    Returns the number of values dropped. See ``p2-e3-discovery-empty-set-backoff``.
+    """
+    from openoutreach.core.models import Clause, EmptyClauseSet
+    from openoutreach.core.pipeline import select
+    from openoutreach.discovery import describe_clauses, filters_for, search
+    from openoutreach.emails import bettercontact
+
+    headcount = sorted(
+        (family, value)
+        for family, value in campaign.clauses.values_list("family", "value")
+        if family in _HEADCOUNT_FAMILIES
+    )
+    known_empty = set(EmptyClauseSet.objects.values_list("clause_key", flat=True))
+
+    dropped = 0
+    for family, value in new_pairs:
+        if family in _HEADCOUNT_FAMILIES:
+            continue
+        probe = sorted([(family, value), *headcount])
+
+        # Proven dead on an earlier pass (records are global) — drop without a fetch.
+        if select.clause_key(probe) in known_empty:
+            campaign.clauses.remove(*Clause.rows_for([(family, value)]))
+            dropped += 1
+            continue
+
+        try:
+            rows = search(filters_for(probe), limit=select.DISCOVERY_PAGE_SIZE, offset=0)
+        except bettercontact.BetterContactUnavailable:
+            continue  # can't fetch ≠ matches nobody — leave the value in the pool
+
+        if rows:
+            _harvest(campaign, probe, 0, rows)
+            continue
+
+        select.record_empty(probe)
+        campaign.clauses.remove(*Clause.rows_for([(family, value)]))
+        logger.info("[%s] %s: %s matches nobody in the size band — dropped from the pool",
+                    campaign, colored("pre-screen", "magenta", attrs=["bold"]),
+                    colored(describe_clauses([(family, value)]), "cyan"))
+        dropped += 1
+    return dropped
+
+
+def discover(session, qualifier) -> int:
+    """Fetch one query's page and persist its first-touch Leads. Returns the count.
+
+    Seeds and pre-screens the pool on a cold start, folds qualified learnings in on the
+    throughput cadence (pre-screening the minted values), then fetches the GP's
+    top-scored candidate. An empty page is recorded (its two shapes differently) and the
+    next candidate tried — an offset-0 empty also backs off, so ``select`` offers the
+    query's one-clause-looser generalizations next. The loop keeps firing the next-best
+    query until one returns leads, so a run of dead queries never yields an empty-handed
+    pass while any live candidate remains. Returns 0 only when the pool saturates
+    (minting adds no surviving value) or a fetch is unavailable (best-effort — a
     provider outage must not fail the enclosing find_email task).
 
-    Cost of never capping: on a mostly-dead ICP one call can fire the whole remaining
-    pool serially before it saturates, and each fetch is a blocking ~45s provider
-    call. Termination is still guaranteed — the pool is finite and every empty query
-    is recorded + exhausted, so the candidate set strictly shrinks each iteration.
+    Cost of never capping: on a mostly-dead ICP one call can fire many queries serially
+    before it saturates, and each fetch is a blocking ~45s provider call. Termination
+    still holds even though an empty now *spawns* generalizations: each empty iteration
+    permanently records one distinct clause set (``next_query`` never re-picks a recorded
+    empty), and the subset lattice is finite, so the recorded-empty set grows
+    monotonically to a fixed bound and the loop ends at the non-empty frontier or at
+    saturation.
 
     Gated as before: freemium campaigns seed from their kit, and a campaign with no
     finder key or no product/target can't be searched.
     """
     from openoutreach.core.conf import CAMPAIGN_CONFIG
-    from openoutreach.core.db.leads import create_lead
     from openoutreach.core.pipeline import select
     from openoutreach.core.pipeline.icp import generate_seed
     from openoutreach.core.pipeline.mint import mint_clauses
-    from openoutreach.discovery import clause_terms, describe_clauses, filters_for, search
+    from openoutreach.discovery import describe_clauses, filters_for, search
     from openoutreach.emails import bettercontact
 
     campaign = session.campaign
@@ -81,25 +175,30 @@ def discover(session, qualifier) -> int:
     logger.info(colored("▶ discover", "blue", attrs=["bold"]))
 
     if not campaign.clauses.exists():
-        generate_seed(campaign)
+        _prescreen(campaign, generate_seed(campaign))
 
-    # Throughput mint: fold in the leads that qualified since the last mint.
+    # Throughput mint: fold in the leads that qualified since the last mint, then
+    # pre-screen the fresh values so a dead axis never poisons a product slab.
     qualified = _qualified_count(campaign)
     if qualified and qualified - campaign.discovery_minted_at_qualified >= CAMPAIGN_CONFIG["mint_every_n_qualified"]:
-        mint_clauses(campaign)
+        _prescreen(campaign, mint_clauses(campaign))
 
     empties = 0
     minted = False
     while True:
         query = select.next_query(campaign, qualifier)
         if query is None:
-            # Saturation: the pool spans nothing fetchable. Widen the axes once — if the
-            # new clauses open a fetchable maximal, reselect; otherwise stop (the pool
-            # is bigger now, so the next call retries). One mint per call bounds the
-            # loop when every new maximal is still empty-pruned.
-            if not minted and mint_clauses(campaign) > 0:
-                minted = True
-                continue
+            # Saturation: the pool (with its backoff generalizations) spans nothing
+            # fetchable. Widen the axes once — if a minted value survives the pre-screen
+            # it opens a fresh maximal, so reselect; otherwise stop (the pool is bigger
+            # now, so the next call retries). One mint per call bounds the loop when
+            # every new value is either dead or empty-pruned.
+            if not minted:
+                fresh = mint_clauses(campaign)
+                survivors = len(fresh) - _prescreen(campaign, fresh)
+                if survivors > 0:
+                    minted = True
+                    continue
             logger.info("[%s] discovery exhausted — pool fully spanned (%d dead quer%s this pass)",
                         campaign, empties, "y" if empties == 1 else "ies")
             return 0
@@ -120,13 +219,7 @@ def discover(session, qualifier) -> int:
             return 0
 
         if rows:
-            node = select.persist_fetched(campaign, query.clauses, query.offset)
-            query_terms = clause_terms(query.clauses)
-            created = sum(
-                create_lead(row, country_code=campaign.country_code,
-                            discovered_by=node, query_terms=query_terms)
-                for row in rows
-            )
+            created = _harvest(campaign, query.clauses, query.offset, rows)
             logger.info("[%s] %s: %s new lead(s) from %d row(s) (offset %d) — %s",
                         campaign, _label(query.offset),
                         colored(str(created), "green", attrs=["bold"]),
@@ -135,12 +228,12 @@ def discover(session, qualifier) -> int:
             return created
 
         # Empty page — record what it means, then try the next candidate. offset 0
-        # convicts the maximal (matches nobody); a deeper empty is a vein run dry.
+        # convicts the conjunction (matches nobody); a deeper empty is a vein run dry.
         if query.offset == 0:
             select.record_empty(query.clauses)
             logger.info("[%s] %s: %s — no one matches this whole combination (%s); recording it "
-                        "so it, and any narrower query that also contains these clauses, is "
-                        "skipped from now on",
+                        "so any narrower query is pruned, and backing off to its one-clause-"
+                        "looser generalizations",
                         campaign, _label(query.offset),
                         colored("dead end", "yellow", attrs=["bold"]),
                         colored(describe_clauses(query.clauses), "cyan"))

@@ -91,13 +91,14 @@ def _qualified_profile_texts(campaign) -> list[str]:
     return [t for t in ordered if t][:QUALIFIED_SAMPLE_LIMIT]
 
 
-def mint_clauses(campaign) -> int:
+def mint_clauses(campaign) -> list[tuple[str, str]]:
     """Ask the LLM for new clause values and add the fresh ones to the pool.
 
-    Returns the number of genuinely new clauses added (0 if the LLM proposed nothing
-    unseen). Records the qualified count it minted at, so the throughput trigger does
-    not re-fire until more leads qualify. Best-effort: an LLM outage adds nothing and
-    the walk carries on with the pool it has.
+    Returns the genuinely new ``(family, value)`` pairs added (``[]`` if the LLM
+    proposed nothing unseen) — the caller pre-screens exactly these, so the return is
+    the delta, not a count. Records the qualified count it minted at, so the throughput
+    trigger does not re-fire until more leads qualify. Best-effort: an LLM outage adds
+    nothing and the walk carries on with the pool it has.
     """
     from openoutreach.core.models import Clause
 
@@ -126,7 +127,7 @@ def mint_clauses(campaign) -> int:
         minted = run_agent_sync(agent.run(prompt)).output
     except Exception:
         logger.exception("[%s] clause minting failed — pool unchanged", campaign)
-        return 0
+        return []
 
     proposal = [
         (family, str(value))
@@ -148,10 +149,10 @@ def mint_clauses(campaign) -> int:
     if not fresh:
         logger.info("[%s] %s: nothing new from %d qualified example(s)",
                     campaign, colored("mint", "magenta", attrs=["bold"]), len(qualified))
-        return 0
+        return []
 
     campaign.clauses.add(*Clause.rows_for(fresh))
     logger.info("[%s] %s: +%d clause(s) from %d qualified example(s) — %s",
                 campaign, colored("mint", "magenta", attrs=["bold"]),
                 len(fresh), len(qualified), _render(fresh))
-    return len(fresh)
+    return fresh

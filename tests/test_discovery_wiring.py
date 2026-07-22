@@ -206,7 +206,7 @@ class TestDiscover:
         session = MagicMock(campaign=campaign)
         with _patch_select_embed(), \
              patch("openoutreach.discovery.search", return_value=[]), \
-             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=0):
+             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=[]):
             assert discover(session, _cold_qualifier()) == 0
 
         assert DiscoveryQuery.objects.filter(
@@ -223,7 +223,7 @@ class TestDiscover:
         session = MagicMock(campaign=campaign)
         with _patch_select_embed(), \
              patch("openoutreach.discovery.search", return_value=[]), \
-             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=0) as mint:
+             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=[]) as mint:
             assert discover(session, _cold_qualifier()) == 0
 
         assert EmptyClauseSet.objects.get().clause_key == clause_key(SEED)
@@ -244,7 +244,7 @@ class TestDiscover:
 
         def _mint(c):
             c.clauses.add(*Clause.rows_for(OTHER))  # widen the pool with a new family
-            return 1
+            return OTHER
 
         with _patch_select_embed(), \
              patch("openoutreach.discovery.search", return_value=rows), \
@@ -272,7 +272,7 @@ class TestDiscover:
         rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"}]
         with _patch_select_embed(), \
              patch("openoutreach.discovery.search", return_value=rows), \
-             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=0) as mint, \
+             patch("openoutreach.core.pipeline.mint.mint_clauses", return_value=[]) as mint, \
              patch("openoutreach.core.db.leads.create_lead", return_value=True):
             discover(session, _cold_qualifier())
 
@@ -296,8 +296,83 @@ class TestDiscover:
             assert discover(session, _cold_qualifier()) == 1
 
         assert set(campaign.clauses.values_list("family", "value")) == set(pool)
-        node = DiscoveryQuery.objects.get(campaign=campaign, offset=0)
+        # pre-screen probed each seed value alone first, so filter to the seed maximal
+        node = DiscoveryQuery.objects.get(
+            campaign=campaign, clause_key=clause_key(sorted(pool)), offset=0)
         assert node.clause_pairs == sorted(pool)  # the single seed maximal
+
+
+# ── pre-screen ───────────────────────────────────────────────────────
+
+
+HEADCOUNT = [("company_headcount_min", "1"), ("company_headcount_max", "50")]
+
+
+class TestPrescreen:
+    def test_drops_a_zero_support_value_and_records_it_empty(self, db):
+        from openoutreach.core.pipeline.discover import _prescreen
+
+        _set_key()
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for(HEADCOUNT + [("lead_location", "Atlantis")]))
+        with patch("openoutreach.discovery.search", return_value=[]) as search:
+            dropped = _prescreen(campaign, [("lead_location", "Atlantis")])
+
+        assert dropped == 1
+        assert ("lead_location", "Atlantis") not in set(
+            campaign.clauses.values_list("family", "value"))
+        # the {value, headcount} set is recorded empty, so a maximal containing it prunes
+        assert EmptyClauseSet.objects.get().clause_pairs == sorted(
+            HEADCOUNT + [("lead_location", "Atlantis")])
+        # probed once, with the headcount band ANDed in
+        assert search.call_count == 1
+        assert search.call_args.args[0].get("lead_location") == {"include": ["Atlantis"]}
+
+    def test_keeps_and_harvests_a_supported_value(self, db):
+        # No diagnostic fetch: a supported value's page is harvested like any query.
+        from openoutreach.core.pipeline.discover import _prescreen
+
+        _set_key()
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([("lead_location", "Japan")]))
+        rows = [{"contact_linkedin_profile_url": "https://www.linkedin.com/in/a/"}]
+        with patch("openoutreach.discovery.search", return_value=rows), \
+             patch("openoutreach.core.db.leads.create_lead", return_value=True) as create:
+            dropped = _prescreen(campaign, [("lead_location", "Japan")])
+
+        assert dropped == 0
+        assert ("lead_location", "Japan") in set(
+            campaign.clauses.values_list("family", "value"))
+        create.assert_called_once()  # harvested — all queries create leads
+        assert not EmptyClauseSet.objects.exists()
+
+    def test_a_reminted_dead_value_is_dropped_without_a_fetch(self, db):
+        # The empty record is global, so a value proven dead before is dropped for free.
+        from openoutreach.core.pipeline.discover import _prescreen
+        from openoutreach.core.pipeline.select import record_empty
+
+        _set_key()
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for(HEADCOUNT + [("lead_location", "Atlantis")]))
+        record_empty(HEADCOUNT + [("lead_location", "Atlantis")])
+        with patch("openoutreach.discovery.search") as search:
+            dropped = _prescreen(campaign, [("lead_location", "Atlantis")])
+
+        assert dropped == 1
+        search.assert_not_called()
+
+    def test_headcount_is_never_probed_or_dropped(self, db):
+        from openoutreach.core.pipeline.discover import _prescreen
+
+        _set_key()
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for(HEADCOUNT))
+        with patch("openoutreach.discovery.search") as search:
+            dropped = _prescreen(campaign, HEADCOUNT)
+
+        assert dropped == 0
+        search.assert_not_called()  # the ICP band is not a value to screen
+        assert set(campaign.clauses.values_list("family", "value")) == set(HEADCOUNT)
 
 
 # ── ICP generator ────────────────────────────────────────────────────

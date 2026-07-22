@@ -158,6 +158,54 @@ class TestNextQuery:
             assert next_query(campaign, _ColdGP()) is None
 
 
+# ── backoff ──────────────────────────────────────────────────────────
+
+
+class TestBackoff:
+    def test_empty_maximal_offers_its_one_clause_looser_generalizations(self, db):
+        # The maximal matched nobody; its n−1 children become candidates so the walk
+        # descends toward the non-empty frontier instead of stopping.
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_location", "Japan"),
+        ]))
+        record_empty([("lead_job_title", "CMO"), ("lead_location", "Japan")])  # the maximal
+        cands = select._candidates(campaign, _pool(campaign))
+        assert sorted(c.clauses for c in cands) == [
+            [("lead_job_title", "CMO")],
+            [("lead_location", "Japan")],
+        ]
+
+    def test_generalizations_are_deduped_across_empties(self, db):
+        # Both maximals empty → children {CMO},{CTO},{Japan}; the shared Japan child is
+        # offered once, not per parent.
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_job_title", "CTO"),
+            ("lead_location", "Japan"),
+        ]))
+        record_empty([("lead_job_title", "CMO"), ("lead_location", "Japan")])
+        record_empty([("lead_job_title", "CTO"), ("lead_location", "Japan")])
+        cands = select._candidates(campaign, _pool(campaign))
+        assert sorted(c.clauses for c in cands) == [
+            [("lead_job_title", "CMO")],
+            [("lead_job_title", "CTO")],
+            [("lead_location", "Japan")],
+        ]
+
+    def test_a_child_that_is_a_recorded_empty_superset_is_pruned(self, db):
+        # Backoff never re-offers a set already known dead: if {Japan} is recorded empty,
+        # the {CMO,Japan} maximal's child {Japan} is dropped, leaving only {CMO}.
+        campaign = _campaign()
+        campaign.clauses.set(Clause.rows_for([
+            ("lead_job_title", "CMO"), ("lead_location", "Japan"),
+        ]))
+        record_empty([("lead_job_title", "CMO"), ("lead_location", "Japan")])
+        record_empty([("lead_location", "Japan")])
+        cands = select._candidates(campaign, _pool(campaign))
+        assert sorted(c.clauses for c in cands) == [[("lead_job_title", "CMO")]]
+
+
 # ── prefilter ────────────────────────────────────────────────────────
 
 

@@ -1,12 +1,16 @@
 # openoutreach/core/pipeline/select.py
-"""Query selection — one GP scores every fetchable maximal, argmax wins.
+"""Query selection — one GP scores every fetchable candidate, argmax wins.
 
-The whole discovery walk, from first principles. Clauses are the axes; the only
-queries ever fired are **maximals** — one value per family, the full Cartesian
-product of the campaign's clause pool. Breadth comes from *more clause values*
-(``mint.py``), never from dropping clauses, so nothing looser than a full ICP point
-is ever fetched. That is precision by construction — the loose queries that pulled
-the provider's famous-company head are simply never in the candidate set.
+The whole discovery walk, from first principles. Clauses are the axes; the primary
+queries are **maximals** — one value per family, the full Cartesian product of the
+campaign's clause pool. Breadth comes from *more clause values* (``mint.py``), never
+from dropping clauses at composition time. The one loosening is **lazy backoff**: a
+conjunction that matches nobody enqueues its one-clause-removed generalizations
+(``_generalizations``), so the walk descends toward the non-empty frontier instead of
+grinding through a Cartesian product of dead leaves — and recording those sub-maximal
+empties finally gives the anti-monotone prune teeth *within* a single pool. Every
+candidate, maximal or generalization, is scored the same way (see below) and, when it
+returns rows, harvested the same way. See ``p2-e3-discovery-empty-set-backoff``.
 
 Every next move is one candidate, scored by one value function:
 
@@ -66,9 +70,11 @@ DISCOVERY_PAGE_SIZE = 100
 #     P(f>0.5) tracks the truth (Spearman ~0.9); the true top is recovered with recall
 #     1.0 by K≈128. A small K is genuinely complete here.
 #   explore — BALD rewards posterior *variance*, a quadratic form that does not
-#     decompose over clauses, so the cheap proxy (summed per-clause variance) is much
+#     decompose over clauses, so the cheap proxy (mean per-clause variance) is much
 #     weaker (recall ~0.44 at K=1024). It gets a larger budget; K=1024 is the knee of
-#     the recall/cost curve (~10 s) before deep diminishing returns.
+#     the recall/cost curve (~10 s) before deep diminishing returns. The proxy means
+#     rather than sums so a mixed-depth pool (backoff admits sub-maximals) compares
+#     candidates depth-neutrally, not by clause count.
 # See the roadmap card ``p2-e3-discovery-unified-gp-query-selection``.
 PREFILTER_K = {"exploit (p)": 256, "explore (BALD)": 1024}
 
@@ -120,13 +126,15 @@ def mark_exhausted(campaign, clauses) -> None:
 
 
 def record_empty(clauses) -> None:
-    """Blacklist a maximal the index matched nobody with. Idempotent, global.
+    """Blacklist a conjunction the index matched nobody with. Idempotent, global.
 
     Only an offset-0 empty page belongs here — a deeper empty page is a vein running
-    out, not a conjunction that matches nobody. Read back as the anti-monotone prune:
-    a candidate is dead iff some recorded set is a subset of it, so a maximal recorded
-    empty before a family was minted prunes every deeper maximal that now contains it,
-    without another fetch.
+    out, not a conjunction that matches nobody. The set can be any depth: a fired
+    maximal, a backed-off generalization, or a size-1 pre-screen probe. Read back as the
+    anti-monotone prune — a candidate is dead iff some recorded set is a subset of it —
+    so recording a *sub*-maximal empty (e.g. ``{headcount, location=Oman}``) prunes
+    every maximal that contains it in one shot, which is the leverage the backoff walks
+    toward. See ``p2-e3-discovery-empty-set-backoff``.
     """
     entry, created = EmptyClauseSet.objects.get_or_create(clause_key=clause_key(clauses))
     if created:
@@ -153,9 +161,18 @@ def _maximals(pool: dict[str, list[str]]) -> list[list[tuple[str, str]]]:
 
 
 def _ranker(pool: dict[str, list[str]]):
-    """Order a conjunction by distance from the pool's head, so the seed leads."""
+    """Order a conjunction by *mean* distance from the pool's head, so the seed leads.
+
+    The mean, not the sum: once backoff admits sub-maximal candidates the pool is
+    mixed-depth, and a summed rank would score a shorter conjunction closer to the
+    head purely for holding fewer clauses. Averaging keeps the cold-start order
+    depth-neutral — the same reason the explore prefilter proxy means its per-clause
+    variances rather than summing them.
+    """
     rank = {f: {v: i for i, v in enumerate(vs)} for f, vs in pool.items()}
-    return lambda conjunction: sum(rank[f][v] for f, v in conjunction)
+    return lambda conjunction: (
+        sum(rank[f][v] for f, v in conjunction) / len(conjunction) if conjunction else 0.0
+    )
 
 
 def _line_state(campaign) -> dict[str, dict]:
@@ -176,20 +193,51 @@ def _empty_sets() -> list[frozenset]:
     return [frozenset(s.clause_pairs) for s in EmptyClauseSet.objects.prefetch_related("clauses")]
 
 
-def _candidates(campaign, pool: dict[str, list[str]]) -> list[NextQuery]:
-    """Every fetchable maximal as a ``NextQuery``, minus exhausted and empty-pruned.
+def _generalizations(empty_sets: list[frozenset]) -> list[list[tuple[str, str]]]:
+    """One-clause-removed children of every recorded empty conjunction — the lazy backoff.
 
-    A fetched, non-exhausted maximal yields its next page (deepen); an untried one
-    yields offset 0 (fresh). A maximal that is recorded empty, or a superset of a
-    recorded-empty set, is dropped.
+    Emptiness is monotone: a conjunction that matched nobody says nothing new about its
+    supersets (already empty) but licenses trying its immediate *sub*-conjunctions —
+    each drops a single clause and may well match someone. A child that itself fetches
+    empty is recorded in turn, so its own children surface next pass: the descent walks
+    one level at a time toward the non-empty frontier, generating only the children of
+    empties actually hit, never the whole lattice. A singleton empty contributes none —
+    the only query below it is the empty conjunction, which is not a candidate. See the
+    roadmap card ``p2-e3-discovery-empty-set-backoff``.
+    """
+    children = []
+    for empty in empty_sets:
+        if len(empty) <= 1:
+            continue
+        for clause in empty:
+            children.append(sorted(empty - {clause}))
+    return children
+
+
+def _candidates(campaign, pool: dict[str, list[str]]) -> list[NextQuery]:
+    """Every fetchable candidate as a ``NextQuery``, minus exhausted and empty-pruned.
+
+    The candidate frontier is the pool's maximals **and** the one-clause-removed
+    generalizations of every recorded empty (``_generalizations`` — the backoff),
+    deduped by ``clause_key`` so a child shared by several empties is offered once. A
+    fetched, non-exhausted set yields its next page (deepen); an untried one yields
+    offset 0 (fresh). A set that is recorded empty, or a superset of a recorded-empty
+    set, is dropped. The frontier is re-derived every call rather than persisted: the GP
+    re-scores between calls so a stored queue would only be re-ranked anyway, and
+    ``EmptyClauseSet`` already holds the recursion state the backoff descends.
     """
     lines = _line_state(campaign)
     empty_keys = set(EmptyClauseSet.objects.values_list("clause_key", flat=True))
     empty_sets = _empty_sets()
 
+    # Dedup maximals against backoff children by clause_key — many maximals share the
+    # same n−1 child, and a child can be reached from several empties.
+    frontier: dict[str, list[tuple[str, str]]] = {}
+    for conjunction in itertools.chain(_maximals(pool), _generalizations(empty_sets)):
+        frontier.setdefault(clause_key(conjunction), conjunction)
+
     candidates = []
-    for conjunction in _maximals(pool):
-        key = clause_key(conjunction)
+    for key, conjunction in frontier.items():
         line = lines.get(key)
         if line and line["exhausted"]:
             continue
@@ -223,7 +271,7 @@ def _prefilter(candidates: list[NextQuery], qualifier, strategy: str) -> list[Ne
         scores = qualifier.predict_probs(composed)
     else:
         variance = qualifier.posterior_std(phrase_emb) ** 2
-        scores = np.array([variance[[idx[p] for p in q.clauses]].sum()
+        scores = np.array([variance[[idx[p] for p in q.clauses]].mean()
                            for q in candidates])
 
     K = PREFILTER_K[strategy]

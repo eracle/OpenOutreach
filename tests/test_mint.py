@@ -46,7 +46,7 @@ class TestMint:
              patch("pydantic_ai.Agent"):
             added = mint_clauses(campaign)
 
-        assert added == 5  # 2 titles + Canada + 2 departments; Japan already in the pool
+        assert len(added) == 5  # 2 titles + Canada + 2 departments; Japan already in the pool
         assert set(campaign.clauses.values_list("family", "value")) == {
             ("lead_location", "Japan"), ("lead_location", "Canada"),
             ("lead_job_title", "VP Sales"), ("lead_job_title", "Head of Sales"),
@@ -69,7 +69,7 @@ class TestMint:
         campaign.clauses.set(Clause.rows_for([("lead_location", "Japan")]))
         with _llm_returns(_MintedClauses(lead_location=["Japan"])), \
              patch("openoutreach.core.llm.get_llm_model"), patch("pydantic_ai.Agent"):
-            assert mint_clauses(campaign) == 0
+            assert mint_clauses(campaign) == []
         assert campaign.clauses.count() == 1
 
     def test_llm_failure_is_best_effort(self, db):
@@ -77,5 +77,5 @@ class TestMint:
         campaign.clauses.set(Clause.rows_for([("lead_location", "Japan")]))
         with patch("openoutreach.core.llm.run_agent_sync", side_effect=RuntimeError("boom")), \
              patch("openoutreach.core.llm.get_llm_model"), patch("pydantic_ai.Agent"):
-            assert mint_clauses(campaign) == 0  # no crash
+            assert mint_clauses(campaign) == []  # no crash
         assert campaign.clauses.count() == 1
