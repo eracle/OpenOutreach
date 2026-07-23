@@ -12,7 +12,7 @@ tendo
 pyyaml
 fastembed
 scikit-learn
-huggingface_hub
+huggingface_hub==1.22.0
 questionary
 pytz
 tenacity
