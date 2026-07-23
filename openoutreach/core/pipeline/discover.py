@@ -38,10 +38,9 @@ from termcolor import colored
 logger = logging.getLogger(__name__)
 
 
-def _label(offset: int) -> str:
-    """Colour the move by what it is — green deepens a vein, yellow explores fresh."""
-    name, colour = ("deepen", "green") if offset else ("explore", "yellow")
-    return colored(name, colour, attrs=["bold"])
+def _move(offset: int) -> str:
+    """Name the move: ``deepen`` pages a known vein, ``explore`` opens a fresh one."""
+    return "deepen" if offset else "explore"
 
 
 def _qualified_count(campaign) -> int:
@@ -101,7 +100,7 @@ def _prescreen(campaign, new_pairs) -> int:
     """
     from openoutreach.core.models import Clause, EmptyClauseSet
     from openoutreach.core.pipeline import select
-    from openoutreach.discovery import describe_clauses, filters_for, search
+    from openoutreach.discovery import filters_for, search, step_line
     from openoutreach.emails import bettercontact
 
     known_empty = set(EmptyClauseSet.objects.values_list("clause_key", flat=True))
@@ -128,9 +127,9 @@ def _prescreen(campaign, new_pairs) -> int:
 
         select.record_empty([pair])
         campaign.clauses.remove(*Clause.rows_for([pair]))
-        logger.info("[%s] %s: %s means nothing to Lead Finder — dropped from the pool",
-                    campaign, colored("pre-screen", "magenta", attrs=["bold"]),
-                    colored(describe_clauses([pair]), "cyan"))
+        logger.info("%s", step_line(
+            "pre-screen", "nothing in Lead Finder's index — value dropped from the pool",
+            glyph="✗", color="yellow"))
         dropped += 1
     return dropped
 
@@ -163,7 +162,7 @@ def discover(session, qualifier) -> int:
     from openoutreach.core.pipeline import select
     from openoutreach.core.pipeline.icp import generate_seed
     from openoutreach.core.pipeline.mint import mint_clauses
-    from openoutreach.discovery import describe_clauses, filters_for, search
+    from openoutreach.discovery import filters_for, search, step_line
     from openoutreach.emails import bettercontact
 
     campaign = session.campaign
@@ -174,7 +173,7 @@ def discover(session, qualifier) -> int:
     if not (campaign.product_docs or campaign.campaign_target):
         return 0
 
-    logger.info(colored("▶ discover", "blue", attrs=["bold"]))
+    logger.info(colored(f"▶ discover · {campaign}", "blue", attrs=["bold"]))
 
     if not campaign.clauses.exists():
         _prescreen(campaign, generate_seed(campaign))
@@ -201,8 +200,9 @@ def discover(session, qualifier) -> int:
                 if survivors > 0:
                     minted = True
                     continue
-            logger.info("[%s] discovery exhausted — pool fully spanned (%d dead quer%s this pass)",
-                        campaign, empties, "y" if empties == 1 else "ies")
+            logger.info(colored(
+                f"■ discovery saturated · {campaign} — pool fully spanned "
+                f"({empties} dead quer{'y' if empties == 1 else 'ies'} this pass)", "blue"))
             return 0
 
         filters = filters_for(query.clauses)
@@ -213,37 +213,33 @@ def discover(session, qualifier) -> int:
             # caller. Retire the query (persist so it isn't re-picked, exhaust so it
             # isn't deepened) but do NOT record it empty — we don't know it matches
             # nobody, only that we couldn't fetch it.
-            logger.warning("[%s] %s: fetch of %s unavailable (%s) — retiring it",
-                           campaign, _label(query.offset),
-                           colored(describe_clauses(query.clauses), "cyan"), exc)
+            logger.warning("%s", step_line(
+                _move(query.offset), f"provider unavailable ({exc}) — retiring this query",
+                glyph="⚠", color="red"))
             select.persist_fetched(campaign, query.clauses, query.offset)
             select.mark_exhausted(campaign, query.clauses)
             return 0
 
         if rows:
             created = _harvest(campaign, query.clauses, query.offset, rows)
-            logger.info("[%s] %s: %s new lead(s) from %d row(s) (offset %d) — %s",
-                        campaign, _label(query.offset),
-                        colored(str(created), "green", attrs=["bold"]),
-                        len(rows), query.offset,
-                        colored(describe_clauses(query.clauses), "cyan"))
+            logger.info("%s", step_line(
+                _move(query.offset), f"{created} new lead(s) from {len(rows)} row(s)",
+                glyph="✓", color="green"))
             return created
 
         # Empty page — record what it means, then try the next candidate. offset 0
         # convicts the conjunction (matches nobody); a deeper empty is a vein run dry.
         if query.offset == 0:
             select.record_empty(query.clauses)
-            logger.info("[%s] %s: %s — no one matches this whole combination (%s); recording it "
-                        "so any narrower query is pruned, and backing off to its one-clause-"
-                        "looser generalizations",
-                        campaign, _label(query.offset),
-                        colored("dead end", "yellow", attrs=["bold"]),
-                        colored(describe_clauses(query.clauses), "cyan"))
+            logger.info("%s", step_line(
+                "explore",
+                "dead end — nobody matches this whole combination; recorded so any narrower "
+                "query is pruned, backed off to its one-clause-looser generalizations",
+                glyph="✗", color="yellow"))
         else:
-            logger.info("[%s] %s: %s — no more leads past offset %d for %s; marking it used up",
-                        campaign, _label(query.offset),
-                        colored("vein empty", "yellow", attrs=["bold"]), query.offset,
-                        colored(describe_clauses(query.clauses), "cyan"))
+            logger.info("%s", step_line(
+                "deepen", f"vein empty — no more leads past offset {query.offset}; marked used up",
+                glyph="✗", color="yellow"))
         select.persist_fetched(campaign, query.clauses, query.offset)
         select.mark_exhausted(campaign, query.clauses)
         empties += 1

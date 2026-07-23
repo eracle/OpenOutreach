@@ -144,11 +144,14 @@ class TestDescribeFilters:
             {"lead_job_title": {"include": ["SDR"], "exact_match": True}}
         ) == "job_title SDR (exact)"
 
-    def test_strips_the_lead_and_company_prefixes(self):
+    def test_strips_the_lead_prefix(self):
+        """Every family we search is ``lead_*`` (the only ``company_*`` keys are the
+        two headcount bounds, consumed by the range renderer) — so only ``lead_`` is
+        stripped; an unmodeled key stays verbatim (see the unknown-key test)."""
         assert discovery.describe_filters({
-            "company_technology": {"include": ["hubspot"]},
+            "lead_department": {"include": ["Sales"]},
             "lead_skills": {"include": ["negotiation"]},
-        }) == "technology hubspot · skills negotiation"
+        }) == "department Sales · skills negotiation"
 
     def test_empty_filters_say_so_rather_than_render_blank(self):
         """An all-unset proposal means 'the LLM is dry' — it must not read as a query."""

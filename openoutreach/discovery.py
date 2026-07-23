@@ -140,8 +140,9 @@ def describe_filters(filters: dict) -> str:
     Filter sets are nested (``{"lead_job_title": {"include": [...], "exact_match":
     false}}``) and read as machinery in a log line, which is the only place they
     appear. Renders the two headcount bounds as the one range they describe, drops
-    the ``lead_``/``company_`` prefixes and the ``include`` wrapper, and keeps
-    ``exact_match`` since it changes what the query matches.
+    the ``lead_`` prefix and the ``include`` wrapper, and keeps ``exact_match``
+    since it changes what the query matches. (The only ``company_*`` keys are the
+    two headcount bounds, both consumed by the range above.)
     """
     if not filters:
         return "(no filters)"
@@ -155,7 +156,7 @@ def describe_filters(filters: dict) -> str:
     for key, value in filters.items():
         if key in ("company_headcount_min", "company_headcount_max"):
             continue
-        label = key.removeprefix("lead_").removeprefix("company_")
+        label = key.removeprefix("lead_")
         if isinstance(value, dict):
             rendered = ", ".join(str(v) for v in value.get("include", [])) or "(none)"
             if value.get("exact_match"):
@@ -164,6 +165,33 @@ def describe_filters(filters: dict) -> str:
             rendered = str(value)
         parts.append(f"{label} {rendered}")
     return " · ".join(parts)
+
+
+# ── Discovery-walk log block ──
+# One query renders as one block: a ``▸`` header naming the query, then indented
+# step lines — the provider round-trip, then the walk's verdict. Each step is a
+# status glyph + fixed-width label + message, so a run of blocks reads as an
+# aligned column you can scan down by outcome (green ✓ found leads, yellow ✗ came
+# back empty). The clause set is printed once, in the header, and never repeated.
+
+_STEP_LABEL_WIDTH = 13  # the longest label ("bettercontact"); keeps value columns aligned
+
+
+def query_header(filters: dict, offset: int = 0) -> str:
+    """The ``▸`` header line naming the query a block reports on."""
+    line = colored("▸ ", "cyan", attrs=["bold"]) + colored(describe_filters(filters), "cyan")
+    return line + (f"  · offset {offset}" if offset else "")
+
+
+def step_line(label: str, message: str, glyph: str = "·", color: str | None = None) -> str:
+    """One indented step under a ``query_header``: glyph · label · message.
+
+    ``color`` tints the glyph and label together — the outcome colour. The message
+    stays default-weight so the query text in the header, not the plumbing below it,
+    carries the eye.
+    """
+    tint = (lambda s: colored(s, color, attrs=["bold"])) if color else (lambda s: s)
+    return f"  {tint(glyph)}  {tint(label.ljust(_STEP_LABEL_WIDTH))}  {message}"
 
 
 def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
@@ -178,17 +206,11 @@ def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:
 
     api_key = SiteConfig.load().bettercontact_api_key
     body = {"filters": filters, "limit": limit, "offset": offset}
-    logger.info("leadfinder query: %s (limit %d, offset %d)",
-                colored(describe_filters(filters), "cyan"), limit, offset)
+    logger.info("%s", query_header(filters, offset))
     result = submit_and_poll(api_key, LEAD_FINDER_URL, body)
 
     leads = result.get("leads", [])
-    if leads:
-        logger.info("leadfinder: %d lead(s) returned", len(leads))
-    else:
-        logger.info("leadfinder: %s — no profile in the index matches every filter above "
-                    "at once (an over-narrow ICP, not an error or a provider outage)",
-                    colored("0 leads", "yellow", attrs=["bold"]))
+    logger.info("%s", step_line("leadfinder", f"{len(leads)} leads"))
     return leads
 
 
