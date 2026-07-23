@@ -32,7 +32,7 @@ DEFAULT_EMAIL_DAILY_LIMIT = 30
 # When True, every send (opener + follow-up reply) blind-copies the operator's
 # own inbox (User.email) so they keep a personal copy of the thread. Default
 # False — sends go out without the BCC. Set to True to re-enable the copy.
-BCC_OPERATOR_ON_SEND = True
+BCC_OPERATOR_ON_SEND = False
 
 # ----------------------------------------------------------------------
 # Active-hours schedule (daemon pauses outside this window)
