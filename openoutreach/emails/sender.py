@@ -7,9 +7,12 @@ untouched — re-import with fixed credentials to repair a dead box.
 """
 from __future__ import annotations
 
+import logging
 import smtplib
 from email.message import EmailMessage
 from email.utils import make_msgid
+
+logger = logging.getLogger(__name__)
 
 SMTP_TIMEOUT_SECONDS = 30
 
@@ -40,6 +43,8 @@ def send_email(
     """
     message = _build_message(mailbox, to_address, subject, body, bcc, in_reply_to, references)
     _deliver(mailbox, message)
+    logger.info("email sent from %s to %s: %s\n%s",
+                mailbox.from_address, to_address, subject, message.get_content().rstrip())
     return message["Message-ID"]
 
 

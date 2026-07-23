@@ -54,8 +54,6 @@ def handle_email(task, session, qualifiers):
         bcc=session.django_user.email if BCC_OPERATOR_ON_SEND else None,
     )
     _record_sent_email(session, deal, mailbox, draft, message_id)
-    logger.info("[%s] email sent to %s (%s): %s\n%s",
-                campaign, public_id, deal.lead.email, draft.subject, draft.body)
 
 
 def _record_sent_email(session, deal, mailbox, draft, message_id) -> None:
