@@ -35,7 +35,7 @@ class TestPromoteToReady:
         scorer = BayesianQualifier(seed=42)
 
         with patch.object(scorer, "predict_probs", return_value=np.array([0.95, 0.80])):
-            count = promote_to_ready(fake_session, scorer, threshold=0.9)
+            count = promote_to_ready(fake_session, scorer)
 
         assert count == 1
 
@@ -51,11 +51,11 @@ class TestPromoteToReady:
         scorer = BayesianQualifier(seed=42)
 
         with patch.object(scorer, "predict_probs", return_value=None):
-            assert promote_to_ready(fake_session, scorer, threshold=0.9) == 0
+            assert promote_to_ready(fake_session, scorer) == 0
 
     def test_returns_zero_on_empty_pool(self, fake_session):
         scorer = BayesianQualifier(seed=42)
-        assert promote_to_ready(fake_session, scorer, threshold=0.9) == 0
+        assert promote_to_ready(fake_session, scorer) == 0
 
 
 @pytest.mark.django_db

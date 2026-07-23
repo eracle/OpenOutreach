@@ -1,58 +1,39 @@
 # openoutreach/core/pipeline/pools.py
-"""Pool management via composable generators.
+"""The qualify/discover engine that feeds the paid email lookup.
 
-Two generators chain via ``next(upstream, None)``:
+``find_candidate`` is the one entry point: it hands back the top lead ready for a
+BetterContact credit, doing whatever qualification and discovery it takes to surface
+one. It loops over three moves, cheapest first:
 
-    find_candidate() = next(ready_source, None)
-                            |
-                  ready_source  <- pulls from qualify_source
-                            |
-                 qualify_source  <- qualifies embedded, unlabelled leads
+1. a lead already sitting in READY_TO_FIND_EMAIL → hand it off;
+2. a QUALIFIED lead clearing the spend gate → promote it (``promote_to_ready``);
+3. otherwise ``_advance`` — spend one unit of work labelling or discovering — and loop.
 
-Each qualify_source iteration produces exactly one label, which shifts the GP
-model. ``qualify_source`` runs in one of **two states**, decided per iteration by
-whether any unlabelled lead reaches ``min_gp_confidence``:
+``_advance`` is the whole steering, and it is just the qualifier's own explore/exploit
+split (``acquisition_mode``, driven by class balance):
 
-- **consume** — such leads exist, so qualify them. Having any is what it *means*
-  to be out of the cold start: only a lead at or above that score can clear
-  ``ready_pool.promote_to_ready`` and reach the paid email step.
-- **cold start** — none do. Discover a page and spend exactly one label on the
-  pool, which is the only thing that moves the GP. That one lead is chosen
-  without the threshold — requiring it would be circular, since nothing meets it.
+- **explore** (``neg ≤ pos``, or cold start) — label the most *informative* lead in the
+  pool (max BALD). No gate: a low-confidence lead is exactly the label that teaches the
+  GP the most, so filtering by confidence here would throw away the point of exploring.
+  If the pool is empty, discover a page first (there's always a max-BALD lead unless
+  there are no leads at all).
+- **exploit** (``neg > pos``) — spend the LLM call on a lead that will actually convert:
+  the strongest lead clearing ``min_gp_confidence`` (``consumable_candidates``). If none
+  clears it, there's nothing worth qualifying — discover more leads instead.
 
-Both states pick their lead with the qualifier's balance-driven strategy.
+The gate is ``min_gp_confidence`` — the **same constant** ``promote_to_ready`` uses, so a
+lead the exploit branch qualifies is one the promote gate will then pass. It is a *spend*
+gate: "will this LLM call buy an email, or just park at QUALIFIED?" It belongs to exploit
+alone. Explore wants labels, not emails, so it never consults the gate — the earlier
+design applied it in both states and so ran BALD over the confidence-filtered set, i.e.
+picked the most-uncertain lead from a bucket it had just stripped of uncertain leads.
 
-The threshold is ``min_gp_confidence`` — deliberately the *same constant* the
-promote gate uses, and that is the whole argument for it. This is not a "is this
-pool promising?" judgment; it is the fact that a lead below it **parks**. It would
-be qualified and then blocked by ``promote_to_ready``, so the LLM call buys a
-label and nothing else. In cold start the label is exactly what we want; in
-consume we want the email. Two bars that were judgments both failed, and are not
-to be reintroduced:
-
-- ``max(0, 0.20 - 1/sqrt(n_obs))`` — capped at 0.20, while the pool's best lead
-  scores 0.327. Never fired: always "pool's fine".
-- ``positive_score_floor(25)`` — the p25 of the GP's scores for its own
-  positives, i.e. **in-sample** predictions (0.755–0.829) used as a bar for
-  **out-of-sample** ones (0.121–0.327). Fired always: "pool is barren", every
-  cycle, so discovery ran 17x ahead of qualification.
-
-A fitted GP reproduces its training points and regresses everything unseen toward
-the prior, so no bar drawn from one population applies to the other. That is why
-this gate compares against the *next gate's* constant rather than inventing one.
-Discovery steering does not belong here at all — the GP that ranks which lead to
-label also ranks which query to fetch (``select.py``). See the roadmap card
-``p2-e3-discovery-unified-gp-query-selection``.
-
-**Measured 2026-07-17: the pool tops out at 0.327, so this runs in cold start and
-will keep doing so until many more labels exist.** That is expected — the GP has
-4 positives. A lead the LLM accepts during cold start parks at QUALIFIED and is
-not emailed; it did its job by contributing a label.
+Discovery is free (Lead Finder bills nothing); the paid BetterContact credit is spent
+downstream, in the ``find_email`` task, only on a lead this engine already promoted.
 """
 from __future__ import annotations
 
 import logging
-from typing import Generator
 
 import numpy as np
 
@@ -65,12 +46,12 @@ from openoutreach.core.pipeline.ready_pool import find_ready_candidate, promote_
 logger = logging.getLogger(__name__)
 
 
-def consumable_candidates(qualifier: BayesianQualifier, candidates, threshold: float) -> list:
-    """The candidates scoring at or above ``threshold`` — the ones that can reach email.
+def consumable_candidates(qualifier: BayesianQualifier, candidates: list) -> list:
+    """The candidates clearing the spend gate — the ones a qualification can convert.
 
-    Empty means cold start: either the GP is unfitted (``predict_probs`` → None) or
-    nothing clears the promote gate, and in both cases there is nothing worth an LLM
-    call for its own sake.
+    Empty means exploit has nothing to convert (so it should widen instead): either
+    the GP is unfitted or no lead reaches ``min_gp_confidence``, the same constant the
+    promote gate uses.
     """
     if not candidates:
         return []
@@ -79,74 +60,48 @@ def consumable_candidates(qualifier: BayesianQualifier, candidates, threshold: f
     probs = qualifier.predict_probs(X)
     if probs is None:
         return []
+    threshold = CAMPAIGN_CONFIG["min_gp_confidence"]
     return [c for c, p in zip(candidates, probs) if p >= threshold]
 
 
-def qualify_source(session, qualifier: BayesianQualifier,
-                   threshold: float | None = None) -> Generator[str, None, None]:
-    """Yield profile_urls, one label per iteration, in consume or cold-start state.
+def _advance(session, qualifier: BayesianQualifier) -> bool:
+    """Spend one unit of work — label a lead or discover leads. Returns whether it did.
 
-    See the module docstring for the two states. The generator ends only when it
-    can neither qualify nor discover.
+    Explore vs exploit is the qualifier's balance-driven acquisition mode; see the
+    module docstring. Returns False only when the engine has nothing left to do:
+    nothing worth labelling and nothing left to discover.
     """
-    if threshold is None:
-        threshold = CAMPAIGN_CONFIG["min_gp_confidence"]
+    candidates = fetch_qualification_candidates(session)
 
-    while True:
-        candidates = fetch_qualification_candidates(session)
-        consumable = consumable_candidates(qualifier, candidates, threshold)
-
-        # Consume — these leads can clear the promote gate, so the LLM call buys
-        # an email and not just a label.
+    # Exploit — convert a lead that clears the spend gate, else go find more.
+    if qualifier.acquisition_mode() == "exploit (p)":
+        consumable = consumable_candidates(qualifier, candidates)
         if consumable:
-            result = run_qualification(session, qualifier, candidates=consumable)
-            if result is not None:
-                yield result
-                continue
+            return run_qualification(session, qualifier, candidates=consumable) is not None
+        return discover(session, qualifier) > 0
 
-        # Cold start — nothing in the pool can reach email. Widen, then spend one
-        # label on the whole pool (no threshold: nothing meets it, by definition).
-        discovered = discover(session, qualifier)
-        result = run_qualification(session, qualifier)
-        if result is not None:
-            yield result
-            continue
-        if discovered <= 0:
-            return
-
-
-def ready_source(session, qualifier: BayesianQualifier, threshold: float | None = None) -> Generator[dict, None, None]:
-    """Yield ready-to-find-email candidates, pulling from qualify when needed.
-
-    ``threshold`` reaches both the promote gate and ``qualify_source``'s state
-    switch — they must be the same number or the states are incoherent: the switch
-    would spend LLM calls on leads this gate then parks, which is the exact waste
-    the two states exist to avoid.
-    """
-    if threshold is None:
-        threshold = CAMPAIGN_CONFIG["min_gp_confidence"]
-    qualify = qualify_source(session, qualifier, threshold)
-
-    while True:
-        candidate = find_ready_candidate(session, qualifier)
-        if candidate is not None:
-            yield candidate
-            continue
-
-        promoted = promote_to_ready(session, qualifier, threshold)
-        if promoted > 0:
-            continue
-
-        # Pull one qualification from upstream — may shift the GP model
-        if next(qualify, None) is not None:
-            # Re-check promote after new label
-            promote_to_ready(session, qualifier, threshold)
-            continue
-
-        # Upstream exhausted
-        return
+    # Explore / cold start — label the most informative lead we have (max BALD, no
+    # gate). An empty pool is the one case with no lead to label: page one in first.
+    if not candidates:
+        if discover(session, qualifier) <= 0:
+            return False
+        candidates = fetch_qualification_candidates(session)
+    return run_qualification(session, qualifier, candidates=candidates) is not None
 
 
 def find_candidate(session, qualifier: BayesianQualifier) -> dict | None:
-    """Top profile ready for the paid email lookup, backfilling if needed."""
-    return next(ready_source(session, qualifier), None)
+    """Top lead ready for the paid email lookup, or None when the engine stalls.
+
+    Advances the qualify/discover engine until a lead reaches READY_TO_FIND_EMAIL or
+    there is nothing left to label or discover.
+    """
+    while True:
+        candidate = find_ready_candidate(session, qualifier)
+        if candidate is not None:
+            return candidate
+
+        if promote_to_ready(session, qualifier) > 0:
+            continue
+
+        if not _advance(session, qualifier):
+            return None
