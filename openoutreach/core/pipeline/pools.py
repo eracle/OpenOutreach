@@ -17,16 +17,22 @@ split (``acquisition_mode``, driven by class balance):
   GP the most, so filtering by confidence here would throw away the point of exploring.
   If the pool is empty, discover a page first (there's always a max-BALD lead unless
   there are no leads at all).
-- **exploit** (``neg > pos``) — spend the LLM call on a lead that will actually convert:
-  the strongest lead clearing ``min_gp_confidence`` (``consumable_candidates``). If none
-  clears it, there's nothing worth qualifying — discover more leads instead.
+- **exploit** (``neg > pos``) — prefer the strongest lead clearing ``min_gp_confidence``
+  (``consumable_candidates``), the one whose qualification will buy an email rather than
+  park at QUALIFIED. When none clears the gate, fall back to labelling the best lead
+  anyway (gate-free): discover only when the pool is empty.
 
 The gate is ``min_gp_confidence`` — the **same constant** ``promote_to_ready`` uses, so a
-lead the exploit branch qualifies is one the promote gate will then pass. It is a *spend*
-gate: "will this LLM call buy an email, or just park at QUALIFIED?" It belongs to exploit
-alone. Explore wants labels, not emails, so it never consults the gate — the earlier
-design applied it in both states and so ran BALD over the confidence-filtered set, i.e.
-picked the most-uncertain lead from a bucket it had just stripped of uncertain leads.
+lead clearing it in exploit is one the promote gate will then pass. It rations the *paid*
+BetterContact credit (``promote_to_ready``, the ``find_email`` leg), **not** the free LLM
+call. An under-confident GP that clears the gate on nobody must not stop qualifying — a
+gate on labelling would freeze the class balance (discovery adds leads, never labels) and
+deadlock: the GP never learns the labels that would lift its confidence past the gate,
+while free Lead Finder calls deepen an already-idle pool forever. So exploit keeps
+labelling below the gate; it just stops *promoting*. Explore never consults the gate at
+all — the earlier design applied it in both states and so ran BALD over the
+confidence-filtered set, i.e. picked the most-uncertain lead from a bucket it had just
+stripped of uncertain leads.
 
 Discovery is free (Lead Finder bills nothing); the paid BetterContact credit is spent
 downstream, in the ``find_email`` task, only on a lead this engine already promoted.
@@ -73,11 +79,17 @@ def _advance(session, qualifier: BayesianQualifier) -> bool:
     """
     candidates = fetch_qualification_candidates(session)
 
-    # Exploit — convert a lead that clears the spend gate, else go find more.
+    # Exploit — convert the strongest lead clearing the paid-spend gate. If none
+    # clears it, still qualify the best lead we have (gate-free): the gate rations the
+    # paid BetterContact credit, not the free LLM call, and labelling is what lifts the
+    # GP's confidence so a lead *can* clear it. Discovering instead would freeze the
+    # class balance and burn Lead Finder calls on an already-deep idle pool forever.
     if qualifier.acquisition_mode() == "exploit (p)":
         consumable = consumable_candidates(qualifier, candidates)
         if consumable:
             return run_qualification(session, qualifier, candidates=consumable) is not None
+        if candidates:
+            return run_qualification(session, qualifier, candidates=candidates) is not None
         return discover(session, qualifier) > 0
 
     # Explore / cold start — label the most informative lead we have (max BALD, no

@@ -34,7 +34,7 @@ class TestPromoteToReady:
 
         scorer = BayesianQualifier(seed=42)
 
-        with patch.object(scorer, "predict_probs", return_value=np.array([0.95, 0.80])):
+        with patch.object(scorer, "predict_probs", return_value=np.array([0.95, 0.60])):
             count = promote_to_ready(fake_session, scorer)
 
         assert count == 1

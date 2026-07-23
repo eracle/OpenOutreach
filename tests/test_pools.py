@@ -6,8 +6,9 @@ and promote_to_ready at the pools import site.
 
 The explore/exploit split is the qualifier's ``acquisition_mode`` (mocked directly);
 the exploit gate reads ``qualifier.predict_probs`` via ``consumable_candidates``, so
-the qualifier is mocked at that boundary too: a score below ``min_gp_confidence``
-cannot reach email (widen), one at or above it is worth a converting qualification.
+the qualifier is mocked at that boundary too: a score at or above ``min_gp_confidence``
+is worth a converting qualification, one below it still gets labelled (gate-free) so the
+GP can learn — exploit only discovers when the pool is empty.
 """
 from contextlib import contextmanager
 from unittest.mock import Mock, patch
@@ -59,13 +60,22 @@ class TestAdvanceExploit:
         assert mock_qualify.call_args.kwargs["candidates"] == [strong]
         mock_discover.assert_not_called()
 
-    def test_discovers_when_nothing_clears_the_gate(self):
-        """No lead can reach email — there's nothing worth qualifying, so widen instead."""
+    def test_labels_the_pool_when_nothing_clears_the_gate(self):
+        """No lead clears the paid-spend gate, but the pool is non-empty — label it
+        anyway (gate-free) so the GP's confidence can rise; don't burn a discover."""
         lead = Mock(embedding_array=np.zeros(384))
         with _engine([lead], discovered=100) as (mock_qualify, mock_discover):
             with patch.dict("openoutreach.core.pipeline.pools.CAMPAIGN_CONFIG",
                             {"min_gp_confidence": 0.9}):
                 assert _advance("session", _qualifier("exploit (p)", probs=[0.3])) is True
+
+        assert mock_qualify.call_args.kwargs["candidates"] == [lead]
+        mock_discover.assert_not_called()
+
+    def test_discovers_only_when_the_pool_is_empty(self):
+        """Nothing to label at all → discover a page (the sole remaining move)."""
+        with _engine([], discovered=100) as (mock_qualify, mock_discover):
+            assert _advance("session", _qualifier("exploit (p)", probs=[])) is True
 
         mock_qualify.assert_not_called()
         mock_discover.assert_called_once()
