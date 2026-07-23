@@ -32,7 +32,7 @@ DEFAULT_EMAIL_DAILY_LIMIT = 30
 # When True, every send (opener + follow-up reply) blind-copies the operator's
 # own inbox (User.email) so they keep a personal copy of the thread. Default
 # False — sends go out without the BCC. Set to True to re-enable the copy.
-BCC_OPERATOR_ON_SEND = False
+BCC_OPERATOR_ON_SEND = True
 
 # ----------------------------------------------------------------------
 # Active-hours schedule (daemon pauses outside this window)
@@ -69,7 +69,7 @@ CAMPAIGN_CONFIG = {
     "qualification_n_mc_samples": 100,
     # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
     # (rations the paid BetterContact lookup to leads the model is confident about).
-    "min_gp_confidence": 0.9,
+    "min_gp_confidence": 0.75,
     # Throughput mint cadence: every N new qualified leads, discovery folds them into
     # the clause pool (mint.py). Not a confidence gate — a count, so it fires at cold
     # start the moment leads qualify. No "is this pool promising?" bar exists here;
