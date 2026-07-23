@@ -22,13 +22,13 @@ import logging
 from datetime import datetime, timedelta
 
 from django.utils import timezone
-from termcolor import colored
 
 from openoutreach.core.conf import (
     COLLECT_BACKOFF_BASE_S,
     COLLECT_BACKOFF_MAX_S,
     COLLECT_DEADLINE_S,
 )
+from openoutreach.core.logblock import block_header, step_line
 from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)
@@ -52,15 +52,15 @@ def handle_collect_email(task, session, qualifiers):
         return
 
     public_id = deal.lead.profile_url
-    logger.info("[%s] %s %s (attempt %d)", campaign,
-                colored("▶ collect_email", "magenta", attrs=["bold"]), public_id, p.get("attempt", 0))
+    logger.info("%s", block_header(
+        f"collect_email · {campaign} · {public_id}", "magenta", meta=f"attempt {p.get('attempt', 0)}"))
 
     try:
         outcome = _poll(p["provider"], p["request_id"])
     except BetterContactUnavailable as exc:
         # Transient — retry with the same backoff, still bounded by the deadline.
-        logger.info("[%s] collect_email: poll unavailable for %s (%s) — retrying", campaign, public_id, exc)
-        _reschedule_or_give_up(session, campaign, deal, public_id, p, advance=False)
+        logger.info("%s", step_line("poll", f"unavailable ({exc}) — retrying", glyph="⚠", color="yellow"))
+        _reschedule_or_give_up(session, public_id, p, advance=False)
         return
 
     if outcome.hit:
@@ -68,7 +68,7 @@ def handle_collect_email(task, session, qualifiers):
     elif outcome.miss:
         _on_miss(session, public_id)
     else:  # still running
-        _reschedule_or_give_up(session, campaign, deal, public_id, p, advance=True)
+        _reschedule_or_give_up(session, public_id, p, advance=True)
 
 
 def _poll(provider: str, request_id: str):
@@ -91,10 +91,10 @@ def _on_hit(session, campaign, deal, public_id, email) -> None:
     deal.lead.email = email
     deal.lead.save(update_fields=["email"])
     contacts.contribute(session, deal.lead, [email], contacts.ORIGIN_BETTERCONTACT)
-    set_profile_state(session, public_id, DealState.READY_TO_EMAIL.value)
+    set_profile_state(session, public_id, DealState.READY_TO_EMAIL.value, log=False)
     # Queue the opener now so the send preempts the next find_email on claim.
     flush_email_queue(session, campaign)
-    logger.info("[%s] collect_email: hit %s → %s", campaign, public_id, email)
+    logger.info("%s", step_line("hit", f"{email} → {DealState.READY_TO_EMAIL.name}", glyph="✓", color="green"))
 
 
 def _on_miss(session, public_id) -> None:
@@ -105,11 +105,12 @@ def _on_miss(session, public_id) -> None:
     provider)."""
     from openoutreach.core.db.deals import set_profile_state
 
-    set_profile_state(session, public_id, DealState.NO_EMAIL_BETTERCONTACT.value)
-    logger.info("collect_email: no email for %s (miss)", public_id)
+    set_profile_state(session, public_id, DealState.NO_EMAIL_BETTERCONTACT.value, log=False)
+    logger.info("%s", step_line(
+        "no email", f"terminal miss → {DealState.NO_EMAIL_BETTERCONTACT.name}", glyph="✗", color="yellow"))
 
 
-def _reschedule_or_give_up(session, campaign, deal, public_id, payload, advance: bool) -> None:
+def _reschedule_or_give_up(session, public_id, payload, advance: bool) -> None:
     """Chain the next poll, or revert to READY_TO_FIND_EMAIL past the deadline.
 
     ``advance`` doubles the backoff (a genuine still-running poll); a transient
@@ -122,10 +123,16 @@ def _reschedule_or_give_up(session, campaign, deal, public_id, payload, advance:
 
     submitted_at = datetime.fromisoformat(payload["submitted_at"])
     if timezone.now() >= submitted_at + timedelta(seconds=COLLECT_DEADLINE_S):
-        set_profile_state(session, public_id, DealState.READY_TO_FIND_EMAIL.value)
-        logger.info("[%s] collect_email: %s exceeded poll deadline — re-queued for a fresh submit", campaign, public_id)
+        set_profile_state(session, public_id, DealState.READY_TO_FIND_EMAIL.value, log=False)
+        logger.info("%s", step_line(
+            "deadline", f"poll deadline exceeded → {DealState.READY_TO_FIND_EMAIL.name} · re-queued for a fresh submit",
+            glyph="⚠", color="yellow"))
         return
 
     attempt = payload.get("attempt", 0) + 1 if advance else payload.get("attempt", 0)
     delay = min(COLLECT_BACKOFF_BASE_S * (2 ** attempt), COLLECT_BACKOFF_MAX_S)
     schedule_collect_email(payload={**payload, "attempt": attempt}, delay_seconds=delay)
+    # A genuine still-running poll reports its next wake-up; a transient outage
+    # already logged its ⚠ retry step above, so don't double up.
+    if advance:
+        logger.info("%s", step_line("running", f"not ready — re-poll in {delay}s (attempt {attempt})"))

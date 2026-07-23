@@ -14,6 +14,7 @@ from typing import Literal, get_args
 import numpy as np
 from termcolor import colored
 
+from openoutreach.core.logblock import step_line  # noqa: F401 (re-exported for callers)
 from openoutreach.emails.bettercontact import submit_and_poll
 
 logger = logging.getLogger(__name__)
@@ -169,29 +170,15 @@ def describe_filters(filters: dict) -> str:
 
 # ── Discovery-walk log block ──
 # One query renders as one block: a ``▸`` header naming the query, then indented
-# step lines — the provider round-trip, then the walk's verdict. Each step is a
-# status glyph + fixed-width label + message, so a run of blocks reads as an
-# aligned column you can scan down by outcome (green ✓ found leads, yellow ✗ came
-# back empty). The clause set is printed once, in the header, and never repeated.
-
-_STEP_LABEL_WIDTH = 13  # the longest label ("bettercontact"); keeps value columns aligned
+# step lines rendered through the shared ``logblock`` grammar (see that module) —
+# the provider round-trip, then the walk's verdict. The clause set is printed once,
+# in the header, and never repeated.
 
 
 def query_header(filters: dict, offset: int = 0) -> str:
     """The ``▸`` header line naming the query a block reports on."""
     line = colored("▸ ", "cyan", attrs=["bold"]) + colored(describe_filters(filters), "cyan")
     return line + (f"  · offset {offset}" if offset else "")
-
-
-def step_line(label: str, message: str, glyph: str = "·", color: str | None = None) -> str:
-    """One indented step under a ``query_header``: glyph · label · message.
-
-    ``color`` tints the glyph and label together — the outcome colour. The message
-    stays default-weight so the query text in the header, not the plumbing below it,
-    carries the eye.
-    """
-    tint = (lambda s: colored(s, color, attrs=["bold"])) if color else (lambda s: s)
-    return f"  {tint(glyph)}  {tint(label.ljust(_STEP_LABEL_WIDTH))}  {message}"
 
 
 def search(filters: dict, limit: int = 100, offset: int = 0) -> list[dict]:

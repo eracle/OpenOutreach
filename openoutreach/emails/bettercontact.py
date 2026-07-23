@@ -22,6 +22,8 @@ from dataclasses import dataclass
 
 import requests
 
+from openoutreach.core.logblock import step_line
+
 logger = logging.getLogger(__name__)
 
 _ENRICH_URL = "https://app.bettercontact.rocks/api/v2/async"
@@ -99,7 +101,8 @@ def submit(query: BetterContactQuery) -> str:
             request_id = _submit(session, _ENRICH_URL, _enrich_body(query))
         except (requests.RequestException, TimeoutError) as exc:
             raise BetterContactUnavailable(f"BetterContact unreachable: {exc}") from exc
-    logger.info("bettercontact: submitted lookup for %s (req %s)", query.linkedin_url, request_id)
+    # The find_email block owns the log line — it renders this submit as a step
+    # under its ``▶ find_email`` header, so the transport stays quiet here.
     return request_id
 
 
@@ -166,9 +169,6 @@ def submit_and_poll(api_key: str, url: str, body: dict) -> dict:
     with _session(api_key) as session:
         try:
             request_id = _submit(session, url, body)
-            # Lazy import: discovery imports submit_and_poll at load, so a top-level
-            # import back would be circular. This transport is discovery-only.
-            from openoutreach.discovery import step_line
             logger.info("%s", step_line(
                 "bettercontact", f"req {request_id[:12]}… · poll {_POLL_INTERVAL_S}s ≤{_POLL_TIMEOUT_S}s …"))
             return _poll(session, url, request_id)

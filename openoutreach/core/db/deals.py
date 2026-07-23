@@ -52,11 +52,16 @@ def _existing_deal_or_lead(profile_url: str, campaign):
 # ── State transitions ──
 
 
-def set_profile_state(session, profile_url: str, new_state: str, reason: str = "", outcome: str = ""):
+def set_profile_state(session, profile_url: str, new_state: str, reason: str = "", outcome: str = "", log: bool = True):
     """Move the Deal to the corresponding state.
 
     Campaign-scoped: only finds Deals in the current campaign.
     Raises ValueError if no Deal exists.
+
+    ``log`` emits the standalone ``<url> STATE`` spine line. Callers that render
+    their own aligned block (the email pipeline's ``find_email`` / ``collect_email``
+    handlers) pass ``log=False`` and fold the resulting state into a block step,
+    so the transition isn't logged twice.
     """
     from openoutreach.crm.models import Deal
 
@@ -82,6 +87,8 @@ def set_profile_state(session, profile_url: str, new_state: str, reason: str = "
 
     label, color, attrs = _STATE_LOG_STYLE.get(ps, ("ERROR", "red", ["bold"]))
     suffix = f" ({reason})" if reason else ""
+    if not log:
+        return
     if state_changed:
         logger.info("%s %s%s", profile_url, colored(label, color, attrs=attrs), suffix)
     else:

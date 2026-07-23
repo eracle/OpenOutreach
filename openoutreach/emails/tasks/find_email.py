@@ -21,9 +21,9 @@ from __future__ import annotations
 import logging
 
 from django.utils import timezone
-from termcolor import colored
 
 from openoutreach.core.conf import COLLECT_BACKOFF_BASE_S
+from openoutreach.core.logblock import block_header, step_line
 from openoutreach.crm.models import DealState
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,6 @@ def _select_candidate(session, campaign, qualifier):
 
 
 def handle_find_email(task, session, qualifiers):
-    from openoutreach.core.db.deals import set_profile_state
     from openoutreach.crm.models import Deal
     from openoutreach.emails.models import has_mailbox
 
@@ -82,24 +81,37 @@ def handle_find_email(task, session, qualifiers):
         logger.warning("[%s] find_email: no Deal for %s", campaign, public_id)
         return
 
-    logger.info("[%s] %s %s", campaign, colored("▶ find_email", "cyan", attrs=["bold"]), public_id)
+    logger.info("%s", block_header(f"find_email · {campaign} · {public_id}", "cyan"))
 
     # Already have the address (resolved in another campaign, imported, or an
     # earlier hub give-back — Lead is account-level, Deal is campaign-scoped) —
     # promote straight to send. No lookup, no credit.
     if deal.lead.email:
-        logger.info("[%s] find_email: %s already has an email — skipping paid lookup", campaign, public_id)
-        set_profile_state(session, public_id, DealState.READY_TO_EMAIL.value)
-        _mint_email_slot(session, campaign)
+        _promote_to_ready(session, campaign, public_id, "known email", "already resolved")
         return
 
     # Free hub cache first — a hit skips the provider job (and the credit) entirely.
     if _try_hub_cache(session, deal.lead):
-        set_profile_state(session, public_id, DealState.READY_TO_EMAIL.value)
-        _mint_email_slot(session, campaign)
+        _promote_to_ready(session, campaign, public_id, "hub cache", "hit")
         return
 
+    logger.info("%s", step_line("hub cache", "miss"))
     _submit_lookup(session, campaign, deal, public_id)
+
+
+def _promote_to_ready(session, campaign, public_id, label, detail) -> None:
+    """Skip the paid lookup — the address is already in hand — and queue the opener.
+
+    Renders one green step under the ``find_email`` block header (``set_profile_state``
+    stays quiet with ``log=False``) so the promotion reads as part of this action, not
+    a stray spine line.
+    """
+    from openoutreach.core.db.deals import set_profile_state
+
+    set_profile_state(session, public_id, DealState.READY_TO_EMAIL.value, log=False)
+    logger.info("%s", step_line(
+        label, f"{detail} → {DealState.READY_TO_EMAIL.name}", glyph="✓", color="green"))
+    _mint_email_slot(session, campaign)
 
 
 def _try_hub_cache(session, lead) -> bool:
@@ -133,17 +145,17 @@ def _submit_lookup(session, campaign, deal, public_id) -> None:
     from openoutreach.emails.bettercontact import BetterContactQuery, BetterContactUnavailable
 
     if not bettercontact.is_configured():
-        logger.info("[%s] find_email: finder unconfigured for %s — leaving queued", campaign, public_id)
+        logger.info("%s", step_line("bettercontact", "finder unconfigured — left queued", glyph="⚠", color="yellow"))
         return
 
     try:
         request_id = bettercontact.submit(BetterContactQuery(linkedin_url=deal.lead.profile_url))
     except BetterContactUnavailable as exc:
-        logger.info("[%s] find_email: submit unavailable for %s (%s) — leaving queued", campaign, public_id, exc)
+        logger.info("%s", step_line("bettercontact", f"submit unavailable ({exc}) — left queued", glyph="⚠", color="yellow"))
         return
 
     now = timezone.now()
-    set_profile_state(session, public_id, DealState.FINDING_EMAIL.value)
+    set_profile_state(session, public_id, DealState.FINDING_EMAIL.value, log=False)
     schedule_collect_email(
         payload={
             "campaign_id": campaign.pk,
@@ -155,7 +167,9 @@ def _submit_lookup(session, campaign, deal, public_id) -> None:
         },
         delay_seconds=COLLECT_BACKOFF_BASE_S,
     )
-    logger.info("[%s] find_email: submitted %s (req %s) — polling", campaign, public_id, request_id)
+    logger.info("%s", step_line(
+        "bettercontact", f"submitted · req {request_id[:12]}… → {DealState.FINDING_EMAIL.name} · polling",
+        glyph="✓", color="green"))
 
 
 def _mint_email_slot(session, campaign) -> None:
