@@ -207,12 +207,34 @@ def test_account_shows_funding_notice_before_legal_gate():
     with patch("openoutreach.core.onboarding.wiz.text", side_effect=["me@posteo.eu", "US"]), \
          patch("openoutreach.core.onboarding.wiz.confirm", side_effect=[True, True]), \
          patch("openoutreach.emails.newsletter.subscribe_to_newsletter"), \
-         patch("openoutreach.core.onboarding._say") as say, \
+         patch("openoutreach.core.onboarding._show_information_notice") as notice, \
          patch("openoutreach.core.onboarding._require_legal") as legal:
         onboarding._run_account()
 
-    say.assert_called_once_with(onboarding._INFORMATION_NOTICE, "fg:yellow")
-    legal.assert_called_once()  # the acceptance gate still runs after the notice
+    notice.assert_called_once()  # the funding/contacts notice is rendered…
+    legal.assert_called_once()   # …and the acceptance gate still runs after it
+
+
+def test_legal_notice_sections_are_read_verbatim():
+    """§4/§6 are lifted verbatim from the authoritative LEGAL_NOTICE.md, and
+    neighbouring sections (§5, §7) don't leak into the excerpt."""
+    assert onboarding.LEGAL_NOTICE_PATH.exists()
+    text = onboarding._legal_notice_sections(4, 6)
+
+    assert text.startswith("### 4. How the Project Is Funded")
+    assert "### 6. Central Contacts Store" in text
+    # Verbatim, not paraphrased — exact phrases (with markdown) from the notice survive.
+    assert "**Freemium promotional campaign.**" in text
+    assert "No name, headline, company, title, phone, or profile text is sent." in text
+    # Boundaries: the sections between/around §4 and §6 are excluded.
+    assert "### 5." not in text
+    assert "### 7." not in text
+
+
+def test_legal_notice_sections_fall_back_to_url_when_missing(tmp_path, monkeypatch):
+    """A missing notice file degrades to the canonical link, never a crash."""
+    monkeypatch.setattr(onboarding, "LEGAL_NOTICE_PATH", tmp_path / "nope.md")
+    assert onboarding.LEGAL_NOTICE_URL in onboarding._legal_notice_sections(4, 6)
 
 
 @pytest.mark.django_db

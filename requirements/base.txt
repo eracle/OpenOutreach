@@ -14,5 +14,6 @@ fastembed
 scikit-learn
 huggingface_hub
 questionary
+rich
 pytz
 tenacity

@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, TypeVar
 
 from openoutreach.core import onboarding_wizard as wiz
@@ -63,31 +64,58 @@ _INTRO = """
   resumes where you left off.
 """
 
-# Plain-language summary of the two funding behaviours (Legal Notice §4 and §6),
-# shown at onboarding so they are seen up front rather than only via the link.
-_INFORMATION_NOTICE = """
-  ── Before you accept: how OpenOutreach funds itself ──
+# The canonical Legal Notice — the single source of truth for how OpenOutreach
+# behaves toward the operator's mailbox and the people it contacts. LEGAL_NOTICE.md
+# lives at the repo root and ships in the image (COPY . ${APP_HOME}); onboarding
+# reads §4/§6 from it at runtime rather than paraphrasing, so the two can't drift.
+LEGAL_NOTICE_URL = "https://github.com/eracle/OpenOutreach/blob/main/LEGAL_NOTICE.md"
+LEGAL_NOTICE_PATH = Path(__file__).resolve().parents[2] / "LEGAL_NOTICE.md"
 
-  OpenOutreach is free and open source. Two behaviours help sustain it. Both are
-  covered in full by the Legal Notice (sections 4 and 6) — in plain terms:
+# The funding/contacts behaviours the operator most needs to see before accepting.
+_INFORMATION_NOTICE_SECTIONS = (4, 6)
 
-  1. Freemium promotional campaign — only if you run a freemium campaign.
-     A fraction of your sending goes to a maintainer-configured campaign that
-     advertises OpenOutreach itself — sent from your own mailbox, under your
-     sending identity (as if from you), to recipients unrelated to your leads.
-     Your own qualified leads are never used for it. This has been part of the
-     project since the beginning. Disable it by editing the source.
 
-  2. Shared contacts store (the hub).
-     When a paid lookup resolves a work email, a minimal record — the profile URL,
-     country, the email (and, if enabled, an on-device profile vector) — is
-     contributed to a shared store, so other operators can skip paying for a contact
-     you already resolved and you can resolve theirs for free. Outside the EU/EEA, UK
-     and Switzerland this is on by default; inside, it is opt-out. Disable it by
-     editing the source, or turn off contribution later in the Django Admin.
+def _legal_notice_sections(*numbers: int) -> str:
+    """Return the given ``### <n>.`` sections of LEGAL_NOTICE.md as Markdown.
 
-  Full detail, your responsibilities, and how to opt out are in the Legal Notice.
-"""
+    Splits the notice on its section headings and keeps the requested ones, so the
+    excerpt is lifted straight from the authoritative file. Falls back to a link if
+    the file can't be read, so a missing notice never blocks onboarding.
+    """
+    try:
+        notice = LEGAL_NOTICE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return f"The full Legal Notice is at <{LEGAL_NOTICE_URL}>."
+
+    wanted = {str(n) for n in numbers}
+    sections = notice.split("\n### ")  # headings are '### <n>. Title'
+    kept = [s for s in sections if s.split(".", 1)[0].strip() in wanted]
+    return "\n\n".join("### " + s.strip() for s in kept)
+
+
+def _information_notice_markdown() -> str:
+    """Compose the pre-acceptance notice as Markdown.
+
+    Surfaces §4 (funding) and §6 (contacts store) verbatim from the authoritative
+    LEGAL_NOTICE.md, framed by a lead-in and the canonical link — no paraphrase to
+    maintain, so it tracks the notice automatically.
+    """
+    return (
+        "## Before you accept: how OpenOutreach funds itself and shares contacts\n\n"
+        "Two behaviours help sustain OpenOutreach and touch your mailbox and the "
+        "people you contact. Both are governed by the Legal Notice; the two relevant "
+        "sections are shown here verbatim.\n\n"
+        f"{_legal_notice_sections(*_INFORMATION_NOTICE_SECTIONS)}\n\n"
+        f"---\n\nFull text, your responsibilities, and how to opt out: <{LEGAL_NOTICE_URL}>"
+    )
+
+
+def _show_information_notice() -> None:
+    """Render the funding/contacts notice to the terminal as Markdown."""
+    from rich.console import Console
+    from rich.markdown import Markdown
+
+    Console().print(Markdown(_information_notice_markdown()))
 
 _T = TypeVar("_T")
 
@@ -408,7 +436,7 @@ def _run_account() -> None:
         "Subscribe to the OpenOutreach newsletter?",
         default=not is_gdpr_protected(country),
     ))
-    _say(_INFORMATION_NOTICE, "fg:yellow")
+    _show_information_notice()
     _require_legal()
     _finalize_account(operator_email, country, newsletter)
 
@@ -441,8 +469,7 @@ def _require_legal() -> None:
     """Gate onboarding on Legal Notice acceptance; re-ask a decline, abort on cancel."""
     while True:
         accepted = wiz.confirm(
-            "Do you accept the Legal Notice? "
-            "(https://github.com/eracle/OpenOutreach/blob/main/LEGAL_NOTICE.md)",
+            f"Do you accept the Legal Notice? ({LEGAL_NOTICE_URL})",
             default=False,
         )
         if accepted is None:  # Ctrl+C
