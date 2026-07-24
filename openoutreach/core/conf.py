@@ -20,11 +20,13 @@ FASTEMBED_CACHE_DIR = ROOT_DIR / ".cache" / "fastembed"
 # Mailbox. Enforced at send time: the EMAIL
 # handler counts a box's outgoing email ChatMessages today and skips a box at
 # its cap. Pool throughput is an emergent consequence, never an enforced
-# aggregate. 30/day is conservative within the 2026 safe band for a warmed
-# Google Workspace box (sources converge on 30–50/day, ~40 a common inbox-level
-# hard ceiling, ~25 the cautious floor after the late-2025 deliverability
-# crackdown). Reputation damage is the asymmetric risk; scale by adding boxes.
-DEFAULT_EMAIL_DAILY_LIMIT = 30
+# aggregate. 40/day sits at the practical ceiling of the 2026 safe band for a
+# warmed Google Workspace box (sources converge on 30–50/day, ~40 a common
+# inbox-level hard ceiling, ~25 the cautious floor after the late-2025
+# deliverability crackdown) — the cap is deliberately not below what a warmed
+# box can carry, since throughput is the scarce resource. Reputation damage is
+# the asymmetric risk; scale past 40 by adding boxes, never by raising this.
+DEFAULT_EMAIL_DAILY_LIMIT = 40
 
 # ----------------------------------------------------------------------
 # BCC the operator on every outgoing email

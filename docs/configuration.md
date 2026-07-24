@@ -43,7 +43,7 @@ Each `Mailbox` is one SMTP/IMAP box you own. Boxes are added during onboarding b
 | `username` | string | SMTP/IMAP login (unique). | (required) |
 | `password` | string | App password. | (required) |
 | `from_address` | string | The `From:` / sending identity. | (required) |
-| `daily_limit` | integer | Warm-safe sends/day, enforced per box at send time. | `DEFAULT_EMAIL_DAILY_LIMIT` (30) |
+| `daily_limit` | integer | Warm-safe sends/day, enforced per box at send time. | `DEFAULT_EMAIL_DAILY_LIMIT` (40) |
 
 Sending is raw `smtplib` (`emails/sender.py`); reply-reading is IMAP (`emails/inbox.py`). The email queue drains eagerly, capped only by the pool-wide per-box daily headroom.
 
@@ -61,7 +61,7 @@ Not user-configurable per campaign; edit the source to change.
 | `ACTIVE_START_HOUR` / `ACTIVE_END_HOUR` | `9` / `19` | Single contiguous active-hours window (no weekend handling). |
 | `ACTIVE_TIMEZONE` | `None` | `None` → resolved at runtime from the operator's country; set an IANA name to pin it. |
 | `COLLECT_BACKOFF_BASE_S` / `COLLECT_BACKOFF_MAX_S` / `COLLECT_DEADLINE_S` | `5` / `60` / `600` | The `collect_email` poll doubles its delay each still-running attempt (capped at MAX), giving up past DEADLINE. |
-| `DEFAULT_EMAIL_DAILY_LIMIT` | `30` | Per-mailbox warm-safe send ceiling stored on each `Mailbox`. |
+| `DEFAULT_EMAIL_DAILY_LIMIT` | `40` | Per-mailbox warm-safe send ceiling stored on each `Mailbox`. |
 | `CAMPAIGN_CONFIG.min_gp_confidence` | `0.9` | GP probability threshold for promoting `QUALIFIED → READY_TO_FIND_EMAIL` (rations the paid lookup). |
 | `CAMPAIGN_CONFIG.qualification_n_mc_samples` | `100` | Monte Carlo samples for BALD. |
 | `CAMPAIGN_CONFIG.embedding_model` | `BAAI/bge-small-en-v1.5` | FastEmbed model for 384-dim embeddings. |
