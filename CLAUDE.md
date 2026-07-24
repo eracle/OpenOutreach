@@ -20,7 +20,7 @@ OpenOutreach — a self-hosted, **email-first** AI sales agent that learns your 
 - **Discovery** is a licensed source — BetterContact **Lead Finder** (ICP search returns firmographic profiles, no emails, billed nothing).
 - **Qualification** is the crown jewel — per-campaign **GPR + BALD active learning** over 384-dim embeddings, decided by an LLM.
 - **Enrichment** is the one paid step — BetterContact resolves a work email for the top-ranked leads only (one credit per verified hit), fronted by a free cross-operator cache (the hub).
-- **Outreach** is agentic email from mailboxes the user owns (SMTP send + IMAP reply-reading), driven by the same LLM follow-up agent. Every send carries the sending box's `Mailbox.signature` (appended in `emails/sender.py`; the agent itself never signs).
+- **Outreach** is agentic email from mailboxes the user owns (SMTP send + IMAP reply-reading), driven by the same LLM follow-up agent. Every send carries the sending box's `Mailbox.signature` and then the always-on `ATTRIBUTION` line (`Sent with OpenOutreach https://openoutreach.app`) — both appended in `emails/sender.py`, in the order body → signature → attribution; the agent itself never signs, and the send log records metadata only (from/to/subject/Message-ID), never the body.
 
 Django + Django Admin own the CRM/ORM (models are this project's); pydantic-ai drives the agents.
 

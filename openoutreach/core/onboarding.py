@@ -271,7 +271,8 @@ _MAILBOX_DEFAULTS = {
 
 # Shown as the signature prompt, once per never-asked box. The example is a real,
 # working signature — a cold lead's first instinct is to check who wrote, so it
-# leads with a LinkedIn profile rather than a title.
+# leads with a LinkedIn profile rather than a title. It carries no OpenOutreach
+# attribution: `emails.sender` appends that line itself, after the signature.
 _SIGNATURE_PROMPT = """Email signature for {address} — appended to every email this mailbox
   sends, opener and follow-ups alike. The agent never signs its own drafts, so
   this is the only sign-off your leads see. Optional — Ctrl+D on an empty line
@@ -282,8 +283,6 @@ _SIGNATURE_PROMPT = """Email signature for {address} — appended to every email
     Eracle
     Founder, OpenOutreach
     https://www.linkedin.com/in/eracle
-
-    Sent with OpenOutreach — the open-source AI sales agent: https://github.com/eracle/OpenOutreach
 
   Your signature"""
 

@@ -29,8 +29,9 @@ def send_email(
 ) -> str:
     """Send ``body`` from ``mailbox`` to ``to_address``; return the Message-ID.
 
-    The mailbox's signature is appended to ``body`` here rather than at the call
-    sites, so every send — opener and follow-up — carries it.
+    The mailbox's signature and the product attribution line are appended to
+    ``body`` here rather than at the call sites, so every send — opener and
+    follow-up — carries both, in the order body → signature → attribution.
 
     ``bcc`` (when set) blind-copies the operator's own address so they keep a
     private record of every send; ``send_message`` strips the Bcc header before
@@ -43,8 +44,8 @@ def send_email(
     """
     message = _build_message(mailbox, to_address, subject, body, bcc, in_reply_to, references)
     _deliver(mailbox, message)
-    logger.info("email sent from %s to %s: %s\n%s",
-                mailbox.from_address, to_address, subject, message.get_content().rstrip())
+    logger.info("email sent from %s to %s: %s [%s]",
+                mailbox.from_address, to_address, subject, message["Message-ID"])
     return message["Message-ID"]
 
 
@@ -63,7 +64,7 @@ def _build_message(mailbox, to_address, subject, body, bcc, in_reply_to, referen
     if in_reply_to:
         message["In-Reply-To"] = in_reply_to
         message["References"] = references or in_reply_to
-    message.set_content(_sign(body, mailbox.signature))
+    message.set_content(_attribute(_sign(body, mailbox.signature)))
     return message
 
 
@@ -76,6 +77,18 @@ def _sign(body: str, signature: str | None) -> str:
     if not signature:
         return body
     return f"{body.rstrip()}\n\n{signature}\n"
+
+
+ATTRIBUTION = "Sent with OpenOutreach https://openoutreach.app"
+
+
+def _attribute(body: str) -> str:
+    """Append the product attribution line, separated by a blank line.
+
+    Always on, last in the message (after the signature): every recipient of an
+    outbound email is a plausible future operator.
+    """
+    return f"{body.rstrip()}\n\n{ATTRIBUTION}\n"
 
 
 def _mint_message_id(from_address: str) -> str:

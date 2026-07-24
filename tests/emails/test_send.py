@@ -12,7 +12,7 @@ from openoutreach.core.models import Task
 from openoutreach.core.scheduler import flush_email_queue
 from openoutreach.crm.models import DealState
 from openoutreach.emails.models import Mailbox
-from openoutreach.emails.sender import send_email
+from openoutreach.emails.sender import ATTRIBUTION, send_email
 from openoutreach.emails.tasks.send import handle_email
 from tests.factories import DealFactory, LeadFactory
 
@@ -181,14 +181,51 @@ class TestSendEmailSignature:
 
     def test_signature_appended_after_blank_line(self):
         body = self._sent_body("Eracle\nhttps://www.linkedin.com/in/eracle")
-        assert body == "Body\n\nEracle\nhttps://www.linkedin.com/in/eracle\n"
+        assert body == (
+            f"Body\n\nEracle\nhttps://www.linkedin.com/in/eracle\n\n{ATTRIBUTION}\n"
+        )
 
-    def test_body_unchanged_when_signature_blank(self):
-        assert self._sent_body("") == "Body\n"
+    def test_body_carries_only_attribution_when_signature_blank(self):
+        assert self._sent_body("") == f"Body\n\n{ATTRIBUTION}\n"
 
-    def test_body_unchanged_when_signature_unset(self):
+    def test_body_carries_only_attribution_when_signature_unset(self):
         """A never-asked box (NULL) sends unsigned rather than crashing on None."""
-        assert self._sent_body(None) == "Body\n"
+        assert self._sent_body(None) == f"Body\n\n{ATTRIBUTION}\n"
+
+
+class TestSendEmailAttribution:
+    def _box(self, signature=None):
+        return Mailbox(
+            username="s@infra.com", password="pw", from_address="s@infra.com",
+            signature=signature,
+        )
+
+    def _sent_body(self, box, **kwargs) -> str:
+        with patch("openoutreach.emails.sender._deliver") as deliver:
+            send_email(box, "lead@corp.com", "Hi", "Body", **kwargs)
+        return deliver.call_args.args[1].get_content()
+
+    def test_attribution_is_the_last_line(self):
+        body = self._sent_body(self._box("Eracle"))
+        assert body.rstrip().splitlines()[-1] == ATTRIBUTION
+
+    def test_attribution_follows_the_signature(self):
+        body = self._sent_body(self._box("Eracle"))
+        assert body.index("Eracle") < body.index(ATTRIBUTION)
+
+    def test_follow_up_also_carries_attribution(self):
+        """Threaded replies go through the same assembly, so they carry it too."""
+        body = self._sent_body(self._box("Eracle"), in_reply_to="<prior@corp.com>")
+        assert body.endswith(f"{ATTRIBUTION}\n")
+
+    def test_body_is_not_logged_on_send(self, caplog):
+        with caplog.at_level("INFO", logger="openoutreach.emails.sender"):
+            self._sent_body(self._box("Eracle"))
+        records = [r for r in caplog.records if r.name == "openoutreach.emails.sender"]
+        assert len(records) == 1
+        logged = records[0].getMessage()
+        assert "Body" not in logged and ATTRIBUTION not in logged
+        assert "lead@corp.com" in logged and "Hi" in logged
 
 
 # ── handle_email (the EMAIL task) ─────────────────────────────────
