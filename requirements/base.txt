@@ -15,5 +15,5 @@ scikit-learn
 huggingface_hub
 questionary
 rich
-pytz
+pytz==2026.3.post1
 tenacity
