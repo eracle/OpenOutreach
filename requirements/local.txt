@@ -1,7 +1,7 @@
 -r base.txt
 
 # Testing
-pytest
+pytest==9.0.3
 pytest-django
 pytest-mock
 pytest-cov
