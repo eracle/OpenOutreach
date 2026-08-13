@@ -16,5 +16,5 @@ huggingface_hub
 questionary
 rich
 pytz
-imapclient
+imapclient==3.1.0
 tenacity
