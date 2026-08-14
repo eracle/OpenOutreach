@@ -24,8 +24,12 @@ def find_freemium_candidate(campaign, qualifier) -> dict | None:
     from openoutreach.crm.models import Deal, Lead
 
 
-    # All embedded lead IDs
-    embedded_pks = set(Lead.objects.filter(embedding__isnull=False).values_list("pk", flat=True))
+    # Freemium may only rank leads already attached to this freemium campaign.
+    embedded_pks = set(
+        Lead.objects.filter(embedding__isnull=False, deal__campaign=campaign)
+        .values_list("pk", flat=True)
+        .distinct()
+    )
 
     # Seed profiles: QUALIFIED Deals in this campaign
     seed_pks = set(
