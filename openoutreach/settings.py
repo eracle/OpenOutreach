@@ -6,6 +6,8 @@ import os
 import sys
 from pathlib import Path
 
+from django.core.management.utils import get_random_secret_key
+
 # The agents drive async pydantic-ai from a sync boundary (core/llm.py), so an
 # event loop can be live on the thread when the ORM is touched. We only use the
 # ORM synchronously, so Django's async-safety guard is safe to relax.
@@ -15,7 +17,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 BASE_DIR = ROOT_DIR
 
-SECRET_KEY = "openoutreach-local-dev-key-change-in-production"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY") or get_random_secret_key()
 
 DEBUG = True
 
