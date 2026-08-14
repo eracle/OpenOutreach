@@ -34,6 +34,7 @@ def test_auth_ok_implicit_ssl_on_465():
 def test_login_password_rejection_surfaces_app_password_hint():
     error = smtplib.SMTPAuthenticationError(534, b"application-specific password required")
     with patch("smtplib.SMTP") as smtp_cls:
+        smtp_cls.return_value.__enter__.return_value.has_extn.return_value = True
         smtp_cls.return_value.__enter__.return_value.login.side_effect = error
         ok, message = verify_auth("smtp.gmail.com", 587, "u", "p")
     assert not ok and "app password" in message and "534" in message
@@ -43,3 +44,13 @@ def test_connection_failure_is_reported_not_raised():
     with patch("smtplib.SMTP", side_effect=OSError("no route to host")):
         ok, message = verify_auth("smtp.gmail.com", 587, "u", "p")
     assert not ok and "connection failed" in message
+
+
+def test_auth_rejects_plaintext_downgrade_when_starttls_missing():
+    with patch("smtplib.SMTP") as smtp_cls:
+        conn = smtp_cls.return_value.__enter__.return_value
+        conn.has_extn.return_value = False
+        ok, message = verify_auth("smtp.example.com", 587, "u", "p")
+    assert not ok
+    assert "STARTTLS" in message
+    conn.login.assert_not_called()

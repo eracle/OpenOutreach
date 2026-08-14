@@ -5,8 +5,7 @@ No test send — boxes are mid-warmup; we only confirm the credentials log in.
 The transport is chosen by port so real providers all pass the gate:
 
   * 465        → implicit TLS (``SMTP_SSL``) — Google, Fastmail, most hosts
-  * 587 / 25   → plaintext connect, then ``STARTTLS`` *if the server advertises
-                 it* (it always does on 587), else stay plaintext (rare relays)
+  * 587 / 25   → plaintext connect, then upgrade with ``STARTTLS`` before auth
 
 Hard-coding ``starttls()`` was the old bug: a 465-only box could never connect,
 so onboarding rejected working credentials and re-asked the mailbox forever.
@@ -32,9 +31,10 @@ def verify_auth(host: str, port: int, username: str, password: str) -> tuple[boo
         else:
             with smtplib.SMTP(host, port, timeout=20) as smtp:
                 smtp.ehlo()
-                if smtp.has_extn("starttls"):
-                    smtp.starttls(context=context)
-                    smtp.ehlo()
+                if not smtp.has_extn("starttls"):
+                    return False, "connection failed: server does not advertise STARTTLS"
+                smtp.starttls(context=context)
+                smtp.ehlo()
                 smtp.login(username, password)
         return True, "ok"
     except smtplib.SMTPAuthenticationError as e:
