@@ -5,3 +5,6 @@
 .idea
 __pycache__
 .vscode
+.env
+data/
+media/
