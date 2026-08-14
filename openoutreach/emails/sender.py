@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
 from email.utils import make_msgid
 
@@ -283,7 +284,7 @@ def _deliver(mailbox, email_message: EmailMessage, row) -> None:
 
     try:
         with _SMTP(mailbox.host, mailbox.port, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
-            smtp.starttls()
+            smtp.starttls(context=ssl.create_default_context())
             smtp.login(mailbox.username, mailbox.password)
             smtp.send_message(email_message)
             record_acceptance(row, *smtp.accepted_response)

@@ -27,6 +27,7 @@ from __future__ import annotations
 import email
 import imaplib
 import logging
+import ssl
 from collections import Counter
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
@@ -174,8 +175,12 @@ def read_sent_history(mailbox) -> Counter:
     """``{local date: messages sent}`` over the trailing window, from the box's
     Sent folder. Headers only — no bodies are fetched, and the folder is opened
     read-only."""
-    imap = imaplib.IMAP4_SSL(mailbox.imap_host, mailbox.imap_port,
-                             timeout=IMAP_TIMEOUT_SECONDS)
+    imap = imaplib.IMAP4_SSL(
+        mailbox.imap_host,
+        mailbox.imap_port,
+        timeout=IMAP_TIMEOUT_SECONDS,
+        ssl_context=ssl.create_default_context(),
+    )
     try:
         imap.login(mailbox.username, mailbox.password)
         folder = _sent_folder(imap)

@@ -45,6 +45,7 @@ arrived" stay different statements.
 from __future__ import annotations
 
 import logging
+import ssl
 
 from django.utils import timezone
 from imapclient import IMAPClient
@@ -233,8 +234,13 @@ def _record_coverage(coverage: FolderCoverage, uidvalidity: int, *, complete: bo
 
 def _connect(mailbox) -> IMAPClient:
     """A logged-in IMAP session for *mailbox*, as a context manager."""
-    client = IMAPClient(mailbox.imap_host, port=mailbox.imap_port, ssl=True,
-                        timeout=IMAP_TIMEOUT_SECONDS)
+    client = IMAPClient(
+        mailbox.imap_host,
+        port=mailbox.imap_port,
+        ssl=True,
+        ssl_context=ssl.create_default_context(),
+        timeout=IMAP_TIMEOUT_SECONDS,
+    )
     client.login(mailbox.username, mailbox.password)
     return client
 
