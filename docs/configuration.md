@@ -59,7 +59,7 @@ Discovery keeps no filter spec or page cursor on the campaign: the keyword sets 
 ## Sending mailboxes — there are none
 
 The `Mailbox` model, the SMTP/IMAP credentials, the per-box signature, the measured daily cap and the
-send-spacing clock all moved to [OpenEmailSequence](https://github.com/eracle/OpenEmailSequence) with
+send-spacing clock all moved to [OpenOutSend](https://github.com/eracle/OpenOutSend) with
 the sending leg. **Nothing here needs a mailbox**, and onboarding no longer asks for one.
 
 ## Newsletter jurisdiction default

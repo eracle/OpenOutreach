@@ -41,7 +41,7 @@ tests/
 ```
 
 *(The `tests/emails/` and `tests/agents/` trees, `test_sending_window.py` and
-`test_mail_log_backfill.py` moved to OpenEmailSequence with the code they covered.)*
+`test_mail_log_backfill.py` moved to OpenOutSend with the code they covered.)*
 
 ## Conventions
 

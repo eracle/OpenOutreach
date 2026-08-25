@@ -100,7 +100,7 @@ def disqualify_lead(profile_url: str):
 # header, the `+unsub` alias on the operator's own sending address, the mailbox scan
 # that read a client-generated unsubscribe, and the agent recognising a worded request
 # in a reply. A finder that never contacts anyone is not the sender under CAN-SPAM /
-# GDPR / CASL, so the duty is not inherited — it moves to OpenEmailSequence with the
+# GDPR / CASL, so the duty is not inherited — it moves to OpenOutSend with the
 # code. Instantly and Smartlead both block a suppressed address at import, which is
 # where an opt-out now lands.
 #

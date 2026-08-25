@@ -55,7 +55,7 @@ operator typed, since one credit is one verified address.
 
 **Two rows are gone with the sending leg** — answering a reply and sending a first
 email — along with the mail pass and the daily warmth re-measure that fed them. They
-live in OpenEmailSequence now. Leads leave this process over a CSV
+live in OpenOutSend now. Leads leave this process over a CSV
 (``core/export.py``) and nothing comes back up that wire.
 
 **Campaigns no longer take turns.** ``_rotate`` round-robined them because a daemon had

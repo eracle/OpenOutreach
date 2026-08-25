@@ -14,7 +14,7 @@ PROMPTS_DIR = Path(__file__).parent / "templates" / "prompts"
 # ceiling, measured from the box's own Sent folder rather than declared), send
 # pacing (a 3.5–4.5 minute gap between two first emails), and the sending window
 # (Mon–Fri, 08:00–20:00 in the operator's own time). Together they were most of
-# this file. They went to OpenEmailSequence with the code they governed.
+# this file. They went to OpenOutSend with the code they governed.
 #
 # They are worth knowing about if anything here ever grows an outbound leg again,
 # because the reasoning was hard-won and is recorded in `cold_outreach/README.md`

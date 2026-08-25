@@ -205,7 +205,7 @@ The export is a one-way boundary: leads leave, nothing comes back. There is no i
 no callback. Whoever sends owns the conversation, the suppression list and the opt-out duty.
 
 So the natural next step after a run is another tool's importer — Instantly, Smartlead, Lemlist, a
-CRM, a spreadsheet, or [OpenEmailSequence](https://github.com/eracle/OpenEmailSequence) for the
+CRM, a spreadsheet, or [OpenOutSend](https://github.com/eracle/OpenOutSend) for the
 sending half. **Tell the user to switch on their sequencer's import deduplication**: it is opt-in on
 Smartlead and undocumented on Instantly, so a lead exported twice can otherwise be contacted twice.
 

@@ -39,7 +39,7 @@ wiring points (the cycle's hierarchy).
 **What used to be here.** An `emails` app carried Mailbox, SMTP/IMAP, the mail log, the sender,
 the three send guards and two pipeline steps; `core` carried the outreach agent and the sending
 window; `chat` and `legacy` were model-less apps holding migration history. All of it is gone.
-The sending half was **ported to [OpenEmailSequence](https://github.com/eracle/OpenEmailSequence)**
+The sending half was **ported to [OpenOutSend](https://github.com/eracle/OpenOutSend)**
 (see `cold_outreach/` in that repo, which documents every dangling dependency); the model-less
 anchors went with the migration history they anchored, because the cut was clean rather than
 upgradeable — see *Migrations* below.
@@ -382,7 +382,7 @@ filtered only the second. Pre-Deal Lead states are implicit: url-only (a `Lead` 
 
 *(Two legs have been removed over the project's life. The connect leg — `READY_TO_CONNECT`/
 `PENDING`/`CONNECTED` — went with the browser channel. The send leg — `READY_TO_EMAIL`,
-`EMAILED`, `COMPLETED`, `UNSUBSCRIBED` — went with `emails/*` to OpenEmailSequence.)*
+`EMAILED`, `COMPLETED`, `UNSUBSCRIBED` — went with `emails/*` to OpenOutSend.)*
 
 ## The Cycle
 
@@ -463,7 +463,7 @@ whether there is a provider to pay.
 **Two rows are gone with the sending leg** — answering a reply (`EMAILED` + an unanswered reply)
 and sending a first email (`READY_TO_EMAIL`, a mailbox free) — along with both periodic
 side-effects the loop used to run before every action: the mail pass (IMAP into each box every five
-minutes) and the daily warmth re-measure. They live in OpenEmailSequence now.
+minutes) and the daily warmth re-measure. They live in OpenOutSend now.
 
 Row 2 is the only **per-campaign** step: building a qualifier dominates the cost of using it, so it
 scores the whole `QUALIFIED` pool in one pass and drops the model (`qualifier_for`). There is no
@@ -521,7 +521,7 @@ columns (a sequencer's `{{first_name}}` merge tag) rather than send machinery.
 Three guards lived here — **hours** (Mon–Fri 08:00–20:00 in the operator's own timezone),
 **rate** (a 3.5–4.5 minute gap between two first emails from one box) and **volume** (a per-box
 daily ceiling *measured* from the box's own Sent folder rather than configured). They exist now in
-OpenEmailSequence, and the reasoning is preserved with them, because it was hard-won: receivers
+OpenOutSend, and the reasoning is preserved with them, because it was hard-won: receivers
 punish rate and volume separately and a recipient reads the *hour*, so no one guard covers the
 others.
 
@@ -535,7 +535,7 @@ What was here: a `List-Unsubscribe` header pointing at a `+unsub` alias of the o
 sending address, a visible reply-line in every body, a mailbox scan that caught client-generated
 unsubscribes the threaded reader could never see, and an outreach agent with a `suppress` action
 for worded requests — all enforced permanently on `Lead.disqualified`, cross-campaign. Every one of
-those is a **sending** mechanism, so all of them moved to OpenEmailSequence with `emails/*`, and
+those is a **sending** mechanism, so all of them moved to OpenOutSend with `emails/*`, and
 `core.db.leads.suppress_email` went with them.
 
 A finder that never contacts anyone is not the sender under CAN-SPAM / GDPR / CASL, so the duty is
@@ -645,11 +645,11 @@ rather than pinned to a single hallucination.
 - **`contacts`** — the central contacts-store client (`service.py`, no models, **not** an installed app) — "the hub" (`hub.openoutreach.app`), logged under the `hub:` prefix. `resolve(lead)` (free read-back before the paid finder) and `contribute(lead, emails, origin)` (give-back, non-EEA only, registers on first use). Both best-effort; an outage or missing token degrades to a no-op.
 
 **Three apps are gone.** `emails` (Mailbox, the mail log, sender, the send guards, two steps) went
-to OpenEmailSequence. `chat` and `legacy` were model-less anchors holding migration history for
+to OpenOutSend. `chat` and `legacy` were model-less anchors holding migration history for
 pre-pivot installs; the cut was clean rather than upgradeable, so the history they anchored went
 with them — see *Migrations*.
 
-## The Mail Log — moved to OpenEmailSequence
+## The Mail Log — moved to OpenOutSend
 
 Every message a mailbox emitted or received was a `Message` row keyed on `(mailbox, message_id)`,
 written *before* anything decided what it was, with `kind` + `classifier_version` as the reading and
@@ -831,7 +831,7 @@ Paths relative to `openoutreach/`.
 
 - **`SiteConfig`** (DB singleton) — see CRM Data Model. Editable via Django Admin.
 - **`conf.py` lookup backoff** — `COLLECT_BACKOFF_BASE_S` (5), `COLLECT_BACKOFF_MAX_S` (30 days): the poll doubles its delay on every still-running attempt and **never gives up** — MAX rails the *interval* so `datetime` can still express it, and is not a deadline. **There is no spend cap.** Paid spend used to be gated by mailbox send-headroom (never resolve an address there is no room to email today); with no sending leg that gate is gone and nothing replaced it, because what bounds the spend is the operator's own prepaid credit balance, which the provider enforces and we cannot see. `COLLECT_TODAY_HORIZON_S` went with the gate it served.
-- **`conf.py` — the three send guards are gone.** `WARM_*` (the measured per-box daily ceiling), `MIN_SEND_INTERVAL_SECONDS`/`SEND_INTERVAL_JITTER_*` (the 3.5–4.5 minute gap between first emails) and `SEND_WINDOW_*` (Mon–Fri 08:00–20:00, operator-local) were most of this file. They moved with the code they governed; the reasoning is preserved in `cold_outreach/README.md` on the OpenEmailSequence side, because it is worth not re-deriving: receivers punish *rate* and *volume* separately and a recipient reads the *hour*, so no one guard covers the others.
+- **`conf.py` — the three send guards are gone.** `WARM_*` (the measured per-box daily ceiling), `MIN_SEND_INTERVAL_SECONDS`/`SEND_INTERVAL_JITTER_*` (the 3.5–4.5 minute gap between first emails) and `SEND_WINDOW_*` (Mon–Fri 08:00–20:00, operator-local) were most of this file. They moved with the code they governed; the reasoning is preserved in `cold_outreach/README.md` on the OpenOutSend side, because it is worth not re-deriving: receivers punish *rate* and *volume* separately and a recipient reads the *hour*, so no one guard covers the others.
 - **`conf.py:CAMPAIGN_CONFIG`** — `min_gp_confidence` (the GP rank gate — **only** a spend gate on the paid lookup; it is not a steering signal and never a quality score), `qualification_n_mc_samples` (100), `embedding_model` (`BAAI/bge-small-en-v1.5`). **There is no discovery cadence knob**: growing the vocabulary used to be an LLM call worth rationing (`mint_every_n_qualified`, removed) and is now a tokenize-and-count that simply runs every pass. The walk's only other constant is the df≥2 admission floor, which lives in `pipeline/vocabulary.py` beside the measurement that set it.
 - **Prompt templates** (`core/templates/prompts/`) — `icp_filters.j2` (the cold-start ICP → seed keywords + size band), `anchor_profiles.j2`, `qualify_lead.j2`. *(`outreach_agent.j2` went with the agent; `mint_clauses.j2` with LLM clause minting.)*
 - **`pyproject.toml`** — package metadata, dependencies, dev extras, and the `openoutreach` console

@@ -86,7 +86,7 @@ The export is a **one-way boundary**. Leads leave; nothing comes back. There is 
 
 ### 📭 It does not send email
 
-Earlier versions ran agentic email outreach from a mailbox you owned. That half has been **handed off** to [OpenEmailSequence](https://github.com/eracle/OpenEmailSequence), because sending is a specialism — and a good lead list ruined by a bad opener reads to the buyer as a bad lead list.
+Earlier versions ran agentic email outreach from a mailbox you owned. That half has been **handed off** to [OpenOutSend](https://github.com/eracle/OpenOutSend), because sending is a specialism — and a good lead list ruined by a bad opener reads to the buyer as a bad lead list.
 
 What that means for you, concretely:
 

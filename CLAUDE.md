@@ -28,7 +28,7 @@ Django + Django Admin own the CRM/ORM (models are this project's); pydantic-ai d
 
 ### The cut (2026-08-19) — this project does not send email
 
-The sending half was **ported to [OpenEmailSequence](https://github.com/eracle/OpenEmailSequence)**
+The sending half was **ported to [OpenOutSend](https://github.com/eracle/OpenOutSend)**
 (parked under `cold_outreach/` there, with a README mapping every dangling dependency). Gone from
 here: the `emails` app entirely — `Mailbox`, SMTP/IMAP, the mail log (`Thread`/`Message`/
 `DeliveryEvent`/`FolderCoverage`), the sender, the three send guards (hours/rate/volume), the

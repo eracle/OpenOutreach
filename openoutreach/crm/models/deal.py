@@ -59,7 +59,7 @@ class DealState(models.TextChoices):
 
     **The send states are gone** (READY_TO_EMAIL, EMAILED, UNSUBSCRIBED, COMPLETED),
     along with the whole ``emails`` app. They described a conversation, and the
-    conversation is no longer ours: the sending half moved to OpenEmailSequence and
+    conversation is no longer ours: the sending half moved to OpenOutSend and
     the opt-out duty went with it. A finder that never contacts anyone is not the
     sender under CAN-SPAM / GDPR / CASL. The retired connect leg (READY_TO_CONNECT/
     PENDING/CONNECTED) was removed with its channel before that.
