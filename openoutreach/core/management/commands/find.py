@@ -35,20 +35,42 @@ exits non-zero with one ``error: <type>: <message>`` line — the code says how 
 got, the type says why it stopped.
 
 **The run ends with the one thing to do next**, from `status` and rendered as-is: on
-stderr beside the counts, or as the ``next_action`` key under ``--json``. A run that stops
-with ranked leads and an empty wallet has to say so, and this is the only moment it can.
+stderr beside the counts, or as the ``next_action`` key of the run object under ``--json``.
+A run that stops with ranked leads and an empty wallet has to say so, and this is the only
+moment it can.
+
+**One rule serves both formats: stdout is records, stderr is narration.** ``--json`` emits
+**JSON Lines** — one record per line, the full record including ``profile_text`` — and the
+run's own metadata goes to stderr as one JSON object:
+
+    openoutreach find 50 --json | outsend       # the full record, profile text included
+    openoutreach find 50 > leads.csv            # the importer-shaped projection of it
+
+Line-delimited rather than one document because **a truncated stream stays usable**: an
+object that stops halfway is a parse error and the whole batch is lost, where a
+line-delimited one has already delivered every complete record before the break. It does
+not make ``find`` incremental — the rows are still materialised once the job is done.
+
+**Under ``--json``, stderr is JSON and nothing else** — no banner, no log lines: the run
+object, and the ``{"error": …}`` object after it if the run fell short. Otherwise a ``2>``
+capture is prose with an object somewhere in it and every caller writes the same fragile
+``tail -1``. The cost is the narration an interactive ``--json`` run used to print, and
+that is the right trade: ``--json`` is the machine's mode, and a person watching a run is
+not using it.
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
+import sys
 import webbrowser
 
 from termcolor import colored
 
 from openoutreach.core.errors import ErrorType, OpenOutreachError
 from openoutreach.core.logging import format_elapsed
-from openoutreach.core.export import lead_records, write_csv
+from openoutreach.core.export import lead_records, write_csv, write_json_lines
 from openoutreach.core.job import EMAILS, LEADS, UNITS, Goal, JobResult, run_job
 from openoutreach.core.management.base import OpenOutreachCommand
 from openoutreach.core.management.bootstrap import (
@@ -79,7 +101,9 @@ class Command(OpenOutreachCommand):
                                  "confidence gate — one credit per verified hit. Without "
                                  "this the run cannot spend. Implied by the `emails` unit.")
         parser.add_argument("--json", action="store_true", dest="as_json",
-                            help="Emit one JSON object: the goal, the outcome, and the rows.")
+                            help="Emit the rows as JSON Lines, one record per line, "
+                                 "profile text included. The run's own metadata goes to "
+                                 "stderr as one JSON object, and nothing else does.")
         parser.add_argument("--open", action="store_true", dest="open_profiles",
                             help="Open each new lead's profile in your browser as it lands.")
         parser.add_argument(
@@ -103,8 +127,12 @@ class Command(OpenOutreachCommand):
         buy_addresses = options["buy_emails"] or options["unit"] == EMAILS
         opener = _browser() if options["open_profiles"] else None
 
-        self._configure_logging(options.get("log_level"), options["verbosity"])
-        ensure_database(self.stderr)
+        self._configure_logging(options.get("log_level"), options["verbosity"],
+                                quiet=options["as_json"])
+        # Django's migration narration is prose, and under --json stderr is JSON only —
+        # so it goes nowhere rather than onto the stream a caller is parsing. A migration
+        # that *fails* still raises; what is dropped is "Applying core.0001_initial… OK".
+        ensure_database(io.StringIO() if options["as_json"] else self.stderr)
         ensure_onboarded()
         validate_operator()
 
@@ -122,10 +150,14 @@ class Command(OpenOutreachCommand):
     # ── output ───────────────────────────────────────────────────
 
     def _report(self, campaign, result: JobResult, options) -> None:
-        """Write the rows to stdout, then the one thing to do next.
+        """Write the rows to stdout, then the one thing to do next, on stderr.
 
         Called whether or not the goal was met — seven leads are seven leads, and a
         caller that only wanted rows should not have to care that it asked for ten.
+
+        **Both formats obey one rule — stdout is records, stderr is narration.** CSV
+        with a header row, or JSON Lines carrying the full record; the count, the ask
+        and the outcome are narration either way, as prose or as one JSON object.
 
         **The next action is derived once, by `status`, and rendered here.** A run that
         ends with ranked leads and an empty wallet has to say so, and this is the only
@@ -140,7 +172,12 @@ class Command(OpenOutreachCommand):
         action = build_status()["next_action"]
 
         if options["as_json"]:
-            self.stdout.write(json.dumps({
+            write_json_lines(records, self.stdout)
+            # sys.stderr, not self.stderr: Django's wrapper styles what it writes, and
+            # an escape sequence around an object a caller parses is the same corruption
+            # a log line would be. The error object below it, if the run fell short, is
+            # written the same way by `base.format_failure`.
+            sys.stderr.write(json.dumps({
                 "campaign": campaign.name,
                 "goal": {"count": result.goal.count, "unit": result.goal.unit},
                 "produced": result.produced,
@@ -148,8 +185,8 @@ class Command(OpenOutreachCommand):
                 "stopped_because": result.stopped_because,
                 "detail": result.detail or None,
                 "next_action": action,
-                "leads": records,
-            }, indent=2))
+                "rows": len(records),
+            }) + "\n")
             return
 
         write_csv(records, self.stdout)
@@ -161,8 +198,18 @@ class Command(OpenOutreachCommand):
 
     # ── logging ──────────────────────────────────────────────────
 
-    def _configure_logging(self, log_level: str | None, verbosity: int):
+    def _configure_logging(self, log_level: str | None, verbosity: int, *, quiet: bool = False):
+        """Configure the run's narration, or silence it entirely.
+
+        ``quiet`` is ``--json``: stderr carries JSON objects there and nothing else, so
+        the banner and every log line are suppressed rather than interleaved with the
+        one thing a caller is parsing.
+        """
         from openoutreach.core.logging import configure_logging, print_banner, resolve_log_level
+
+        if quiet:
+            configure_logging(level=logging.CRITICAL + 1)
+            return
 
         configure_logging(level=resolve_log_level(log_level, verbosity))
         print_banner()

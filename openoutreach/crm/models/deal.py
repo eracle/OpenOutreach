@@ -138,7 +138,6 @@ class Deal(models.Model):
     # can never hold up anything but this lead.
     lookup_request_id = models.CharField(max_length=64, blank=True, default="")
     lookup_attempt = models.PositiveSmallIntegerField(default=0)
-    profile_summary = models.JSONField(null=True, blank=True, default=None)
     creation_date = models.DateTimeField(default=timezone.now)
     update_date = models.DateTimeField(auto_now=True)
 

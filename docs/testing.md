@@ -20,8 +20,7 @@ tests/
 ├── factories.py                # factory-boy factories (LeadFactory → profile_url, etc.)
 ├── contacts/test_service.py    # the hub client (resolve / contribute), best-effort degradation
 ├── db/
-│   ├── test_deals.py           # Deal state ops
-│   └── test_summaries.py       # mem0-style profile summaries
+│   └── test_deals.py           # Deal state ops
 ├── ml/
 │   ├── test_embeddings.py      # FastEmbed embedding
 │   └── test_qualifier.py       # GP + BALD selection, LLM qualification

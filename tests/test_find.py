@@ -192,16 +192,30 @@ class TestTheCommandContract:
 
         assert [row["email"] for row in rows] == ["new@acme.com"]
 
-    def test_json_is_one_object_carrying_the_outcome_and_the_rows(self, campaign, booted):
+    def test_json_puts_the_records_on_stdout_one_per_line(self, campaign, booted):
+        """JSON Lines, so a stream truncated mid-run has still delivered every complete
+        record before the break — and the full record, profile text included, which is
+        the field the CSV projection drops."""
         _exportable(campaign, "ada@acme.com")
         out = io.StringIO()
 
         call_command("find", "0", "--json", stdout=out)
 
-        document = json.loads(out.getvalue())  # would raise on any stray line
+        lines = out.getvalue().splitlines()
+        assert [json.loads(line)["email"] for line in lines] == ["ada@acme.com"]
+        assert "profile_text" in json.loads(lines[0])
+
+    def test_json_puts_the_run_metadata_on_stderr_and_nothing_else(self, campaign, booted, capsys):
+        """Otherwise a `2>` capture is prose with an object somewhere in it, and every
+        caller writes the same fragile `tail -1`."""
+        _exportable(campaign, "ada@acme.com")
+
+        call_command("find", "0", "--json", stdout=io.StringIO())
+
+        document = json.loads(capsys.readouterr().err)  # a banner or a log line would raise
         assert document["reached"] is True and document["stopped_because"] is None
         assert document["goal"] == {"count": 0, "unit": "leads"}
-        assert [lead["email"] for lead in document["leads"]] == ["ada@acme.com"]
+        assert document["rows"] == 1
 
     def test_a_negative_count_is_refused(self, campaign, booted):
         with pytest.raises(OpenOutreachError) as exc:
@@ -312,15 +326,15 @@ class TestTheCommandContract:
         rows = list(csv.DictReader(io.StringIO(out.getvalue())))
         assert sorted(row["email"] for row in rows) == ["", "ada@acme.com"]
 
-    def test_json_carries_the_next_action_for_the_agent_to_relay(self, campaign, booted, caplog):
-        """An agent reads the object, not the log, so the ask has to be in both."""
+    def test_json_carries_the_next_action_for_the_agent_to_relay(self, campaign, booted,
+                                                                 caplog, capsys):
+        """An agent reads the object, not the log, so the ask has to be in it."""
         _ranked(campaign)
-        out = io.StringIO()
 
         with _wallet(balance=0), caplog.at_level(logging.INFO):
-            call_command("find", "0", "--json", stdout=out)
+            call_command("find", "0", "--json", stdout=io.StringIO())
 
-        document = json.loads(out.getvalue())  # would raise on any stray line
+        document = json.loads(capsys.readouterr().err)
         assert document["next_action"]["type"] == "add_credits"
         assert document["next_action"]["leads"] == 1
         assert "Next:" not in caplog.text  # the object is the whole answer

@@ -25,8 +25,7 @@ openoutreach/
   core/              # engine app (label: core) — the cycle, operator lookup,
                      #   Campaign/SiteConfig models, llm.py, conf.py, onboarding,
                      #   ML (qualifier/embeddings), discovery+qualify pipeline,
-                     #   the lead export, db/ helpers, geo, management commands,
-                     #   vendored mem0
+                     #   the lead export, db/ helpers, geo, management commands
   enrichment/        # the one paid step (not an app — no models) — the BetterContact
                      #   client and the two-step buy/check lookup
   crm/               # app (label: crm) — Lead, Company, Deal
@@ -125,8 +124,8 @@ Startup sequence, inherited whole from the deleted `run`:
 correct by construction: the newest file supersedes every earlier one, and a lead whose address
 resolved since last time comes back with it filled in. It is one file you overwrite, not a batch per
 run. `--new` narrows to what this run produced — the escape hatch for a caller reading stdout into a
-context window rather than into a file — and `--json` emits one object carrying the goal, the
-outcome, the next action and the rows.
+context window rather than into a file — and `--json` emits the rows as JSON Lines, one record per
+line, with the goal, the outcome and the next action as one JSON object on stderr.
 
 **The run ends with the one thing to do next, and it derives none of it.** `_report` reads
 `build_status()["next_action"]` and renders it with `status.render_next_action` — on stderr beside the
@@ -640,7 +639,7 @@ rather than pinned to a single hallucination.
 
 ## Django Apps
 
-- **`core`** — Engine: `SiteConfig`, `Campaign` models; the cycle, operator lookup, LLM factory, onboarding, the ML/discovery/qualify pipeline, the lead export, geo, the newsletter signup, vendored mem0.
+- **`core`** — Engine: `SiteConfig`, `Campaign` models; the cycle, operator lookup, LLM factory, onboarding, the ML/discovery/qualify pipeline, the lead export, geo, the newsletter signup.
 - **`crm`** — `Lead` (identity + embedding + email), `Company` (the shared employer row) and `Deal` (`crm/models/lead.py`, `crm/models/company.py`, `crm/models/deal.py`); also defines `DealState` and `Outcome`.
 - **`enrichment`** — **not an app** (no models). `bettercontact.py` (paid finder: the two-leg `submit(query)→request_id` + `poll_once(request_id)→PollOutcome`, the shared blocking `submit_and_poll` transport used by discovery, `is_configured`, `BetterContactQuery`/`Result`/`PollOutcome`/`Unavailable`); `lookup.py` (`buy_address`/`check_lookup`/`reclaim_lookup` — one entity in, the next `DealState` or `None` out). It sat under `emails/` while a resolved address existed to be written to; that coupling is exactly what made a mailbox-less install produce nothing.
 - **`contacts`** — the central contacts-store client (`service.py`, no models, **not** an installed app) — "the hub" (`hub.openoutreach.app`), logged under the `hub:` prefix. `resolve(lead)` (free read-back before the paid finder) and `contribute(lead, emails, origin)` (give-back, non-EEA only, registers on first use). Both best-effort; an outage or missing token degrades to a no-op.
@@ -727,9 +726,37 @@ emitted rather than the message. **Note the operator-side duty this creates**: i
 opt-in on Smartlead and undocumented on Instantly, so a re-exported lead who never opted out can be
 contacted twice unless the operator enables it — say so in every adapter's docs.
 
-- **CSV is a flattening of the JSON record, never a second schema** — both are generated from
-  `RECORD_FIELDS`, so a field cannot appear in one and be forgotten in the other. `None` writes
-  as an empty cell, which is what an importer expects for a field we were never told.
+- **One record, two serialisations.** `JSON_FIELDS` is the record — the ten columns above plus
+  `profile_text`, the raw firmographic string the qualifier judged on. `RECORD_FIELDS` is the
+  **importer-shaped projection** of it, and `write_csv` projects (`extrasaction="ignore"`) rather
+  than defining a second schema, so a field added for a sender never becomes a column an importer
+  has to map. `None` writes as an empty cell, which is what an importer expects for a field we
+  were never told; `profile_text` is `""`, never absent, so a receiver keying on it need not tell
+  *no text* from *no such key*.
+
+  ```
+  openoutreach find 50 --json | outsend       # the full record, profile text included
+  openoutreach find 50 > leads.csv            # the importer-shaped projection of it
+  ```
+
+  `--json` is **JSON Lines** (`write_json_lines`): one record per line and nothing else on stdout,
+  with the run's metadata (`campaign`, `goal`, `produced`, `reached`, `stopped_because`,
+  `next_action`, `rows`) as one JSON object on **stderr** — so one rule serves both formats,
+  *stdout is records, stderr is narration*. Line-delimited because **a truncated stream stays
+  usable**: one big object that stops halfway is a parse error and the whole batch is lost, where
+  a line-delimited one has already delivered every complete record before the break, and the rest
+  is a re-run. Under `--json` stderr carries JSON and nothing else — no banner, no log lines (the
+  run object, plus the `{"error": …}` object after it if the run fell short), or every caller ends
+  up writing the same fragile `tail -1` over a stream of prose. It does **not** make `find`
+  incremental: `_report` still runs after the job and materialises the campaign at the end.
+- **`reason` is operator-facing.** It is the `QualificationDecision`'s justification for a yes/no —
+  third-person, evaluative, about the act of selecting someone. It is evidence for the person
+  running this, **never text for the person receiving the mail**; a sender writes the message from
+  `profile_text` instead.
+- **The compatibility rule is the substitute for the shared record-schema package we are not
+  building**: a receiver ignores keys it does not know, and this side never renames a key or
+  repurposes one — it only ever adds. The docs are the contract, so a third party reading JSON
+  Lines needs no package from us; two repos and one record cannot stay in step on good intentions.
 - **There is no score column, and the export is a pure database read.** An earlier version
   exported the GP's `P(f>0.5)`; it was removed as a category error. `core/pipeline/ready_pool.py`
   defines `min_gp_confidence` as "the paid-lookup spend gate **and nothing else**" — the GP decides
@@ -771,7 +798,7 @@ contacted twice unless the operator enables it — say so in every adapter's doc
 - **QueryNode** (`core/models.py`) — one node in the walk: `campaign` FK, `keywords` (M2M) + `token_key` (sha256 of the sorted set, the dedup key), `parent` (self-FK — **the level, not provenance**: a child inherits its parent's measured rate as the prior its own counts move off), `next_offset`, `state` (`frontier` / `fired` / `drained` / `dead`), `leads_found` (the provider's corpus count at offset 0, diagnostic only). Unique on `(campaign, token_key)`. **No value column** — the estimate is counted from the label store every time it is needed (`select.estimate`), so there is no counter to drift, nothing to migrate, and nothing to reconcile after a crash; it is also the *same* estimator before and after firing, which is what makes a bad page self-correcting (a node that looked good from the store and returned nobody useful has its own misses land in the counters that made it look good). `pairs` renders the sorted `(field, token)` tuples; `to_filters()` maps onto provider JSON. *(Replaces `Clause`, `DiscoveryQuery` and `EmptyClauseSet`, all dropped in `0013`/`0014`. The anti-monotone prune survives without a blacklist table: a child is skipped at creation if any `dead` node's keyword set is a subset of it — which is the half of the prune that still works once dedup makes the lattice a DAG rather than a tree.)*
 - **Company** (`crm/models/company.py`) — the employer, stored once and shared by every `Lead` at that firm. Identity is `key` (unique): the lowercased `domain`, or `name:<lowercased name>` when the provider reported no domain — a single computed column, because no constraint can express "the domain when there is one, the name otherwise". `name`/`domain` are nullable; `from_row(name, domain)` get-or-creates and returns `None` when the row named no company. **What the provider said, not verified truth**: Lead Finder fuzzy-matches this record (a boutique law firm's founder comes back as Meta — see `discovery.TEXT_FIELDS`), so anything treating a Company as an *account* inherits that error. Known limitation of the simple key: a firm seen once with a domain and once without produces two rows (`acme.com` and `name:acme`); reconciling them is a later pass, not merge logic at write time.
 - **Lead** (`crm/models/lead.py`) — Keyed on `profile_url` (unique — the discovery provider's per-person URL, the opaque identity/lookup key, **stored, never fetched**). `country_code` (stamped from the discovery ICP; drives the contacts-store geo-gate; blank → never contributed). `embedding` (384-dim float32 BinaryField, built at discovery). `profile_text` (the firmographic text — headline/location/industry/title/company/company-description, plus seniority, company-industry, location state+country, and company-keywords folded in *when the row carries them* — built from the Lead Finder row at discovery, the LLM qualifier's input; no re-scrape). `email` (the finder result; null = not found/unresolved — populated by the two-leg buy/check lookup or a free hub-cache hit, never on the model itself). `disqualified` (the permanent, account-level exclusion the export filters — nothing sets it automatically now that the inbound opt-out path is gone). **Identity fields** — `full_name`, `first_name`, `last_name`, `job_title` (all nullable, `NULL` = the provider never told us) and `company` (FK). They exist for the **lead export** and for the record the product keeps, and are deliberately kept out of `profile_text` and the embedding: a name carries no ICP signal and would only give the GP noise to learn on. **The two name sources are distinct and neither is a guess** — discovery reports one `contact_full_name`; the paid enrichment response reports the real `contact_first_name`/`contact_last_name`, which `enrichment/lookup.py` writes on a hit. A lead resolved from the free hub cache never reaches that provider, so its name parts stay `NULL` rather than being split in-house, because they feed a sequencer's `{{first_name}}` merge tag where a wrong guess lands in someone's cold email. `to_profile_dict()` → `{lead_id, profile_url}`; `embedding_array` for numpy; `get_labeled_arrays(campaign)` → (X, y) for GP warm start (non-FAILED → 1, FAILED+wrong_fit → 0, other FAILED → skipped). Created browserless via `core/db/leads.create_lead(row, country_code)` — there are no scrape accessors.
-- **Deal** (`crm/models/deal.py`) — campaign-scoped (`unique(lead, campaign)`). `state` (`DealState`), `outcome` (`Outcome` — now only `wrong_fit`/`unknown`), `reason` (**the product**: why the LLM chose or rejected this lead, in its own words, and the only fit signal that leaves in the export). `not_before` (**the only schedule a deal carries** — "do not touch this row before this time", written by the lookup backoff, null = always eligible), `lookup_request_id`/`lookup_attempt` (the in-flight paid job and its backoff exponent), `profile_summary` (a lazy mem0-style JSON fact list about the lead), `creation_date`, `update_date`.
+- **Deal** (`crm/models/deal.py`) — campaign-scoped (`unique(lead, campaign)`). `state` (`DealState`), `outcome` (`Outcome` — now only `wrong_fit`/`unknown`), `reason` (**the product**: why the LLM chose or rejected this lead, in its own words, and the only fit signal that leaves in the export). `not_before` (**the only schedule a deal carries** — "do not touch this row before this time", written by the lookup backoff, null = always eligible), `lookup_request_id`/`lookup_attempt` (the in-flight paid job and its backoff exponent), `creation_date`, `update_date`.
 
   *Dropped with the sending leg:* `mailbox` and `thread` (FKs into the `emails` app), `email_subject`, `email_sent_at`, and `chat_summary` — every one of them a fact about a conversation.
 
@@ -790,7 +817,7 @@ Paths relative to `openoutreach/`.
 - **`core/ml/`** — `qualifier.py` (`Qualifier` protocol, `BayesianQualifier`, `qualify_with_llm`, `format_prediction`), `embeddings.py` (`embed_text`/`embed_texts`, cached FastEmbed model). *(`KitQualifier` and `hub.py` — the HuggingFace campaign kit — went with the promo campaign, which had no labels of its own to fit on.)*
 - **`core/db/leads.py`** — `create_lead(row, country_code)` (persist one Lead Finder row as an embedded Lead, idempotent), `promote_lead_to_deal`, `disqualify_lead`. *(`suppress_email` left with the sending leg — see* Opt-out and suppression.*)*
 - **`core/db/deals.py`** — Deal state ops: `set_profile_state`, the state-pool queries (`get_qualified_profiles`, `get_ready_to_find_email_profiles`), `create_disqualified_deal`. `_STATE_LOG_STYLE` colors the funnel transitions in the log.
-- **`core/db/summaries.py`** — the single mem0-style LLM boundary. `materialize_profile_summary_if_missing(deal)` builds `profile_summary` from the lead's stored `profile_text` (**no re-scrape**), reconciled through `reconcile_facts` (mem0 ADD/UPDATE/DELETE/NONE). mem0's update prompt is vendored under `core/vendor/mem0/` (no `mem0ai` runtime dep). *(`update_chat_summary` — which folded newly-read replies into `Deal.chat_summary` for the outreach agent — went with the sending leg, along with the column.)*
+*(`core/db/summaries.py` and the vendored mem0 prompt under `core/vendor/` are gone. They built a `Deal.profile_summary` — an LLM fact-extraction over the lead's `profile_text` — for the outreach agent, and had **no consumer left in the finder** once the sending leg went: the qualifier reads `profile_text` directly. **Summarising for a message is the sender's job**, so `profile_text` crosses the boundary raw and the receiver extracts what an opener needs — tuned for the reader who wants it, paid for only for people actually written to, and derived once rather than twice with no rule for which wins.)*
 - **`core/newsletter.py`** — `subscribe_to_newsletter`, a plain Brevo form POST for the operator's own address at onboarding. Nothing to do with outreach; it moved out of `emails/` when that app was removed.
 - **`core/llm.py`** — `get_llm_model()` factory (reads `SiteConfig`, `split_model_id` parses the provider out of `ai_model`, dispatches to the per-provider builder), `build_llm_model` (from explicit creds), `verify_llm_credentials` (one live ping, tenacity-retried, used by onboarding — it returns only the failures a *configuration* causes and lets anything else propagate, since its caller blames `LLM_API_KEY` for whatever comes back), and `run_agent_sync(coro)` — the sync boundary that drives async pydantic-ai on a dedicated long-lived worker-thread loop (never `Agent.run_sync`, whose anyio portal poisons the caller thread's loop slot; never per-call `asyncio.run`, which closes loops the SDK HTTP clients still reference).
 - **`core/geo.py`** — jurisdiction sets + predicates: `is_gdpr_protected` (broad opt-in set, drives the newsletter default) and `is_eea_located` / `EEA_UK_CH` (narrow EEA/UK/CH collection-regime set — the client-side pre-gate for contacts-store contribution; the server re-gates authoritatively). Country codes come from onboarding / the discovery row, never from a scrape.

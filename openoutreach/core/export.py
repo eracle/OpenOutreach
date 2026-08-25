@@ -15,9 +15,16 @@ variable. So the record uses those names exactly — ``company``, not ``company_
 Everything we might like to ship but they do not know (state, campaign, country,
 discovery provenance) is left out rather than dumped in as noise variables.
 
-``RECORD_FIELDS`` is the record, in one place. CSV is the only serialisation today because
-it is the only one with a consumer; when the webhook of Flow 2 arrives it serialises the
-same tuple, so the two cannot drift into separate schemas.
+**One record, two serialisations.** ``JSON_FIELDS`` is the record; ``RECORD_FIELDS`` is the
+importer-shaped projection of it, and the CSV writer projects rather than defining a second
+schema, so the two cannot drift. The whole record crosses as JSON Lines (``find --json``,
+read by a sender on the other side of a pipe); the CSV drops ``profile_text``, because a
+paragraph in a custom variable is useless to an importer and would cost the property that
+makes the CSV worth having.
+
+**The compatibility rule is the substitute for the shared package we are not building**: a
+receiver ignores keys it does not know, and this side never renames a key or repurposes
+one — it only ever adds. Two repos and one record cannot stay in step on good intentions.
 
 **There is no score column, deliberately.** An earlier version exported the GP's
 ``P(f>0.5)``. That was a category error: ``core/pipeline/ready_pool.py`` defines
@@ -37,6 +44,7 @@ database.
 from __future__ import annotations
 
 import csv
+import json
 from typing import IO, Iterable
 
 # The record, in order.
@@ -64,13 +72,27 @@ RECORD_FIELDS = (
     "qualified_at",
 )
 
+# The record itself: the importer's columns plus the one field only a sender needs.
+#
+# `profile_text` is the raw firmographic string the qualifier judged on — the facts a
+# message is written from, crossing as text rather than as an extraction. **Summarising
+# for a message is the sender's job**: the extraction is tuned for the reader who wants
+# it (an opener wants the recent and the specific, a verdict wants the durable), it is
+# paid for only for people actually written to, and one text derived twice on two sides
+# with no rule for which wins is the drift this avoids.
+JSON_FIELDS = RECORD_FIELDS + ("profile_text",)
+
 
 def lead_record(deal) -> dict:
-    """One Deal as an export record.
+    """One Deal as an export record — the full record, `JSON_FIELDS`.
 
     The Deal, not the Lead, is the unit: the qualification verdict (``reason``) is
     per-campaign, and the same person can be a lead in two campaigns with two different
     answers.
+
+    ``reason`` is **operator-facing**: it is evidence for the person running this — the
+    justification for a yes/no, third-person and evaluative — never text for the person
+    receiving the mail.
     """
     lead = deal.lead
     company = lead.company
@@ -88,6 +110,9 @@ def lead_record(deal) -> dict:
         "lead_id": lead.pk,
         # ISO 8601, UTC, second resolution — a string a reader and `sort` both handle.
         "qualified_at": deal.creation_date.isoformat(timespec="seconds"),
+        # Empty, never absent, for a lead that has none: a receiver keying on the field
+        # should not have to tell "no text" from "no such key".
+        "profile_text": lead.profile_text or "",
     }
 
 
@@ -125,16 +150,35 @@ def lead_records(campaign) -> Iterable[dict]:
 # ── serialisation ────────────────────────────────────────────────
 
 def write_csv(records: Iterable[dict], stream: IO[str]) -> int:
-    """Write records as CSV with a header row. Returns the row count.
+    """Write records as CSV with a header row, projected to ``RECORD_FIELDS``.
 
     ``None`` writes as an empty cell — the csv module's own behaviour, which is exactly
     what an importer expects for a field we were never told.
+
+    ``extrasaction="ignore"`` is what makes this a **projection** of the one record
+    rather than a second schema: a field added to ``JSON_FIELDS`` for a sender does not
+    silently become a column an importer has to map.
     """
-    writer = csv.DictWriter(stream, fieldnames=list(RECORD_FIELDS), extrasaction="raise")
+    writer = csv.DictWriter(stream, fieldnames=list(RECORD_FIELDS), extrasaction="ignore")
     writer.writeheader()
     count = 0
     for record in records:
         writer.writerow(record)
+        count += 1
+    return count
+
+
+def write_json_lines(records: Iterable[dict], stream: IO[str]) -> int:
+    """Write the full records as JSON Lines — one object per line. Returns the count.
+
+    **Line-delimited, not one document**, because a truncated stream stays usable: an
+    object that stops halfway is a parse error and the whole batch is lost, where a
+    line-delimited stream has already delivered every complete record before the break
+    and the rest is a re-run — which is safe, since ingest on the far side is idempotent.
+    """
+    count = 0
+    for record in records:
+        stream.write(json.dumps(record) + "\n")
         count += 1
     return count
 

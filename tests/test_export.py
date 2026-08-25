@@ -11,6 +11,7 @@ LLM call, nothing mutated.
 """
 import csv
 import io
+import json
 from unittest.mock import patch
 
 import pytest
@@ -71,7 +72,21 @@ class TestLeadRecord:
         assert record["first_name"] is None and record["last_name"] is None
 
     def test_the_record_carries_exactly_the_contract_fields(self, campaign):
-        assert set(export.lead_record(_deal(campaign))) == set(export.RECORD_FIELDS)
+        assert set(export.lead_record(_deal(campaign))) == set(export.JSON_FIELDS)
+
+    def test_the_record_carries_the_text_the_qualifier_judged_on(self, campaign):
+        """The facts a sender writes a message from cross as raw text, not as an
+        extraction: summarising for a message is the receiver's job."""
+        deal = _deal(campaign, profile_text="cto at acme, devtools, 40 staff")
+
+        assert export.lead_record(deal)["profile_text"] == "cto at acme, devtools, 40 staff"
+
+    def test_a_lead_with_no_profile_text_carries_an_empty_string(self, campaign):
+        """Empty, never absent — a receiver keying on the field should not have to tell
+        *no text* from *no such key*."""
+        record = export.lead_record(_deal(campaign, profile_text=""))
+
+        assert record["profile_text"] == ""
 
     def test_every_row_carries_when_it_was_qualified(self, campaign):
         """Provenance the file keeps: a caller tells which rows its own call produced by
@@ -163,6 +178,31 @@ class TestWriters:
         _deal(campaign, email="second@acme.com")
 
         assert export.write_csv(export.lead_records(campaign), io.StringIO()) == 2
+
+    def test_the_csv_is_a_projection_and_leaves_the_profile_text_out(self, campaign):
+        """A paragraph in a custom variable is useless to an importer, and would cost the
+        property that makes the CSV worth having: it imports with no column mapping."""
+        _deal(campaign, profile_text="cto at acme, devtools, 40 staff")
+        stream = io.StringIO()
+
+        export.write_csv(export.lead_records(campaign), stream)
+
+        assert "profile_text" not in stream.getvalue()
+
+    def test_json_lines_writes_the_whole_record_one_object_per_line(self, campaign):
+        """A truncated stream stays usable — every complete record before the break has
+        already been delivered."""
+        _deal(campaign, profile_text="cto at acme")
+        _deal(campaign, email="second@acme.com", profile_text="head of eng at beta")
+        stream = io.StringIO()
+
+        count = export.write_json_lines(export.lead_records(campaign), stream)
+
+        lines = stream.getvalue().splitlines()
+        assert count == 2 and len(lines) == 2
+        assert [json.loads(line)["profile_text"] for line in lines] == [
+            "cto at acme", "head of eng at beta"]
+        assert set(json.loads(lines[0])) == set(export.JSON_FIELDS)
 
 
 # ── counting ──────────────────────────────────────────────────────

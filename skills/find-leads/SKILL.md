@@ -101,7 +101,7 @@ exports — the row carries the person, the company and the reason with a blank 
 | Flag | What it does |
 |------|--------------|
 | `--new` | Print only the rows *this run* produced, instead of the whole campaign. Use this when you are reading stdout into your own context rather than into a file. |
-| `--json` | One JSON object: goal, outcome, `next_action`, and the rows. Prefer it when you are going to parse. |
+| `--json` | The rows as JSON Lines on stdout (the full record, `profile_text` included); the run's metadata — goal, outcome, `next_action` — as one JSON object on stderr, and nothing else there. Prefer it when you are going to parse. |
 | `--campaign NAME` | Required only when the operator has more than one campaign; ambiguity is an error, never a guess. |
 | `--debug` | Show the discovery walk's reasoning on stderr. For diagnosing a run that finds nothing. |
 | `--open` | Opens each new lead's profile in a browser. **Never pass this** — it is for a human at a terminal, and it errors out headless. |
@@ -143,13 +143,32 @@ email, first_name, last_name, company, title, website, linkedin_url, reason, lea
 - `lead_id` is the stable key for dedupe across exports. `qualified_at` is when the verdict landed.
 - Rejected leads never export: neither the LLM's campaign-scoped "wrong fit" nor a permanent
   account-level opt-out.
+- **`reason` is written for the operator, not the prospect.** It justifies a yes/no —
+  third-person and evaluative. Never paste it into a message to the lead.
 
-For anything programmatic, prefer `--json` over parsing the CSV — it hands you the same rows plus
-the outcome:
+**The CSV *is* the integration.** Instantly, Smartlead, Lemlist, HubSpot, a spreadsheet — the file
+imports as-is, and there is no adapter, webhook or plugin to look for. One thing to tell the
+operator when you hand a file on: **turn on their tool's import deduplication**. It is opt-in on
+Smartlead and undocumented on Instantly, so a re-exported lead can otherwise be contacted twice.
+
+**`find 0` is the re-emit path** — no work, no spend, prints what the campaign already has. That is
+what to run for *give me that file again*; there is no `export` verb and none is coming.
+
+### The JSON record
+
+For anything programmatic, prefer `--json` over parsing the CSV. It is **JSON Lines**: one record
+per line on stdout, carrying every CSV column plus `profile_text` — the raw firmographic text the
+qualifier judged on, which is what a sender writes a message from. The run's own metadata is one
+JSON object on stderr:
 
 ```bash
-openoutreach find 10 --json | jq '.produced, .reached, .next_action'
+openoutreach find 10 --json > leads.jsonl 2> run.json
+openoutreach find 10 --json | jq -r '.email'          # the records
 ```
+
+One record, two serialisations: the JSON is the whole thing, the CSV is the importer-safe
+projection of it. A reader **ignores keys it does not know** — the finder never renames a key or
+repurposes one, and only ever adds.
 
 ## Exit codes and failures
 

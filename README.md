@@ -246,7 +246,7 @@ enrichment on top, never a precondition — so the file can carry rows with a bl
 | 💾 **Built-in CRM**               | Django Admin — browse Leads, Companies and Deals, and read every verdict. Everything is local and everything exports. |
 | 🔄 **Stateful Pipeline**          | Tracks deal states in a local DB — fully resumable, nothing scheduled in advance, no queue table.                   |
 | ⚡ **One-Command Install**          | `uvx openoutreach find 10` — a Python CLI with interactive onboarding, no browser and no container. A Docker image exists for running it on a server. |
-| 🤖 **Built For Agents**            | One bounded call: ask for an amount, get the rows on stdout and an exit code that means *I got what you asked for*. No daemon to supervise, no file to discover, nothing to poll. `--json` for the whole outcome. |
+| 🤖 **Built For Agents**            | One bounded call: ask for an amount, get the rows on stdout and an exit code that means *I got what you asked for*. No daemon to supervise, no file to discover, nothing to poll. `--json` gives you the records as JSON Lines and the outcome as one object on stderr. |
 
 ---
 
