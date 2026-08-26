@@ -94,6 +94,22 @@ What that means for you, concretely:
 - **Nothing gets sent from your identity.** Including, notably, the promotional campaign for OpenOutreach that older versions sent from your mailbox. It is gone.
 - **You send with what you already use.** Instantly, Smartlead, Lemlist, HubSpot, a spreadsheet — anything that reads a CSV. **Turn on your tool's import deduplication**; that is the one thing the split hands to you.
 
+**The handover to OpenOutSend is a pipe**, and it is the same output everything else reads:
+
+```bash
+openoutreach find 50 --json | outsend
+outsend send                            # a separate invocation, on the mailbox's clock
+```
+
+`--json` is **JSON Lines**: one record per line on stdout — the ten CSV columns plus `profile_text`, the raw firmographic text the qualifier judged on — with the run's metadata as a single JSON object on stderr and nothing else there. The receiver ingests idempotently, keyed on `(lead_id, campaign)`, so re-running the pipe is a correction rather than a second contact.
+
+Two things that are *not* privileges, and that is the point:
+
+- **The CSV is still the integration** for every third-party platform. `profile_text` rides the JSON only because a sender writes an opener from it — summarising *for a message* is the sender's job, so the text crosses raw rather than being extracted twice.
+- **The boundary stays one-way.** No inbound endpoint, no reply vocabulary, no callback: `outsend` reads the same rows a spreadsheet does, and owns the conversation, the suppression list and the opt-out duty once they arrive.
+
+`find 0` re-prints the campaign without doing any work, which is the re-emit path — there is no `export` verb.
+
 ---
 
 **Why choose OpenOutreach?**
