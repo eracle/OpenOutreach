@@ -196,3 +196,37 @@ def test_the_session_backs_off_on_429_and_only_on_429():
     assert retry.total == bettercontact._RATE_LIMIT_ATTEMPTS
     assert retry.backoff_factor >= 5          # seconds, doubling
     assert retry.respect_retry_after_header   # the provider's own number wins
+
+
+# ── the balance the provider actually sends ──────────────────────
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("sent,expected", [
+    ("520.0", 520),   # what the provider really returns — a string holding a float
+    (520, 520),       # what the old check assumed, and the only shape it accepted
+    (520.0, 520),
+    ("0", 0),         # an empty wallet is a balance, not a failure to read one
+    ("519.7", 519),   # floored: a fraction of a credit buys nothing
+])
+def test_the_balance_is_read_however_the_provider_spells_it(keyed, sent, expected):
+    """`isinstance(credits, int)` rejected `'520.0'`, so the balance was never readable:
+    `status` reported provider_unavailable against a 200 carrying the number, and the
+    run's `add_credits` ask could never fire."""
+    with patch.object(bettercontact, "_session",
+                      return_value=_session_answering(200, {"credits_left": sent})):
+        assert bettercontact.credit_balance() == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("body", [
+    {},                          # no key at all
+    {"credits_left": None},
+    {"credits_left": "many"},
+    {"credits_left": "-5"},      # not a balance; a provider we do not understand
+])
+def test_an_unreadable_balance_is_still_an_error(keyed, body):
+    with patch.object(bettercontact, "_session",
+                      return_value=_session_answering(200, body)):
+        with pytest.raises(BetterContactUnavailable):
+            bettercontact.credit_balance()

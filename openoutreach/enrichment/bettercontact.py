@@ -166,9 +166,29 @@ def credit_balance() -> int:
         except (requests.RequestException, TimeoutError) as exc:
             raise BetterContactUnavailable(f"BetterContact unreachable: {exc}") from exc
 
-    credits = body.get("credits_left")
-    if not isinstance(credits, int):
-        raise BetterContactUnavailable(f"BetterContact returned no credit count: {body!r}")
+    return _as_credit_count(body)
+
+
+def _as_credit_count(body: dict) -> int:
+    """``credits_left`` as a whole number, however the provider spelled it.
+
+    The provider sends it as a **string holding a float** — ``'520.0'`` — so the
+    obvious ``isinstance(credits, int)`` rejected every real answer and the balance
+    was never once readable: `status` reported `provider_unavailable` against a 200
+    that carried the number, and the run's `add_credits` ask could not fire at all.
+
+    Floored rather than rounded, because a fraction of a credit buys nothing. A
+    negative count is refused rather than clamped — it is not a balance, it is a
+    provider saying something we do not understand.
+    """
+    raw = body.get("credits_left")
+    try:
+        credits = int(float(raw))
+    except (TypeError, ValueError):
+        raise BetterContactUnavailable(
+            f"BetterContact returned no credit count: {body!r}") from None
+    if credits < 0:
+        raise BetterContactUnavailable(f"BetterContact returned a negative balance: {body!r}")
     return credits
 
 
