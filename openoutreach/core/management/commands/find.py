@@ -1,4 +1,5 @@
-"""Find leads until a goal is met, then print the campaign and exit.
+"""Find leads, printing the campaign as it goes, until a goal is met or nothing is left
+to try.
 
     openoutreach find 1                   # one qualified lead, with its reason — free
     openoutreach find 10                  # ten more leads, guaranteed to spend nothing
@@ -24,11 +25,31 @@ credits by construction. The number typed is the budget, in the same unit as the
 The noun says what to *count*; the flag says what may be *paid for*. They are independent
 in the one direction that matters — counting leads never authorises a purchase.
 
-**stdout carries the whole campaign, not just this run's rows**, which is what makes
-``> leads.csv`` correct by construction: the newest file supersedes every earlier one, and
-a lead whose address resolved since last time comes back with it filled in. It is one file
-to overwrite, not a batch per run. ``--new`` narrows to what this run produced, for a
-caller reading stdout into a context window rather than into a file.
+**Output is progressive by default.** `find` writes what the campaign already has the
+moment it starts — before any work — and then writes each new lead's record the instant
+its deal settles, rather than collecting everything and printing it once at the end:
+
+    openoutreach find 20 emails | outsend   # the sender sees the first resolved address
+                                              # within seconds, not after the whole run
+
+Cumulatively this is still the whole campaign, which is what makes ``> leads.csv`` correct
+by construction: the newest file supersedes every earlier one, and a lead whose address
+resolved since last time comes back with it filled in. Nothing about that promise changed
+— only *when* each row leaves, never *whether* it does. ``--new`` skips the opening bulk
+and only ever streams what this run itself produces, for a caller reading stdout into a
+context window rather than into a file.
+
+This is safe in a way a live-updated *file* was not — the daemon this project deleted once
+kept a CSV current across a process that ran for days while rows kept changing state under
+it, which is exactly the class of bug (naming, collisions, atomic rewrite) that got the
+file deleted rather than fixed. A single ``find`` run's deals settle once and stay settled
+for the rest of that run, so writing a record the moment it terminates has nothing left to
+contradict.
+
+``--batch`` is the escape hatch back to the old shape: nothing is written until the job
+ends, then the whole campaign (or just this run's rows, with ``--new``) prints once, in
+one call. Reach for it only when a consumer genuinely cannot take a stream — a strict
+single-document JSON parser, say.
 
 Exit 0 means the goal was met, and nothing else. Anything short prints its rows anyway and
 exits non-zero with one ``error: <type>: <message>`` line — the code says how much you
@@ -41,15 +62,12 @@ moment it can.
 
 **One rule serves both formats: stdout is records, stderr is narration.** ``--json`` emits
 **JSON Lines** — one record per line, the full record including ``profile_text`` — and the
-run's own metadata goes to stderr as one JSON object:
-
-    openoutreach find 50 --json | outsend       # the full record, profile text included
-    openoutreach find 50 > leads.csv            # the importer-shaped projection of it
-
-Line-delimited rather than one document because **a truncated stream stays usable**: an
-object that stops halfway is a parse error and the whole batch is lost, where a
-line-delimited one has already delivered every complete record before the break. It does
-not make ``find`` incremental — the rows are still materialised once the job is done.
+run's own metadata goes to stderr as one JSON object. Line-delimited rather than one
+document because **a truncated stream stays usable**: an object that stops halfway is a
+parse error and the whole batch is lost, where a line-delimited one has already delivered
+every complete record before the break. ``--json`` and streaming compose freely — the flag
+picks the format, streaming (or ``--batch``) picks the timing, and the two questions do
+not interact.
 
 **Under ``--json``, stderr is JSON and nothing else** — no banner, no log lines: the run
 object, and the ``{"error": …}`` object after it if the run fell short. Otherwise a ``2>``
@@ -70,7 +88,7 @@ from termcolor import colored
 
 from openoutreach.core.errors import ErrorType, OpenOutreachError
 from openoutreach.core.logging import format_elapsed
-from openoutreach.core.export import lead_records, write_csv, write_json_lines
+from openoutreach.core.export import IncrementalWriter, lead_record, lead_records, write_csv, write_json_lines
 from openoutreach.core.job import EMAILS, LEADS, UNITS, Goal, JobResult, run_job
 from openoutreach.core.management.base import OpenOutreachCommand
 from openoutreach.core.management.bootstrap import (
@@ -104,6 +122,10 @@ class Command(OpenOutreachCommand):
                             help="Emit the rows as JSON Lines, one record per line, "
                                  "profile text included. The run's own metadata goes to "
                                  "stderr as one JSON object, and nothing else does.")
+        parser.add_argument("--batch", action="store_true", dest="batch",
+                            help="Print the whole campaign once, at the end, instead of "
+                                 "the default: what is already there immediately, then "
+                                 "each new lead the moment its deal settles.")
         parser.add_argument("--open", action="store_true", dest="open_profiles",
                             help="Open each new lead's profile in your browser as it lands.")
         parser.add_argument(
@@ -125,14 +147,13 @@ class Command(OpenOutreachCommand):
         # in addresses cannot be met without buying them, so the noun implies the flag —
         # that is the one place the two are not independent.
         buy_addresses = options["buy_emails"] or options["unit"] == EMAILS
-        opener = _browser() if options["open_profiles"] else None
+        quiet = options["as_json"]
 
-        self._configure_logging(options.get("log_level"), options["verbosity"],
-                                quiet=options["as_json"])
+        self._configure_logging(options.get("log_level"), options["verbosity"], quiet=quiet)
         # Django's migration narration is prose, and under --json stderr is JSON only —
         # so it goes nowhere rather than onto the stream a caller is parsing. A migration
         # that *fails* still raises; what is dropped is "Applying core.0001_initial… OK".
-        ensure_database(io.StringIO() if options["as_json"] else self.stderr)
+        ensure_database(io.StringIO() if quiet else self.stderr)
         ensure_onboarded()
         validate_operator()
 
@@ -140,17 +161,34 @@ class Command(OpenOutreachCommand):
         goal = Goal(count=options["count"], unit=options["unit"])
 
         _announce_the_run(campaign, goal, buy_addresses)
-        result = run_job(campaign, goal, on_new_lead=opener,
+
+        # The default: print what the campaign already has before touching the job, then
+        # stream each new lead as it lands. `--new` skips the opening bulk — it wants only
+        # what this run produces — but the streaming still happens either way. `--batch`
+        # skips both; `_report` materialises the whole thing once the job ends instead.
+        writer = None
+        if not options["batch"]:
+            writer = IncrementalWriter(self.stdout, as_json=options["as_json"])
+            if not options["only_new"]:
+                for record in lead_records(campaign):
+                    writer.write(record)
+
+        opener = _browser() if options["open_profiles"] else None
+        streamer = _streamer(campaign, writer) if writer is not None else None
+        on_new_lead = _combine(opener, streamer)
+
+        result = run_job(campaign, goal, on_new_lead=on_new_lead,
                          buy_addresses=buy_addresses)
-        self._report(campaign, result, options)
+        self._report(campaign, result, options, writer)
 
         if not result.reached:
             raise OpenOutreachError(result.stopped_because, result.detail)
 
     # ── output ───────────────────────────────────────────────────
 
-    def _report(self, campaign, result: JobResult, options) -> None:
-        """Write the rows to stdout, then the one thing to do next, on stderr.
+    def _report(self, campaign, result: JobResult, options, writer: IncrementalWriter | None) -> None:
+        """Say what happened, on stderr — the rows themselves are already on stdout by
+        the time this runs, unless `--batch` asked to hold them until now.
 
         Called whether or not the goal was met — seven leads are seven leads, and a
         caller that only wanted rows should not have to care that it asked for ten.
@@ -164,12 +202,36 @@ class Command(OpenOutreachCommand):
         moment it can: the ask is about the state the run left behind, so it is read
         after the work rather than carried through it.
         """
+        action = build_status()["next_action"]
+
+        if writer is not None:
+            # Streaming already wrote every row it has, one at a time — `writer.count`
+            # is what actually went out, whole-campaign bulk plus whatever this run
+            # produced, which is `--new`-narrowed already if that flag was set.
+            if options["as_json"]:
+                sys.stderr.write(json.dumps({
+                    "campaign": campaign.name,
+                    "goal": {"count": result.goal.count, "unit": result.goal.unit},
+                    "produced": result.produced,
+                    "reached": result.reached,
+                    "stopped_because": result.stopped_because,
+                    "detail": result.detail or None,
+                    "next_action": action,
+                    "rows": writer.count,
+                }) + "\n")
+                return
+
+            logger.info("%d of %d %s · %s · %d row(s) printed",
+                        result.produced, result.goal.count, result.goal.unit,
+                        format_elapsed(result.elapsed), writer.count)
+            logger.info("%s", render_next_action(action))
+            return
+
+        # `--batch`: nothing has been written yet — materialise the whole thing now.
         records = list(lead_records(campaign))
         if options["only_new"]:
             produced = set(result.produced_ids)
             records = [row for row in records if row["lead_id"] in produced]
-
-        action = build_status()["next_action"]
 
         if options["as_json"]:
             write_json_lines(records, self.stdout)
@@ -265,6 +327,41 @@ def _select_campaign(name: str | None):
             + ", ".join(repr(c.name) for c in known),
         )
     return known[0]
+
+
+def _streamer(campaign, writer: IncrementalWriter):
+    """A callback that writes each new lead's full record as its deal settles.
+
+    Reuses `on_new_lead`, the hook `run_job` already calls once per lead the moment it
+    enters the goal — `--open` has ridden it since the run's narrative was written. The
+    lead is exportable by the time it gets here (`_unit_ids` only counts what
+    `lead_records` would), so its `Deal` is the same row `lead_record` reads for the
+    batch export; nothing here re-derives what that already knows how to produce.
+    """
+    from openoutreach.crm.models import Deal
+
+    def stream_lead(lead):
+        deal = Deal.objects.get(campaign=campaign, lead=lead)
+        writer.write(lead_record(deal))
+
+    return stream_lead
+
+
+def _combine(*callbacks):
+    """Chain zero or more `on_new_lead` callbacks into one, or `None` if none apply.
+
+    `--open` and the default streamer both ride the same hook and neither should have to
+    know the other exists.
+    """
+    active = [cb for cb in callbacks if cb is not None]
+    if not active:
+        return None
+
+    def combined(lead):
+        for callback in active:
+            callback(lead)
+
+    return combined
 
 
 def _browser():

@@ -183,6 +183,43 @@ def write_json_lines(records: Iterable[dict], stream: IO[str]) -> int:
     return count
 
 
+class IncrementalWriter:
+    """Writes records to a stream one at a time, flushing after each — this is what lets
+    ``find`` deliver the campaign progressively instead of materialising it once at the
+    end.
+
+    CSV or JSON Lines, chosen at construction; the CSV header writes itself on the first
+    call, since a writer handed one record at a time cannot know in advance whether there
+    will be any. Every call flushes: a reader on the other end of a pipe (a live sender,
+    ``jq``) sees each record as soon as it is written, not batched behind the stream's own
+    buffer.
+
+    A stream fed this way still ends up carrying the whole campaign, because ``find``
+    calls it once for every record already in the campaign before starting work and once
+    more for every lead the run then produces — bulk, then live. What changes from the
+    old one-shot ``write_csv``/``write_json_lines`` call is only *when* each row leaves,
+    never *whether* it does.
+    """
+
+    def __init__(self, stream: IO[str], as_json: bool) -> None:
+        self._stream = stream
+        self._as_json = as_json
+        self._csv_writer = None
+        self.count = 0
+
+    def write(self, record: dict) -> None:
+        if self._as_json:
+            self._stream.write(json.dumps(record) + "\n")
+        else:
+            if self._csv_writer is None:
+                self._csv_writer = csv.DictWriter(
+                    self._stream, fieldnames=list(RECORD_FIELDS), extrasaction="ignore")
+                self._csv_writer.writeheader()
+            self._csv_writer.writerow(record)
+        self._stream.flush()
+        self.count += 1
+
+
 # ── counting the deliverable ─────────────────────────────────────
 
 def export_counts(campaign) -> tuple[int, int]:

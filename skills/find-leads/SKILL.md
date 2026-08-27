@@ -102,6 +102,7 @@ exports — the row carries the person, the company and the reason with a blank 
 |------|--------------|
 | `--new` | Print only the rows *this run* produced, instead of the whole campaign. Use this when you are reading stdout into your own context rather than into a file. |
 | `--json` | The rows as JSON Lines on stdout (the full record, `profile_text` included); the run's metadata — goal, outcome, `next_action` — as one JSON object on stderr, and nothing else there. Prefer it when you are going to parse. |
+| `--batch` | Hold everything until the job ends, then print the whole campaign once — the old, pre-streaming shape. Output is progressive *by default* now (see below); reach for `--batch` only if whatever you are piping into cannot handle a stream — a strict single-document JSON parser, for instance. Not something you need for reading into your own context — that is what `--new` is for. |
 | `--campaign NAME` | Required only when the operator has more than one campaign; ambiguity is an error, never a guess. |
 | `--debug` | Show the discovery walk's reasoning on stderr. For diagnosing a run that finds nothing. |
 | `--open` | Opens each new lead's profile in a browser. **Never pass this** — it is for a human at a terminal, and it errors out headless. |
@@ -123,6 +124,10 @@ openoutreach find 10 > leads.csv
 **stdout carries the whole campaign, not just this run's rows.** The newest file supersedes every
 earlier one, and a lead whose address resolved since last time comes back with it filled in. It is
 one file to overwrite, never a batch per run — so never append, and never stitch runs together.
+Rows arrive progressively by default (what the campaign already has, immediately, then each new
+lead as it resolves) rather than all at once at the end — the total is the same either way, so this
+only matters if you are piping into something that cannot take a partial stream, in which case
+`--batch` restores the old wait-for-the-end behavior.
 
 Columns, in this order:
 

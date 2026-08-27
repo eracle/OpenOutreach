@@ -61,7 +61,7 @@ Three verbs, chosen rather than accumulated — they are what the two readers ac
 | verb | |
 |:-----|:--|
 | `init [--product-docs F] [--target F] [--name N] [--json]` | create the pipeline and the campaign, print what it made, spend nothing. Safe to run twice. |
-| `find N [emails] [--emails] [--campaign N] [--new] [--json] [--open] [--debug]` | find that many more, print the campaign as CSV, exit. |
+| `find N [emails] [--emails] [--campaign N] [--new] [--json] [--batch] [--open] [--debug]` | find that many more, print the campaign as CSV, exit. |
 | `status [--json]` | what is configured, blocked, counted, and the next action — including the command that prints the CSV. |
 
 **`--campaign` is optional**: `find` takes the only campaign when there is one and raises a
@@ -92,7 +92,7 @@ lead and deal across every campaign, which `reset` already did with a backup fir
 
 ### `find` management command (`management/commands/find.py`)
 
-    openoutreach find 10 [emails] [--emails] [--campaign N] [--new] [--json] [--open] [--debug]
+    openoutreach find 10 [emails] [--emails] [--campaign N] [--new] [--json] [--batch] [--open] [--debug]
 
 **Finding is free, and the free thing is the default.** A bare `find 10` cannot spend a credit,
 however many deals have queued up past the confidence gate; `--emails` permits the lookup and the
@@ -747,8 +747,33 @@ contacted twice unless the operator enables it — say so in every adapter's doc
   a line-delimited one has already delivered every complete record before the break, and the rest
   is a re-run. Under `--json` stderr carries JSON and nothing else — no banner, no log lines (the
   run object, plus the `{"error": …}` object after it if the run fell short), or every caller ends
-  up writing the same fragile `tail -1` over a stream of prose. It does **not** make `find`
-  incremental: `_report` still runs after the job and materialises the campaign at the end.
+  up writing the same fragile `tail -1` over a stream of prose.
+
+  **Output is progressive by default, in either format.** `find` writes what the campaign already
+  has immediately, before touching the job (`handle` reads `lead_records(campaign)` and calls
+  `IncrementalWriter.write` on each, right after `_announce_the_run` and before `run_job`), then
+  writes each new lead's record the moment its deal settles — `_streamer` rides the same
+  `on_new_lead` hook `--open` uses (`_combine` in `find.py` chains the two, so neither has to know
+  the other exists):
+
+  ```
+  openoutreach find 20 emails | outsend   # feeds the sender within seconds of the first
+                                            # resolved address, not after the whole run
+  ```
+
+  This is safe in a way a live-updated *file* was not: the daemon-managed CSV described above was
+  deleted because rows kept changing state under a process that ran for days, which is the naming/
+  collision/atomic-rewrite bug class that killed it. A single `find` run's deals settle once and
+  stay settled for the rest of that run, so writing a record the moment it terminates has nothing
+  left to contradict — and the total written is still the whole campaign, exactly what `> leads.csv`
+  always promised, just delivered progressively rather than atomically. `--new` skips the opening
+  bulk and only streams what this run itself produces. `--batch` is the escape hatch back to the
+  old shape: `writer` stays `None`, nothing is written until `_report` runs after the job, and it
+  materialises the whole thing (or just `--new`'s narrowed rows) in one call, exactly as `find` did
+  before this existed — for a consumer that genuinely cannot take a partial stream. `_report` reads
+  `writer.count` for the closing `rows` figure when streaming, since that is what actually went out
+  (opening bulk plus whatever this run produced, `--new`-narrowed already if that flag was set),
+  rather than re-querying the campaign a second time.
 - **`reason` is operator-facing.** It is the `QualificationDecision`'s justification for a yes/no —
   third-person, evaluative, about the act of selecting someone. It is evidence for the person
   running this, **never text for the person receiving the mail**; a sender writes the message from

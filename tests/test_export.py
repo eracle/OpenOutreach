@@ -205,6 +205,57 @@ class TestWriters:
         assert set(json.loads(lines[0])) == set(export.JSON_FIELDS)
 
 
+class TestIncrementalWriter:
+    """The writer `find` uses for its default, progressive output: same two shapes as
+    the batch writers above, but fed one record at a time and flushed after each."""
+
+    def test_csv_writes_the_header_once_on_the_first_record(self, campaign):
+        stream = io.StringIO()
+        writer = export.IncrementalWriter(stream, as_json=False)
+
+        writer.write(export.lead_record(_deal(campaign)))
+        writer.write(export.lead_record(_deal(campaign, email="second@acme.com")))
+
+        rows = stream.getvalue().splitlines()
+        assert rows[0] == ",".join(export.RECORD_FIELDS)
+        assert len(rows) == 3  # header + two records, and no repeated header
+
+    def test_json_writes_one_object_per_call_with_no_header(self, campaign):
+        stream = io.StringIO()
+        writer = export.IncrementalWriter(stream, as_json=True)
+
+        writer.write(export.lead_record(_deal(campaign)))
+
+        lines = stream.getvalue().splitlines()
+        assert len(lines) == 1
+        assert json.loads(lines[0])["email"] == "ada@acme.com"
+
+    def test_the_count_is_the_number_of_records_written(self, campaign):
+        writer = export.IncrementalWriter(io.StringIO(), as_json=True)
+
+        writer.write({"email": "a@acme.com"})
+        writer.write({"email": "b@acme.com"})
+
+        assert writer.count == 2
+
+    def test_each_write_flushes_the_stream(self, campaign):
+        """The property streaming exists for: a reader on the other end of a pipe sees
+        a record as soon as it is written, not batched behind the stream's own buffer."""
+        flushes = []
+
+        class _CountsFlushes(io.StringIO):
+            def flush(self):
+                flushes.append(True)
+                super().flush()
+
+        writer = export.IncrementalWriter(_CountsFlushes(), as_json=True)
+
+        writer.write({"email": "a@acme.com"})
+        writer.write({"email": "b@acme.com"})
+
+        assert len(flushes) == 2
+
+
 # ── counting ──────────────────────────────────────────────────────
 
 

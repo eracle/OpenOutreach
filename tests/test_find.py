@@ -217,6 +217,94 @@ class TestTheCommandContract:
         assert document["goal"] == {"count": 0, "unit": "leads"}
         assert document["rows"] == 1
 
+    def test_by_default_what_is_already_there_prints_before_any_work(self, campaign, booted):
+        """The opening bulk: even a run that produces nothing yet has already printed
+        the campaign as it stood at minute zero — unlike `--batch`, which waits."""
+        _exportable(campaign, "old@acme.com")
+        out = io.StringIO()
+
+        with patch("openoutreach.core.cycle.run_one_action", return_value=False):
+            with pytest.raises(OpenOutreachError):
+                call_command("find", "5", stdout=out)
+
+        assert [row["email"] for row in csv.DictReader(io.StringIO(out.getvalue()))] == \
+            ["old@acme.com"]
+
+    def test_by_default_a_new_lead_streams_after_the_opening_bulk(self, campaign, booted):
+        """The point of streaming: a caller piping into a live sender sees each lead as
+        it lands, not collected behind the whole job."""
+        _exportable(campaign, "old@acme.com")
+        out = io.StringIO()
+
+        with patch("openoutreach.core.cycle.run_one_action",
+                   side_effect=lambda c, buy_addresses=True, max_new_lookups=None: bool(
+                       _exportable(c, "new@acme.com"))):
+            call_command("find", "1", "--json", stdout=out)
+
+        lines = out.getvalue().splitlines()
+        assert [json.loads(line)["email"] for line in lines] == ["old@acme.com", "new@acme.com"]
+
+    def test_new_skips_the_bulk_but_still_streams_the_new_lead(self, campaign, booted):
+        """`--new` narrows what prints, not whether streaming happens."""
+        _exportable(campaign, "old@acme.com")
+        out = io.StringIO()
+
+        with patch("openoutreach.core.cycle.run_one_action",
+                   side_effect=lambda c, buy_addresses=True, max_new_lookups=None: bool(
+                       _exportable(c, "new@acme.com"))):
+            call_command("find", "1", "--new", "--json", stdout=out)
+
+        lines = out.getvalue().splitlines()
+        assert [json.loads(line)["email"] for line in lines] == ["new@acme.com"]
+
+    def test_streaming_puts_the_run_metadata_on_stderr_and_nothing_else(self, campaign, booted,
+                                                                        capsys):
+        _exportable(campaign, "old@acme.com")
+
+        with patch("openoutreach.core.cycle.run_one_action",
+                   side_effect=lambda c, buy_addresses=True, max_new_lookups=None: bool(
+                       _exportable(c, "new@acme.com"))):
+            call_command("find", "1", "--json", stdout=io.StringIO())
+
+        document = json.loads(capsys.readouterr().err)
+        assert document["reached"] is True
+        assert document["rows"] == 2  # the opening bulk's one row, plus the one produced
+
+    def test_batch_restores_the_old_atomic_shape(self, campaign, booted):
+        """`--batch` is the escape hatch: still the whole campaign, still one write, just
+        held until the job ends instead of streamed as it goes."""
+        _exportable(campaign, "old@acme.com")
+        out = io.StringIO()
+
+        with patch("openoutreach.core.cycle.run_one_action",
+                   side_effect=lambda c, buy_addresses=True, max_new_lookups=None: bool(
+                       _exportable(c, "new@acme.com"))):
+            call_command("find", "1", "--batch", stdout=out)
+
+        rows = list(csv.DictReader(io.StringIO(out.getvalue())))
+        assert {row["email"] for row in rows} == {"old@acme.com", "new@acme.com"}
+
+    def test_batch_never_writes_before_the_job_ends(self, campaign, booted):
+        """The property `--batch` exists for: a consumer that cannot take a partial
+        write gets nothing until `_report` runs, once, after the job."""
+        _exportable(campaign, "old@acme.com")
+
+        class _NoWriteBeforeReport(io.StringIO):
+            def write(self, value):
+                assert False, "wrote to stdout before the job ended"
+
+        out = _NoWriteBeforeReport()
+        real_report = Command._report
+
+        def patched_report(self, campaign, result, options, writer):
+            _NoWriteBeforeReport.write = io.StringIO.write  # writing is fine from here
+            return real_report(self, campaign, result, options, writer)
+
+        with patch("openoutreach.core.cycle.run_one_action", return_value=False), \
+                patch.object(Command, "_report", patched_report):
+            with pytest.raises(OpenOutreachError):
+                call_command("find", "5", "--batch", stdout=out)
+
     def test_a_negative_count_is_refused(self, campaign, booted):
         with pytest.raises(OpenOutreachError) as exc:
             call_command("find", "-1", stdout=io.StringIO())
