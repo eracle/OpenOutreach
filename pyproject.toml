@@ -68,6 +68,13 @@ dev = [
     "pytest-cov>=5",
     "factory-boy>=3.3",
 ]
+# The right of the pipe. `pip install openoutreach[send]` puts both commands in one
+# environment so `openoutreach find 50 --json | outsend` works after a single install;
+# the two remain separate distributions and separate products. **This is a dependency,
+# not a coupling** — nothing under `openoutreach/` imports `openoutsend`, and nothing
+# may start to: the boundary is a pipe, and a receiver reached by import would be a
+# privileged path the CSV contract exists to refuse.
+send = ["openoutsend>=0.1.16"]
 
 [project.scripts]
 openoutreach = "openoutreach.__main__:main"

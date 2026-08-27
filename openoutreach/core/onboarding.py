@@ -361,8 +361,7 @@ def _bettercontact_from_env() -> bool:
 
 def _account_done() -> bool:
     """Done only when an operator exists *with a non-blank email* — the operator's
-    own inbox (contacts key + newsletter target, and a BCC copy of every send on
-    their own campaigns — see ``emails.sender.operator_bcc``). Requiring a real
+    own inbox (the contacts-store key and the newsletter target). Requiring a real
     email (not merely 'a staff user exists') stops a legacy blank-email account
     from short-circuiting the address prompt."""
     from django.contrib.auth.models import User
@@ -463,14 +462,12 @@ def _finalize_account(operator_email: str, country: str, newsletter: bool) -> No
     """Persist country, create the operator ``User`` from their own email, subscribe once.
 
     ``operator_email`` is the human's inbox — the contacts-store key and the
-    newsletter target. It used to also be distinguished from a mailbox
-    ``from_address`` (the sending identity) and used as the BCC target on the
-    operator's own sends; with no sending leg there is one email address again.
+    newsletter target. There is one operator address and it is not a sending
+    identity; this side does not send.
 
-    **This no longer requires a mailbox.** It used to open with
-    ``Mailbox.objects.first()`` and raise ``OnboardingCancelled`` on ``None``, which
-    made the whole account step unsatisfiable without a connected inbox — one of the
-    two places the finder was welded to the sender.
+    **This must stay satisfiable without a mailbox.** Requiring one here would weld
+    the finder back to the sender and make the account step unreachable on an
+    install that only ever exports a CSV.
     """
     from openoutreach.contacts.service import register_operator
     from openoutreach.core.models import Campaign, SiteConfig
