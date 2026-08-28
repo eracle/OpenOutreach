@@ -15,13 +15,16 @@ from openoutreach.crm.models import DealState
 def _fitted_qualifier():
     """A genuinely fitted qualifier that scores an all-ones embedding ~1.
 
-    Two observations is the minimum the GP will fit on, and they are the two poles
-    of the space the test leads live in.
+    Two observations at the two poles of the space the test leads live in is the
+    minimum the GP will fit on, but not enough to clear ``min_gp_confidence``: the
+    posterior over a single positive is wide, and P(f>0.5) lands at 0.86. Two of each
+    pole tightens it to 0.97 — still the same two poles, with the confidence the gate
+    is calibrated for.
     """
     scorer = BayesianQualifier(seed=42)
     scorer.warm_start(
-        np.array([np.ones(384), np.zeros(384)], dtype=np.float64),
-        np.array([1, 0]),
+        np.array([np.ones(384), np.ones(384), np.zeros(384), np.zeros(384)], dtype=np.float64),
+        np.array([1, 1, 0, 0]),
     )
     return scorer
 

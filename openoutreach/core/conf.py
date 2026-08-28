@@ -74,7 +74,7 @@ CAMPAIGN_CONFIG = {
     "qualification_n_mc_samples": 100,
     # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
     # (rations the paid BetterContact lookup to leads the model is confident about).
-    "min_gp_confidence": 0.75,
+    "min_gp_confidence": 0.9,
     # There is no discovery cadence knob. Growing the vocabulary used to be an LLM call
     # worth rationing ("mint_every_n_qualified"); it is now a tokenize-and-count over a
     # few hundred profiles (pipeline/vocabulary.py), so it simply runs every pass. The

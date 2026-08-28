@@ -41,7 +41,7 @@ Embedded leads with no Deal are the pool. The GP selects which candidate to eval
 
 **Where:** `core/pipeline/ready_pool.py:promote_to_ready`
 
-A GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL` when `P(f>0.5) > min_gp_confidence` (0.9). This **rations the paid lookup** — only leads the model is confident about ever cost a credit.
+A GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL` when `P(f>0.5) >= min_gp_confidence` (0.9). This **rations the paid lookup** — only leads the model is confident about ever cost a credit.
 
 ## 5. Resolve an address — two-leg async (READY_TO_FIND_EMAIL → RESOLVED / NO_EMAIL_BETTERCONTACT)
 

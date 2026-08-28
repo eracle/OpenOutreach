@@ -24,12 +24,14 @@ crown jewel and it is ported verbatim:
 - **explore** (``neg ≤ pos``) — label the most *informative* lead (max BALD), with no
   confidence gate: a low-confidence lead is exactly the label that teaches the GP
   most, so filtering by confidence would throw away the point of exploring.
-- **exploit** (``neg > pos``) — prefer the strongest lead clearing
+- **exploit** (``neg > pos``) — qualify the strongest lead clearing
   ``min_gp_confidence``, the one whose qualification will buy an email rather than
-  park at QUALIFIED. When none clears the gate, label the best lead anyway: the gate
-  rations the *paid* credit, not the free LLM call, and a gate on labelling would
-  freeze the class balance and deadlock — discovery adds leads but never labels, so
-  the GP would never learn what would lift its confidence past the gate.
+  park at QUALIFIED. When none clears the gate there is nothing here worth an LLM
+  call, so **discover instead**: the same constant gates both the LLM call and the
+  paid lookup, so a lead the model would not pay for is not a lead it pays to judge.
+  The pool is what widens, never the bar — a pass that discovers leaves the class
+  balance untouched and the frontier one node further on, and when the frontier is
+  drained too the campaign has honestly run out and ``top_up`` says so.
 
 There used to be a second path here: the freemium promo campaign ran none of the
 above, because its leads were already in the account and a downloaded kit model
@@ -78,8 +80,6 @@ def top_up(campaign, qualifier: BayesianQualifier) -> bool:
         consumable = _consumable_candidates(qualifier, candidates)
         if consumable:
             return run_qualification(campaign, qualifier, candidates=consumable) is not None
-        if candidates:
-            return run_qualification(campaign, qualifier, candidates=candidates) is not None
         return discover(campaign, qualifier) > 0
 
     # Explore — label the most informative lead we have. The GP is fitted here, so it

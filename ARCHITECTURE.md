@@ -475,7 +475,7 @@ Row 2 is the only **per-campaign** step: building a qualifier dominates the cost
 scores the whole `QUALIFIED` pool in one pass and drops the model (`qualifier_for`). There is no
 `Lead.is_ranked` column — "worth paying for" is what `READY_TO_FIND_EMAIL` already means.
 `promote_to_ready` logs the promotion itself, carrying the score that
-justified it (`P(f>0.5)=0.997 ≥ 0.75`), and passes `log=False` so the transition is not printed
+justified it (`P(f>0.5)=0.997 ≥ 0.90`), and passes `log=False` so the transition is not printed
 twice; the score cannot ride in `reason`, which holds the LLM's qualification rationale.
 
 **The walk is also the job's time accounting.** `ROWS` pairs each row with a name, so every action
