@@ -150,9 +150,9 @@ class TestBothVerdictsAreVisible:
         assert "runs a six-person team on CI" in text
         assert "✓" in text and "✗" not in text
 
-    def test_the_acquisition_strategy_is_not_addressed_to_the_operator(self, campaign, caplog):
-        """The GP choosing *which* candidate to spend the call on is the engine
-        reasoning about itself. It stays — at DEBUG."""
+    def test_the_acquisition_strategy_is_addressed_to_the_operator(self, campaign, caplog):
+        """Whether the GP is exploring or exploiting, and why, is a question an
+        operator watching the run genuinely asks — so it prints at INFO, not DEBUG."""
         _make_lead("https://www.linkedin.com/in/first/", "first", _axis(0))
         _make_lead("https://www.linkedin.com/in/second/", "second", _axis(1))
         qualifier = BayesianQualifier(seed=42)
@@ -167,7 +167,8 @@ class TestBothVerdictsAreVisible:
         ):
             run_qualification(campaign, qualifier)
 
-        assert "Strategy:" not in caplog.text
+        assert "exploit" in caplog.text or "explore" in caplog.text
+        assert "rejected vs" in caplog.text and "accepted" in caplog.text
 
 
 @pytest.mark.django_db
@@ -196,3 +197,36 @@ class TestUnanchoredSelection:
             result = run_qualification(campaign, qualifier)
 
         assert result == "https://www.linkedin.com/in/first/"
+
+    def test_the_degraded_path_says_so(self, campaign, caplog):
+        _make_lead("https://www.linkedin.com/in/first/", "first", _axis(0))
+        _make_lead("https://www.linkedin.com/in/second/", "second", _axis(1))
+
+        qualifier = BayesianQualifier(seed=42)
+
+        with (
+            patch("openoutreach.core.ml.qualifier.qualify_with_llm",
+                  return_value=(0, "Bad fit")),
+            patch("openoutreach.core.db.deals.create_disqualified_deal"),
+            caplog.at_level("INFO"),
+        ):
+            run_qualification(campaign, qualifier)
+
+        assert "no posterior yet" in caplog.text
+
+
+@pytest.mark.django_db
+class TestSingleCandidateSelection:
+    def test_one_candidate_says_there_was_nothing_to_rank(self, campaign, caplog):
+        _make_lead("https://www.linkedin.com/in/only/", "only", _axis(0))
+        qualifier = BayesianQualifier(seed=42)
+
+        with (
+            patch("openoutreach.core.ml.qualifier.qualify_with_llm",
+                  return_value=(0, "Bad fit")),
+            patch("openoutreach.core.db.deals.create_disqualified_deal"),
+            caplog.at_level("INFO"),
+        ):
+            run_qualification(campaign, qualifier)
+
+        assert "only one candidate waiting" in caplog.text

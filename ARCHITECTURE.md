@@ -206,12 +206,18 @@ definition came first and the code implements it, rather than the other way roun
 
 **Two levels, and nothing is deleted between them.** INFO is addressed to the operator: every line
 answers a question they would ask. DEBUG (`--debug`) is addressed to the maintainer and carries
-**everything INFO ever said plus the engine's own reasoning** — the GP's acquisition strategy and
-class counts (`qualify.py`), the posterior behind the spend gate (`ready_pool.py`), the frontier, node
-retirements and page offsets (`discover.py`), the machine discovery seed and the anchor top-up
-(`icp.py`), and the cycle's per-row decisions and timings (`cycle.py`). A line that stops being
-operator-facing is **demoted, never removed**: the redesign changed who a line is addressed to, not
-what the tool is willing to say.
+**everything INFO ever said plus the engine's own reasoning** — the posterior behind the spend gate
+(`ready_pool.py`), the frontier, node retirements and page offsets (`discover.py`), the machine
+discovery seed and the anchor top-up (`icp.py`), and the cycle's per-row decisions and timings
+(`cycle.py`). A line that stops being operator-facing is **demoted, never removed**: the redesign
+changed who a line is addressed to, not what the tool is willing to say. **The GP's acquisition
+strategy and class counts moved the other way** (`qualify.py:run_qualification`, `top_up.py:_advance`)
+— *"is it exploring or exploiting right now, and why"* is a question an operator watching the run
+genuinely asks, not just the engine reasoning about itself, so it now prints at INFO: which regime
+(`cold phase`, `exploit (p)`, `explore (BALD)`) picked the candidate, and the neg/pos count (including
+anchors) that put it there. Every path through candidate selection says something — a single
+candidate, a degraded no-posterior fallback, and cold phase (with its anchor progress, `N/ANCHOR_COUNT`)
+each get their own line, so silence never reads as "nothing decided" when a decision was made.
 
 The beats, in order:
 

@@ -52,6 +52,8 @@ def run_qualification(campaign, qualifier: BayesianQualifier, candidates=None) -
     # Balance-driven candidate selection
     selection_score = None
     if len(candidates) == 1:
+        logger.info("  %s only one candidate waiting — nothing to rank between",
+                    colored("·", "cyan", attrs=["bold"]))
         candidate = candidates[0]
     else:
         embeddings = np.array([c.embedding_array for c in candidates], dtype=np.float32)
@@ -61,6 +63,8 @@ def run_qualification(campaign, qualifier: BayesianQualifier, candidates=None) -
             # No posterior at all. An anchored campaign always has one, so this is the
             # degraded path: anchoring failed (LLM outage, no ICP text) and the label
             # set is still single-class. Oldest first — nothing here can rank.
+            logger.info("  %s no posterior yet — taking the oldest candidate",
+                        colored("·", "cyan", attrs=["bold"]))
             candidate = candidates[0]
         else:
             strategy, scores = result
@@ -68,10 +72,13 @@ def run_qualification(campaign, qualifier: BayesianQualifier, candidates=None) -
             candidate = candidates[best_idx]
             selection_score = (strategy, float(scores[best_idx]))
             n_neg, n_pos = qualifier.class_counts
-            # Which acquisition strategy picked this candidate is the engine reasoning
-            # about itself — real, and addressed to the maintainer.
-            logger.debug("Strategy: %s (neg=%d, pos=%d)",
-                         colored(strategy, "cyan", attrs=["bold"]), n_neg, n_pos)
+            # Which acquisition strategy picked this candidate is a question an
+            # operator watching the run genuinely asks — "is it exploring or
+            # exploiting right now, and why" — not just the engine reasoning about
+            # itself, so it prints at the level a person reading the log sees.
+            logger.info("  %s %s — %d rejected vs %d accepted (incl. %d anchor(s))",
+                       colored("·", "cyan", attrs=["bold"]),
+                       colored(strategy, "cyan", attrs=["bold"]), n_neg, n_pos, qualifier.n_anchors)
 
     profile_url = candidate.profile_url
     embedding = candidate.embedding_array

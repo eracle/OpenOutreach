@@ -40,10 +40,12 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from termcolor import colored
 
 from openoutreach.core.conf import CAMPAIGN_CONFIG
 from openoutreach.core.ml.qualifier import BayesianQualifier, qualifier_for
 from openoutreach.core.pipeline.discover import discover
+from openoutreach.core.pipeline.icp import ANCHOR_COUNT
 from openoutreach.core.pipeline.qualify import fetch_qualification_candidates, run_qualification
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,9 @@ def top_up(campaign) -> bool:
 def _advance(campaign, qualifier: BayesianQualifier) -> bool:
     """Label a lead, discover leads, or (cold) both. Returns whether it did."""
     if qualifier.is_cold:
+        logger.info("  %s cold phase — %d/%d real positive(s), exploiting the anchors' guess",
+                   colored("·", "cyan", attrs=["bold"]),
+                   qualifier.n_real_positives, ANCHOR_COUNT)
         discover(campaign, qualifier)
         candidates = fetch_qualification_candidates(campaign)
         if not candidates:
