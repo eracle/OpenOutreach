@@ -157,8 +157,12 @@ def _one_model_per_action(campaign):
     Sharing one is safe because nothing between the two rows can change what the model
     would say: row 4 only runs when row 2 promoted nobody, and a promotion moves a
     deal's *state*, not its fit verdict, which is what ``Lead.get_labeled_arrays``
-    reads. The cache lives exactly one action — the next call builds a fresh model over
-    whatever labels the last one wrote.
+    reads.
+
+    What this saves now is the *lookup*, not the fit — ``qualifier_for`` keeps the fitted
+    model under a fingerprint of the labels, so the second row would get the same object
+    back anyway. It stays because one call is still cheaper than two, and because the
+    two-rows-one-model invariant is worth stating where the rows are.
     """
     from openoutreach.core.ml.qualifier import qualifier_for
 

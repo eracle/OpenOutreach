@@ -49,6 +49,21 @@ def _mock_embeddings(request):
             yield
 
 
+@pytest.fixture(autouse=True)
+def _no_fit_survives_a_test():
+    """``qualifier_for`` keeps the fitted model per campaign, keyed on the labels.
+
+    That key cannot go stale inside a run, but a test database reuses primary keys, so
+    two tests can be one campaign with one label set and different intent. Each test
+    starts from an empty cache.
+    """
+    from openoutreach.core.ml.qualifier import _FITTED
+
+    _FITTED.clear()
+    yield
+    _FITTED.clear()
+
+
 @pytest.fixture
 def operator(db):
     """The onboarded operator — what ``core.operator.get_active_user()`` will find."""

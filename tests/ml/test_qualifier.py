@@ -453,3 +453,76 @@ class TestBuildingOneCostsOneFit:
             qualifier_for(campaign)
 
         assert self._fits(caplog) == []
+
+
+@pytest.mark.django_db
+class TestOneFitPerLabelSet:
+    """`qualifier_for` keeps the fitted model under a fingerprint of its evidence.
+
+    The fit is O(n³) — 15s at 310 labels on the production install — and the loop that
+    calls it runs once per *action*. Almost no action writes a label: discovery adds
+    unlabelled leads, buying an address and checking a lookup move a deal's state. Each
+    used to be followed by a full refit to a posterior that could not have changed.
+    """
+
+    def _labelled(self, campaign, fit: bool):
+        from openoutreach.crm.models import Deal, DealState, Lead, Outcome
+
+        lead = Lead.objects.create(
+            profile_url=f"https://linkedin.com/in/p{Lead.objects.count()}/",
+            embedding=np.random.RandomState(Lead.objects.count()).randn(384)
+            .astype(np.float32).tobytes(),
+        )
+        Deal.objects.create(
+            lead=lead, campaign=campaign,
+            state=DealState.QUALIFIED if fit else DealState.FAILED,
+            outcome="" if fit else Outcome.WRONG_FIT)
+        return lead
+
+    def test_the_same_labels_hand_back_the_same_fitted_model(self, campaign):
+        from openoutreach.core.ml.qualifier import qualifier_for
+
+        for fit in (True, False, True, False):
+            self._labelled(campaign, fit)
+
+        first = qualifier_for(campaign)
+        first.predict(np.random.RandomState(0).randn(384).astype(np.float32))
+        assert qualifier_for(campaign) is first
+
+    def test_a_new_verdict_builds_a_new_model(self, campaign):
+        from openoutreach.core.ml.qualifier import qualifier_for
+
+        for fit in (True, False):
+            self._labelled(campaign, fit)
+        first = qualifier_for(campaign)
+
+        self._labelled(campaign, True)
+        assert qualifier_for(campaign) is not first
+
+    def test_moving_a_deal_along_the_pipeline_keeps_the_fit(self, campaign):
+        """A promotion, an address on order and a resolution all change a deal's state
+        and none of them changes its fit verdict — which is the only thing fitted."""
+        from openoutreach.core.ml.qualifier import qualifier_for
+        from openoutreach.crm.models import Deal, DealState
+
+        for fit in (True, False):
+            self._labelled(campaign, fit)
+        first = qualifier_for(campaign)
+
+        promoted = Deal.objects.filter(state=DealState.QUALIFIED).first()
+        promoted.state = DealState.READY_TO_FIND_EMAIL
+        promoted.save(update_fields=["state"])
+
+        assert qualifier_for(campaign) is first
+
+    def test_a_first_anchor_set_is_a_new_model(self, campaign):
+        """Anchors are fitted alongside the real labels, so writing them is new evidence."""
+        from openoutreach.core.ml.qualifier import qualifier_for
+
+        self._labelled(campaign, False)
+        first = qualifier_for(campaign)
+
+        campaign.anchor_profiles = ["a founder at a saas company"]
+        campaign.save(update_fields=["anchor_profiles"])
+
+        assert qualifier_for(campaign) is not first

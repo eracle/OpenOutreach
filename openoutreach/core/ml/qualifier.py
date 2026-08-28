@@ -2,6 +2,7 @@
 """GP Regression qualifier: BALD active learning via exact GP posterior."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from typing import Protocol, runtime_checkable
@@ -596,16 +597,63 @@ class BayesianQualifier:
 
 # ── On-demand construction ────────────────────────────────────────
 
+# The fitted model per campaign, kept under the fingerprint of the evidence it was fitted
+# on: ``{campaign_pk: (fingerprint, qualifier)}``. Process-local and unbounded, which is
+# bounded in practice — a run works one campaign, so this holds one model.
+_FITTED: dict[int, tuple[str, "BayesianQualifier"]] = {}
+
+
+def _label_fingerprint(campaign) -> str:
+    """A digest of everything the fit reads: which lead carries which verdict, and the
+    anchors.
+
+    Deliberately *not* a timestamp or a row count. A count cannot see a verdict being
+    corrected, and ``updated_at`` moves when a deal changes **state** — which happens
+    constantly (promoted, address ordered, resolved) and changes nothing the GP is fitted
+    on. This projects the deals down to exactly what ``Lead.get_labeled_arrays`` keeps,
+    so two fingerprints are equal precisely when a refit would land on the same numbers.
+
+    One small query against rows already indexed by campaign — microseconds against a fit
+    that is seconds, and grows as O(n³) while this grows linearly.
+    """
+    from openoutreach.crm.models import Deal, DealState, Outcome
+
+    labels = sorted(
+        (lead_id, 0 if outcome == Outcome.WRONG_FIT else 1)
+        for lead_id, state, outcome in Deal.objects.filter(
+            campaign=campaign, lead_id__isnull=False,
+        ).values_list("lead_id", "state", "outcome")
+        # Same three-way reading as ``get_labeled_arrays``: a rejection is a 0, anything
+        # not FAILED is a 1, and a FAILED deal that failed for some other reason is not
+        # evidence about fit at all.
+        if state != DealState.FAILED or outcome == Outcome.WRONG_FIT
+    )
+    digest = hashlib.sha256(repr(labels).encode())
+    # The anchors are fitted alongside the real labels, so a campaign that grows or first
+    # generates its anchor set has genuinely changed the training data.
+    digest.update(repr(campaign.anchor_profiles or []).encode())
+    return digest.hexdigest()
+
 
 def qualifier_for(campaign):
-    """Build this campaign's qualifier, ready to score.
+    """This campaign's qualifier, ready to score. **Fitted once per label set.**
 
-    Built where it is needed and dropped when the caller is done with it, rather
-    than warm-started once at boot and held for the life of the process. A resident
-    model is a model that silently goes stale: the daemon used to fit every
-    campaign's GP at startup, so a label written an hour later did not move the
-    posterior until the next restart. Building here costs one fit over the
-    campaign's labels — tens to low hundreds of rows — and is always current.
+    Built where it is needed rather than warm-started at boot and held for the life of
+    the process. A resident model is a model that silently goes stale: the daemon used to
+    fit every campaign's GP at startup, so a label written an hour later did not move the
+    posterior until the next restart.
+
+    **The cache answers that objection instead of reopening it**, because its key *is*
+    the evidence (``_label_fingerprint``). A model can only be handed back when a refit
+    would have reproduced it exactly, and the one thing that can change what the GP would
+    say — an LLM verdict — always changes the key.
+
+    Which matters because the fit is O(n³) and the loop above is per *action*: 15s at 310
+    labels, minutes at 600, and a run pays it on every action forever. Almost none of
+    those actions touch a label. Discovery writes unlabelled leads and moves a node's
+    offset; buying an address and checking a lookup move a deal's state. Each one used to
+    be followed by a full refit to the same posterior — which was most of a run's wall
+    clock, all of it spent recomputing an answer we already had.
 
     It used to be able to return ``None``, for the one case where the freemium
     campaign's downloaded kit was unavailable. With that campaign gone there is no
@@ -615,6 +663,11 @@ def qualifier_for(campaign):
     from openoutreach.core.conf import CAMPAIGN_CONFIG
     from openoutreach.core.pipeline.icp import ensure_anchors, stored_anchors
     from openoutreach.crm.models import Lead
+
+    cached = _FITTED.get(campaign.pk)
+    if cached is not None and cached[0] == _label_fingerprint(campaign):
+        logger.debug("[%s] ranking model: reusing the fit — no verdict since", campaign)
+        return cached[1]
 
     qualifier = BayesianQualifier(
         seed=42,
@@ -632,4 +685,9 @@ def qualifier_for(campaign):
     anchors = stored_anchors(campaign) if qualifier.has_real_positive else ensure_anchors(campaign)
     if anchors is not None:
         qualifier.set_anchors(anchors)
+
+    # Fingerprinted *after* the build, because ``ensure_anchors`` may have just written
+    # the campaign's first anchor set — keying on the pre-build state would miss on the
+    # very next call and refit for nothing.
+    _FITTED[campaign.pk] = (_label_fingerprint(campaign), qualifier)
     return qualifier
