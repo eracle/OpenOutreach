@@ -16,8 +16,9 @@ empty-handed pass while any live candidate remains.
 ``summary.leads_found``, which separates the fourth case: rows empty while the count is
 positive is a *transport artifact*, not an answer. A burst of calls can hand back an empty
 page for a 71-million-lead query in 0.0s (§4), and the old walk wrote that down as
-"matches nobody" — permanently, and for every campaign. Nothing is retired on a first
-empty at offset 0 without a spaced retry agreeing.
+"matches nobody" — permanently, and for every campaign. That case is caught by the count,
+not by asking twice: an empty page carrying a positive ``leads_found`` never retires
+anything, and an empty page with a zero count is believed on the spot.
 
 There is no pre-screen, no clause minting, no LLM in the loop at all past the cold-start
 seed: the vocabulary is counted from qualified profiles (``vocabulary.refresh``) and the
@@ -26,16 +27,10 @@ frontier is ranked by counting (``select``).
 from __future__ import annotations
 
 import logging
-import time
 
 from termcolor import colored
 
 logger = logging.getLogger(__name__)
-
-# Seconds to wait before re-asking a query that came back empty at offset 0. False zeros
-# are a burst artifact and return in ~0s where a real answer takes ~6s, so the retry only
-# has to break up the burst — it does not need to be long.
-EMPTY_RETRY_DELAY_S = 5.0
 
 
 def _harvest(campaign, node, rows: list[dict]) -> int:
@@ -140,19 +135,6 @@ def _handle_empty(node, offset: int, page) -> str | None:
             "fetch", f"empty page but {page.leads_found:,} in the index — transport "
                      f"artifact, node kept", glyph="⚠", color="yellow"))
         return None
-
-    if offset == 0:
-        # One spaced retry before believing a zero. The record it would otherwise write is
-        # permanent and prunes a whole subtree, so it is worth 5 seconds to be sure.
-        logger.debug("%s", step_line(
-            "fetch", f"empty and no count — re-asking in {EMPTY_RETRY_DELAY_S:.0f}s before "
-                     f"believing it", glyph="↻", color="yellow"))
-        time.sleep(EMPTY_RETRY_DELAY_S)
-        retry = _fetch(node, 0)
-        if retry is None or retry.leads:
-            return None
-        if retry.leads_found:
-            return None
 
     verdict = select.retire(node, at_offset=offset)
     messages = {

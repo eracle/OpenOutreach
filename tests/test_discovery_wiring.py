@@ -22,12 +22,6 @@ from openoutreach.enrichment.bettercontact import BetterContactUnavailable
 
 
 @pytest.fixture(autouse=True)
-def _no_retry_sleep(monkeypatch):
-    """The empty-at-offset-0 retry is a real 5s wait in production; skip it here."""
-    monkeypatch.setattr(discover_mod, "EMPTY_RETRY_DELAY_S", 0)
-
-
-@pytest.fixture(autouse=True)
 def _finder_key(db):
     config = SiteConfig.load()
     config.bettercontact_api_key = "k"
@@ -128,28 +122,22 @@ class TestHarvest:
 
 
 class TestEmptyPages:
-    def test_offset_zero_retries_before_believing_a_zero(self, db):
+    def test_offset_zero_believes_a_zero_on_the_first_ask(self, db):
+        """No rows *and* no count is an answer, and it is taken at face value.
+
+        The walk used to ask a second time before writing the node off. What the
+        second ask was guarding against — the burst artifact — is already caught by
+        ``leads_found``, so the retry only doubled the cost of every dead query.
+        """
         c = _campaign()
         node = _node(c, [("lead_job_title", "founder")])
 
-        with patch.object(discover_mod, "_fetch",
-                          side_effect=[Page([], 0), Page([], 0)]) as fetch:
+        with patch.object(discover_mod, "_fetch", return_value=Page([], 0)) as fetch:
             discover(c)
 
-        assert fetch.call_count == 2
+        assert fetch.call_count == 1
         node.refresh_from_db()
         assert node.state == QueryNode.State.DEAD
-
-    def test_a_retry_that_finds_rows_keeps_the_node(self, db):
-        c = _campaign()
-        node = _node(c, [("lead_job_title", "founder")])
-
-        with patch.object(discover_mod, "_fetch",
-                          side_effect=[Page([], 0), Page([_row()], 5)]):
-            discover(c)
-
-        node.refresh_from_db()
-        assert node.state == QueryNode.State.FRONTIER
 
     def test_a_positive_count_with_no_rows_is_a_transport_artifact(self, db):
         # §4: a burst answered a 71-million-lead query with an empty page in 0.0s. That
@@ -182,7 +170,7 @@ class TestEmptyPages:
         _node(c, [("lead_job_title", "dead")])
         _node(c, [("lead_job_title", "live")])
 
-        pages = [Page([], 0), Page([], 0), Page([_row()], 10)]
+        pages = [Page([], 0), Page([_row()], 10)]
         with patch.object(discover_mod, "_fetch", side_effect=pages):
             assert discover(c) == 1
 
