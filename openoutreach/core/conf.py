@@ -73,8 +73,16 @@ COLLECT_BACKOFF_MAX_S = 30 * 24 * 3600
 CAMPAIGN_CONFIG = {
     "qualification_n_mc_samples": 100,
     # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
-    # (rations the paid BetterContact lookup to leads the model is confident about).
-    "min_gp_confidence": 0.9,
+    # (rations the paid BetterContact lookup to leads the model is confident about), and
+    # with it the LLM call — a lead the model would not buy an address for is not one it
+    # spends a verdict judging (pipeline/top_up.py).
+    #
+    # 0.7, down from 0.9. The bar is what the exploit state has to clear to do anything at
+    # all, and at 0.9 a live campaign cleared it with nothing: 7 leads waited to be ranked
+    # while every pass fell through to discovery, so the pool widened and the class balance
+    # never moved. A gate the pool cannot reach rations the pipeline shut rather than
+    # rationing the spend.
+    "min_gp_confidence": 0.7,
     # There is no discovery cadence knob. Growing the vocabulary used to be an LLM call
     # worth rationing ("mint_every_n_qualified"); it is now a tokenize-and-count over a
     # few hundred profiles (pipeline/vocabulary.py), so it simply runs every pass. The
