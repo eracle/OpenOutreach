@@ -141,7 +141,9 @@ class TestRankProfiles:
 
 
 class TestWarmStart:
-    def test_warm_start_fits_model(self):
+    def test_warm_start_loads_the_labels_and_leaves_the_fit_for_first_use(self):
+        """Loading is not fitting. The anchors land *after* this and mark the model
+        dirty again, so a fit here is one full GP thrown away on every construction."""
         rng = np.random.RandomState(99)
         X = rng.randn(20, 384).astype(np.float32)
         y = np.array([i % 2 for i in range(20)], dtype=np.int32)
@@ -150,6 +152,17 @@ class TestWarmStart:
         qualifier.warm_start(X, y)
 
         assert qualifier.n_obs == 20
+        assert qualifier._fitted is False
+
+    def test_the_loaded_labels_are_what_the_first_prediction_fits(self):
+        rng = np.random.RandomState(99)
+        X = rng.randn(20, 384).astype(np.float32)
+        y = np.array([i % 2 for i in range(20)], dtype=np.int32)
+
+        qualifier = BayesianQualifier(seed=42)
+        qualifier.warm_start(X, y)
+
+        assert qualifier.predict(rng.randn(384).astype(np.float32)) is not None
         assert qualifier._fitted is True
 
     def test_warm_start_matches_sequential_predictions(self):
@@ -363,3 +376,58 @@ class TestColdPhaseAcquisition:
 
     def test_unfitted_model_still_reports_no_axis(self):
         assert BayesianQualifier(embedding_dim=8).acquisition_mode() is None
+
+
+@pytest.mark.django_db
+class TestBuildingOneCostsOneFit:
+    """A construction fits **once**, over the labels *and* the anchors together.
+
+    It used to fit twice: `warm_start` fitted the real labels eagerly, `set_anchors`
+    marked the model dirty, and the first prediction fitted again with the anchors in.
+    The first fit was never asked anything — pure O(n³) waste on every build, 7s at 230
+    labels on the production install where it was caught.
+    """
+
+    def _campaign_with_both_classes(self, campaign):
+        from openoutreach.crm.models import Deal, DealState, Lead, Outcome
+
+        rng = np.random.RandomState(7)
+        for i in range(6):
+            lead = Lead.objects.create(
+                profile_url=f"https://linkedin.com/in/p{i}/",
+                embedding=rng.randn(384).astype(np.float32).tobytes(),
+            )
+            fit = i % 2 == 0
+            Deal.objects.create(
+                lead=lead, campaign=campaign,
+                state=DealState.QUALIFIED if fit else DealState.FAILED,
+                **({} if fit else {"outcome": Outcome.WRONG_FIT}),
+            )
+        return campaign
+
+    def _fits(self, caplog) -> list[str]:
+        return [r.getMessage() for r in caplog.records
+                if "training this campaign's ranking model" in r.getMessage()]
+
+    def test_a_build_and_its_first_prediction_train_once(self, campaign, caplog):
+        from openoutreach.core.ml.qualifier import qualifier_for
+
+        self._campaign_with_both_classes(campaign)
+
+        with caplog.at_level("INFO"):
+            qualifier = qualifier_for(campaign)
+            qualifier.predict(np.random.RandomState(0).randn(384).astype(np.float32))
+
+        assert len(self._fits(caplog)) == 1
+
+    def test_building_alone_trains_nothing(self, campaign, caplog):
+        """Nothing is fitted until something is asked — `_score_qualified` builds one
+        and may then find an empty pool to score."""
+        from openoutreach.core.ml.qualifier import qualifier_for
+
+        self._campaign_with_both_classes(campaign)
+
+        with caplog.at_level("INFO"):
+            qualifier_for(campaign)
+
+        assert self._fits(caplog) == []

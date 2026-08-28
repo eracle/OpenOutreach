@@ -568,17 +568,24 @@ class BayesianQualifier:
     # ------------------------------------------------------------------
 
     def warm_start(self, X: np.ndarray, y: np.ndarray):
-        """Bulk-load historical labels and fit once.
+        """Bulk-load historical labels. The fit waits, like every other one here.
 
         Replaces the *real* observations only — anchors are set separately and after,
-        so the daemon's boot order (warm_start, then anchor an all-negative campaign)
-        holds regardless of which runs first.
+        so the build order (warm_start, then anchor) holds regardless of which runs
+        first.
+
+        **It used to fit here, and that fit was always thrown away.** ``qualifier_for``
+        loads the labels and then calls ``set_anchors``, which marks the model dirty
+        again, so every construction paid for two fits over the same evidence — one on
+        the real labels alone and one on the labels plus the anchors — and only the
+        second was ever asked a question. At 230 labels that was 7s spent to be
+        discarded, and it grows as O(n³). Nothing else in this class fits eagerly;
+        ``_fit_if_needed`` runs on the first prediction, which is the point at which
+        the training set has stopped changing.
         """
         self._X = [X[i].astype(np.float64).ravel() for i in range(len(X))]
         self._y = [int(y[i]) for i in range(len(y))]
         self._fitted = False
-        if self.n_obs >= 2:
-            self._fit_if_needed()
 
 
 # ``KitQualifier`` stood here — a pre-trained GPR downloaded from HuggingFace, used
