@@ -165,6 +165,28 @@ class TestWarmStart:
         assert qualifier.predict(rng.randn(384).astype(np.float32)) is not None
         assert qualifier._fitted is True
 
+    def test_the_one_fit_is_over_the_labels_and_the_anchors_together(self, caplog):
+        """**The whole set, once.** The build order is load-then-anchor, and the fit
+        that survives is the one after both — 20 real labels *plus* 3 anchors, never the
+        20 alone. Waiting is what makes that true: an eager fit at load time could only
+        ever see the smaller set, which is why the discarded fit was also the wrong one.
+        """
+        rng = np.random.RandomState(99)
+        X = rng.randn(20, 384).astype(np.float32)
+        y = np.array([i % 2 for i in range(20)], dtype=np.int32)
+
+        qualifier = BayesianQualifier(seed=42)
+        qualifier.warm_start(X, y)
+        qualifier.set_anchors(rng.randn(3, 384).astype(np.float32))
+
+        with caplog.at_level("INFO"):
+            qualifier.predict(rng.randn(384).astype(np.float32))
+
+        fits = [r.getMessage() for r in caplog.records
+                if "training this campaign's ranking model" in r.getMessage()]
+        assert len(fits) == 1
+        assert "23 judged lead(s)" in fits[0] and "3 of them still synthetic" in fits[0]
+
     def test_warm_start_matches_sequential_predictions(self):
         rng = np.random.RandomState(99)
         X = rng.randn(20, 384).astype(np.float32)
