@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 def promote_lead_to_deal(campaign, profile_url: str, reason: str = ""):
     """Create a QUALIFIED Deal for a Lead.
 
-    Returns the Deal.
+    Returns the Deal. **Says nothing** — the verdict is announced by the step that
+    reached it (``pipeline.qualify``), which prints the person and the reason as one
+    line. Announcing here too printed the acceptance twice, once as a URL and a state
+    name and once as a judgement about a person.
     """
     from openoutreach.crm.models import Lead, Deal
 
@@ -27,8 +30,6 @@ def promote_lead_to_deal(campaign, profile_url: str, reason: str = ""):
         reason=reason,
     )
 
-    from termcolor import colored
-    logger.info("%s %s", profile_url, colored("QUALIFIED", "green", attrs=["bold"]))
     return deal
 
 

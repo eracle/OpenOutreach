@@ -124,6 +124,10 @@ def create_disqualified_deal(campaign, profile_url: str, reason: str = ""):
 
     LLM qualification rejections are tracked as FAILED Deals (campaign-scoped),
     NOT as Lead.disqualified (which is for permanent account-level exclusion).
+
+    **Says nothing** — the rejection is announced by the step that reached it
+    (``pipeline.qualify``). Announcing here too printed the same reason twice in a row,
+    once behind a URL and DISQUALIFIED and once behind ✗ and the person's name.
     """
     from openoutreach.crm.models import Outcome
 
@@ -142,8 +146,6 @@ def create_disqualified_deal(campaign, profile_url: str, reason: str = ""):
         reason=reason,
     )
 
-    suffix = f" ({reason})" if reason else ""
-    logger.info("%s %s%s", profile_url, colored("DISQUALIFIED", "red", attrs=["bold"]), suffix)
     return deal
 
 

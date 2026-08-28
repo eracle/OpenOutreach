@@ -150,6 +150,22 @@ class TestBothVerdictsAreVisible:
         assert "runs a six-person team on CI" in text
         assert "✓" in text and "✗" not in text
 
+    @pytest.mark.parametrize("label", [1, 0])
+    def test_a_verdict_is_announced_once(self, campaign, caplog, label):
+        """One judgement, one line. The persistence helpers used to announce it too —
+        a URL and a state name saying what the ✓/✗ line beside it had just said, with
+        the LLM's sentence printed twice on the rejection path."""
+        _make_lead()
+        reason = "sells to enterprise, not our buyer"
+        with (
+            patch("openoutreach.core.ml.qualifier.qualify_with_llm",
+                  return_value=(label, reason)),
+            caplog.at_level("DEBUG"),
+        ):
+            run_qualification(campaign, BayesianQualifier(seed=42))
+
+        assert caplog.text.count(reason) == 1
+
     def test_the_acquisition_strategy_is_addressed_to_the_operator(self, campaign, caplog):
         """Whether the GP is exploring or exploiting, and why, is a question an
         operator watching the run genuinely asks — so it prints at INFO, not DEBUG."""

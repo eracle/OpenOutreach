@@ -164,4 +164,6 @@ def _save_qualification_result(campaign, qualifier: BayesianQualifier, lead, emb
     else:
         create_disqualified_deal(campaign, profile_url, reason=reason)
         logger.info("%s", _verdict_line("✗", "yellow", _who(lead), reason))
-    logger.debug("%s labelled %d: %s", profile_url, label, reason)
+    # The URL behind the name on the verdict line above, which carries the reason
+    # already — repeating it here made the same sentence appear twice under --debug.
+    logger.debug("%s labelled %d", profile_url, label)
