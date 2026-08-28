@@ -108,23 +108,37 @@ _SEED_FIELDS = (
 def _seed_keywords(spec: ICPSpec) -> list[tuple[str, str]]:
     """The ICP as ``(field, token)`` keywords — the vocabulary the walk opens with.
 
-    Everything is **split into words**, list or scalar, because a keyword is one word:
-    Lead Finder reads ``"Head of Growth"`` as three ANDed tokens, a query narrow enough
-    to be empty before the walk has learned anything. Splitting hands the frontier three
-    separate one-token nodes and lets *measurement* decide which pair is worth conjoining
-    — which is how ``"founder cto"`` (9,027 rows, near-perfect precision) gets found and
-    ``"head of growth"`` never gets fired. Stopwords go with them, so ``of`` never becomes
-    a search term, and the model's own phrasing survives being sloppy.
+    **A job title is split into words; the closed axes are not.** Lead Finder reads
+    ``"Head of Growth"`` as three ANDed words, a query narrow enough to be empty before
+    the walk has learned anything, so splitting hands the frontier three separate
+    one-token nodes and lets *measurement* decide which pair is worth conjoining — which
+    is how ``"founder cto"`` (9,027 rows, near-perfect precision) gets found and ``"head
+    of growth"`` never gets fired. Stopwords go with them, so ``of`` never becomes a
+    search term, and the model's own phrasing survives being sloppy.
+
+    The same split applied to the other two axes was silently fatal, because they match a
+    whole value: ``"United States"`` seeded ``united`` and ``states``, which count 0
+    apiece and died at offset 0 as *nobody matches this*; ``c_suite`` came apart at the
+    underscore and seeded ``suite``. A place is re-cased instead (``as_place``) and a
+    seniority is passed through — it is already one of the twelve values the provider
+    publishes, typed as such on ``ICPSpec``.
     """
     from openoutreach.core.pipeline.vocabulary import tokenize
+    from openoutreach.discovery import as_place
 
     keywords = set()
     for field, attr in _SEED_FIELDS:
         value = getattr(spec, attr)
         values = value if isinstance(value, list) else [value]
         for item in values:
-            if item:
+            if not item:
+                continue
+            if field == "lead_job_title":
                 keywords |= {(field, token) for token in tokenize(str(item))}
+            elif field == "lead_location":
+                keywords.add((field, as_place(item)))
+            else:
+                keywords.add((field, str(item)))
     return sorted(keywords)
 
 

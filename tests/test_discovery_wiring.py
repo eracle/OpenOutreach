@@ -246,7 +246,8 @@ class TestVocabulary:
         vocabulary.refresh(c)
         pairs = set(vocabulary.admitted_keywords())
         assert ("lead_job_title", "cto") in pairs
-        assert ("lead_location", "belgium") in pairs
+        # Re-cased on the way in: the index reports `belgium` and matches `Belgium`.
+        assert ("lead_location", "Belgium") in pairs
         assert ("lead_job_title", "belgium") not in pairs
 
     def test_rejected_leads_contribute_no_vocabulary(self, db):

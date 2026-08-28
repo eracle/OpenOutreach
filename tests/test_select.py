@@ -313,7 +313,33 @@ class TestExpansion:
         store = LabelStore.load(c)
         parent = _node(c, [("lead_job_title", "founder"), ("lead_job_title", "cto")])
 
-        assert select.expand(parent, store, [("lead_location", "oman")]) == 1
+        assert select.expand(parent, store, [("lead_location", "Oman")]) == 1
+
+    def test_a_closed_axis_never_holds_two_values(self, db):
+        """Measured: `lead_seniority ["director founder"]` counts 0 where `["director"]`
+        counts 5.0M, and the same for two places. A node that conjoined either would come
+        back empty at offset 0 and prune its whole subtree over our own syntax."""
+        c = _campaign()
+        _labelled(c, "founder director cto oman spain", qualified=True)
+        store = LabelStore.load(c)
+
+        senior = _node(c, [("lead_seniority", "director")])
+        assert select.expand(senior, store, [("lead_seniority", "founder")]) == 0
+
+        place = _node(c, [("lead_location", "Oman")])
+        assert select.expand(place, store, [("lead_location", "Spain")]) == 0
+
+    def test_a_phrase_keyword_matches_on_its_words(self, db):
+        """A location is one value carrying several words, and profiles are counted as a
+        bag of words — so `California, United States` has to reach a Californian."""
+        c = _campaign()
+        _labelled(c, "founder california united states", qualified=True)
+        store = LabelStore.load(c)
+        parent = _node(c, [("lead_job_title", "founder")])
+
+        assert store.counts([("lead_location", "California, United States")]) == (1, 0)
+        assert select.expand(parent, store, [("lead_location", "California, United States")]) == 1
+        assert select.expand(parent, store, [("lead_location", "Bavaria, Germany")]) == 0
 
     def test_a_dead_subset_prunes_the_child_before_it_is_created(self, db):
         # The anti-monotone half that survives the lattice being a DAG: a superset of an

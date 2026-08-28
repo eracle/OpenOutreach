@@ -59,6 +59,57 @@ def tokenize(text: str) -> set[str]:
     return {t for t in _TOKEN.findall(text.lower()) if t not in ENGLISH_STOP_WORDS}
 
 
+def keywords_for(fields: dict) -> set[tuple[str, str]]:
+    """One lead row's stored per-field text → the ``(field, token)`` keywords it grows.
+
+    **Two axes, two units of vocabulary, and the difference is the provider's, not a
+    preference.** A job title is free text whose words are matched individually, so it
+    contributes *words* and the walk conjoins them. A location is matched as one whole
+    place, so it contributes exactly one value.
+
+    Splitting a location on spaces is what this replaces, and it was silently fatal:
+    ``United states`` became ``united`` and ``states``, ``New york`` became ``new`` and
+    ``york``, and every fragment counts **0** at the provider. The walk spent a
+    round-trip apiece finding that out, then wrote each one off at offset 0 as *nobody
+    matches this* — pruning its whole subtree over what was really a fact about our
+    syntax. A live campaign put 19 such fragments in its vocabulary and killed Israel and
+    Spain outright.
+
+    A US state is only a place *with* its country (``California`` counts 0,
+    ``California, United States`` counts 2,714,366), so a row carrying a state yields the
+    pair and a row with only a country yields the country.
+    """
+    from openoutreach.discovery import KEYWORD_SOURCE_FIELDS, as_place
+
+    (title_key,) = KEYWORD_SOURCE_FIELDS["lead_job_title"]
+    state_key, country_key = KEYWORD_SOURCE_FIELDS["lead_location"]
+
+    keywords = {("lead_job_title", token)
+                for token in tokenize(str(fields.get(title_key) or ""))}
+    country, state = as_place(fields.get(country_key)), as_place(fields.get(state_key))
+    if country:
+        keywords.add(("lead_location", f"{state}, {country}" if state else country))
+    return keywords
+
+
+def keyword_words(token: str) -> frozenset[str]:
+    """A keyword's words, as a profile's own tokens would spell them.
+
+    A keyword is not always one word any more — ``California, United States`` is a single
+    ``lead_location`` value — while a profile is still counted as a bag of words. So a
+    node's tokens are matched by *word containment*: every word of every keyword has to
+    appear in the profile. For a one-word job title that is the old behaviour exactly.
+
+    Stopwords are stripped for the same reason they are stripped from profiles, and by
+    the same tokenizer, so ``District of Columbia, United States`` still matches a profile
+    whose ``of`` was dropped. A keyword that is *nothing but* stopwords keeps its raw
+    words instead: an empty word set is a subset of every profile, which would make such a
+    keyword match everybody rather than nobody.
+    """
+    words = tokenize(token)
+    return frozenset(words or token.lower().split())
+
+
 def profile_tokens(profile_text: str) -> frozenset[str]:
     """The token set of one stored profile — the unit node counting is done over.
 
@@ -105,7 +156,6 @@ def refresh(campaign) -> int:
     store: re-deriving the vocabulary is faster than remembering when we last did.
     """
     from openoutreach.core.models import Keyword
-    from openoutreach.discovery import KEYWORD_SOURCE_FIELDS
 
     profiles = _qualified_source_fields(campaign)
     if not profiles:
@@ -119,10 +169,8 @@ def refresh(campaign) -> int:
     # Document frequency per (field, token): how many qualified profiles carry it.
     frequency: dict[tuple[str, str], int] = {}
     for fields in profiles:
-        for search_field, row_keys in KEYWORD_SOURCE_FIELDS.items():
-            text = " ".join(str(fields.get(k) or "") for k in row_keys)
-            for token in tokenize(text):
-                frequency[(search_field, token)] = frequency.get((search_field, token), 0) + 1
+        for pair in keywords_for(fields):
+            frequency[pair] = frequency.get(pair, 0) + 1
 
     admitted = [pair for pair, df in frequency.items() if df >= MIN_DOCUMENT_FREQUENCY]
     logger.debug("[%s] vocabulary: %d qualified profile(s) → %d distinct token(s) → "

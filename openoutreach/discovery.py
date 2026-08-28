@@ -55,11 +55,29 @@ LEAD_SENIORITIES = get_args(Seniority)
 # is dropped without a word and hands back the unfiltered page **with rows**, which
 # reads as success — so keys are constrained here and in the pydantic schemas. An
 # unknown *value* is benign: an empty page, one move spent.
-SEARCH_FIELDS = (
-    "lead_job_title",
-    "lead_seniority",
-    "lead_location",
-)
+#
+# **The number is how many values one node may carry on that axis, and only one axis
+# conjoins.** ``lead_job_title`` is free text matched with ``exact_match`` off, so the
+# words inside one string AND and two of them is the measured sweet spot. The other two
+# axes match a *whole value*, and a space-joined pair is not one — measured against the
+# live index:
+#
+#     lead_seniority ["director"]           5,051,296
+#     lead_seniority ["director founder"]           0
+#     lead_location  ["Spain"]              2,150,846
+#     lead_location  ["California"]                 0   ← a state needs its country
+#     lead_location  ["California, United States"]  2,714,366
+#
+# So those two narrow by *being* narrower — "California, United States" rather than
+# "United States" — while a job title narrows by conjunction ("founder cto"). A node
+# holding two of either would query a value nobody has, come back empty at offset 0, and
+# be written off as dead along with its whole subtree: an empty query poisoning the
+# lattice with a fact about our syntax.
+SEARCH_FIELDS = {
+    "lead_job_title": 2,
+    "lead_seniority": 1,
+    "lead_location": 1,
+}
 
 
 def filters_for(keywords, headcount: tuple[int, int] | None = None) -> dict:
@@ -68,15 +86,19 @@ def filters_for(keywords, headcount: tuple[int, int] | None = None) -> dict:
     The one place a node becomes provider JSON, and the only place the index's three
     operators are chosen between (§1, §6 of the card):
 
-    - **words inside one string AND.** Tokens landing in the same field are joined
+    - **words inside one string AND — on ``lead_job_title`` only.** Its tokens are joined
       with a space, so ``{("lead_job_title", "founder"), ("lead_job_title", "cto")}``
-      queries ``"founder cto"`` — every token must be present. This is the walk's
+      queries ``"founder cto"`` — every word must be present. This is the walk's
       narrowing move, and it is the *generator* of the best queries measured
-      (``"founder cto"`` counts 9,027 at near-perfect precision, §10).
+      (``"founder cto"`` counts 9,027 at near-perfect precision, §10). It is also the
+      only axis it works on: the closed axes match whole values, where the same join
+      asks for a value nobody has (see ``SEARCH_FIELDS``).
     - **field vs field ANDs.** Separate keys, as before.
-    - **strings inside one list OR** — deliberately unused. A union of values reaches
-      one ~10k window where the same values as separate queries reach one each, so OR
-      is strictly dominated for harvesting (§7).
+    - **strings inside one list OR.** Real (``["Spain", "France"]`` counts more than
+      either alone) and unreachable today: ``SEARCH_FIELDS`` allows one value per node on
+      the two axes that would use it, because a union reaches one ~10k window where the
+      same values as separate queries reach one each — strictly dominated for harvesting
+      (§7). The list is how the closed axes are written, not a union being asked for.
 
     ``headcount`` is the campaign's fixed ICP size band, riding every query
     unchanged — it is never a search axis, because loosening a size bound queries
@@ -92,11 +114,10 @@ def filters_for(keywords, headcount: tuple[int, int] | None = None) -> dict:
         filters["company_headcount_max"] = int(headcount[1])
 
     for field, tokens in grouped.items():
-        joined = " ".join(tokens)
         if field == "lead_job_title":
-            filters[field] = {"include": [joined], "exact_match": False}
+            filters[field] = {"include": [" ".join(tokens)], "exact_match": False}
         else:
-            filters[field] = {"include": [joined]}
+            filters[field] = {"include": list(tokens)}
     return filters
 
 # Lead-row fields we embed, folded in only when the row carries them.
@@ -158,6 +179,27 @@ def source_fields_for(row: dict) -> dict:
     """
     wanted = {key for keys in KEYWORD_SOURCE_FIELDS.values() for key in keys}
     return {key: str(row[key]) for key in wanted if row.get(key)}
+
+
+# Words a place name keeps lowercase. Measured, not stylistic: ``Bosnia and Herzegovina``
+# counts 36,067 and ``Bosnia And Herzegovina`` counts **0**, the same for ``Trinidad and
+# Tobago``. A naive word-by-word title-case would silently kill every such country.
+_PLACE_CONNECTIVES = frozenset({"and", "of", "the"})
+
+
+def as_place(name) -> str:
+    """One place name in the casing the index matches.
+
+    Lead Finder reports a place in sentence case (``United states``, ``New york``) and
+    matches it in title case (``United States``) — its output casing is **not** its input
+    casing, so a row's value cannot be handed back verbatim. Measured: ``United kingdom``
+    counts 0 where ``United Kingdom`` counts 5,567,063.
+    """
+    words = str(name or "").strip().split()
+    return " ".join(
+        word if index and word.lower() in _PLACE_CONNECTIVES else word[:1].upper() + word[1:]
+        for index, word in enumerate(words)
+    )
 
 
 # Who the row is about, as opposed to the firmographic *text* the qualifier reads.

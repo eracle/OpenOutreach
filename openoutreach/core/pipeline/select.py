@@ -56,7 +56,7 @@ from collections import Counter
 
 import numpy as np
 
-from openoutreach.discovery import describe_filters, filters_for
+from openoutreach.discovery import SEARCH_FIELDS, describe_filters, filters_for
 
 logger = logging.getLogger(__name__)
 
@@ -76,14 +76,13 @@ REACH_CAP = 10_000
 # nothing to tune; see the module docstring.
 THOMPSON = True
 
-# How many tokens one field may hold in a single node. Same-field tokens are space-joined
-# and the provider ANDs the words *inside* that field, so a third token asks for a job
-# title carrying all three words — which essentially nobody's does. Two is where the
-# measurement sits (``"founder cto"`` counts 9,027 at near-perfect precision), and without
-# this the walk descends: a live campaign reached 183 frontier nodes at depth 4 asking for
-# titles like ``ai-powered cto founder user``, each costing a provider round-trip to learn
-# it matches nobody. The cap applies per field, so a node can still narrow on another axis.
-MAX_TOKENS_PER_FIELD = 2
+# How many values one field may hold in a single node lives with the provider contract it
+# comes from (``discovery.SEARCH_FIELDS``): two for ``lead_job_title``, whose words AND
+# inside the string, and one for each closed axis, where a joined pair is a value nobody
+# has. Without a cap the walk descends: a live campaign reached 183 frontier nodes at
+# depth 4 asking for titles like ``ai-powered cto founder user``, each costing a
+# round-trip to learn it matches nobody. The cap is per field, so a node can still narrow
+# on another axis.
 
 
 # ── node identity ────────────────────────────────────────────────────
@@ -204,9 +203,11 @@ class LabelStore:
 
         Field-agnostic (see ``vocabulary.profile_tokens``): a node's tokens are matched
         anywhere in the profile, which is how the estimator was measured and what lets
-        rows predating per-field capture still count.
+        rows predating per-field capture still count. **Word-wise, too** — a keyword may
+        be a phrase (``California, United States``), and a profile is a bag of words, so
+        containment is over the phrase's words.
         """
-        wanted = {token for _, token in pairs}
+        wanted = _words(pairs)
         a = b = 0
         for tokens, label in zip(self._tokens, self._labels):
             if wanted <= tokens:
@@ -228,13 +229,32 @@ class LabelStore:
         a proposition the evidence has something to say about, and it self-limits with
         depth: a three-token node has few words that ever shared a profile with it.
         """
-        wanted = {token for _, token in pairs}
+        from openoutreach.core.pipeline.vocabulary import keyword_words
+
+        wanted = _words(pairs)
         live = set()
         for tokens, label in zip(self._tokens, self._labels):
             if label and wanted <= tokens:
                 live |= tokens
+        held = set(pairs)
         return [(field, token) for field, token in candidates
-                if token in live and (field, token) not in set(pairs)]
+                if (field, token) not in held
+                and (words := keyword_words(token)) and words <= live]
+
+
+def _words(pairs) -> set[str]:
+    """Every word a node's keywords are made of — what a profile is matched against.
+
+    One keyword is one search value, and a search value is not always one word: a
+    ``lead_location`` is a whole place. Counting is over profile *words*, so a phrase
+    keyword contributes each of its words and all of them have to be present.
+    """
+    from openoutreach.core.pipeline.vocabulary import keyword_words
+
+    words: set[str] = set()
+    for _, token in pairs:
+        words |= keyword_words(token)
+    return words
 
 
 # ── the estimator ────────────────────────────────────────────────────
@@ -394,7 +414,7 @@ def expand(node, store: LabelStore, candidates) -> int:
 
     A child is this node plus one token that has shared a qualified profile with it
     (``LabelStore.cooccurring``), that no dead node is a subset of, and that does not push
-    any one field past ``MAX_TOKENS_PER_FIELD``.
+    any one field past what ``SEARCH_FIELDS`` allows it.
     """
     campaign = node.campaign
     pairs = node.pairs
@@ -405,7 +425,7 @@ def expand(node, store: LabelStore, candidates) -> int:
     offered = store.cooccurring(pairs, candidates)
     created = pruned = capped = 0
     for pair in offered:
-        if per_field[pair[0]] >= MAX_TOKENS_PER_FIELD:
+        if per_field[pair[0]] >= SEARCH_FIELDS[pair[0]]:
             capped += 1
             continue
         child_pairs = sorted([*pairs, pair])

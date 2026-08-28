@@ -95,6 +95,78 @@ class TestSourceFieldsFor:
         assert "users" in discovery.profile_text_for(row)
 
 
+class TestKeywordsFor:
+    """A row grows two kinds of keyword, because the index matches two ways: a job title
+    by its words, a location as one whole place."""
+
+    def test_a_place_is_one_keyword_re_cased_for_the_index(self):
+        from openoutreach.core.pipeline.vocabulary import keywords_for
+
+        keywords = keywords_for({"contact_job_title": "Head of Growth",
+                                 "contact_location_country": "United states"})
+
+        assert ("lead_location", "United States") in keywords
+        # The fragments the old word-split produced, every one of which counts 0.
+        assert ("lead_location", "united") not in keywords
+        assert ("lead_location", "states") not in keywords
+        # A title still contributes words, which is the axis that conjoins them.
+        assert ("lead_job_title", "head") in keywords
+        assert ("lead_job_title", "growth") in keywords
+
+    def test_a_state_carries_its_country(self):
+        """`California` counts 0 on its own; `California, United States` counts 2.7M."""
+        from openoutreach.core.pipeline.vocabulary import keywords_for
+
+        keywords = keywords_for({"contact_location_state": "California",
+                                 "contact_location_country": "United states"})
+
+        assert ("lead_location", "California, United States") in keywords
+
+    def test_a_connective_stays_lowercase(self):
+        """Measured: `Bosnia and Herzegovina` counts 36,067, `Bosnia And Herzegovina` 0."""
+        from openoutreach.core.pipeline.vocabulary import keywords_for
+
+        keywords = keywords_for({"contact_location_country": "Bosnia and herzegovina"})
+
+        assert ("lead_location", "Bosnia and Herzegovina") in keywords
+
+    def test_a_row_with_no_place_grows_no_location_keyword(self):
+        from openoutreach.core.pipeline.vocabulary import keywords_for
+
+        keywords = keywords_for({"contact_job_title": "CTO"})
+
+        assert keywords == {("lead_job_title", "cto")}
+
+
+class TestFiltersFor:
+    """The one place a node becomes provider JSON, and the two shapes it can take."""
+
+    def test_job_title_words_are_joined_because_they_and_inside_the_field(self):
+        filters = discovery.filters_for([("lead_job_title", "founder"),
+                                         ("lead_job_title", "cto")])
+
+        # Sorted, so one node is one query however it was reached.
+        assert filters == {"lead_job_title": {"include": ["cto founder"],
+                                              "exact_match": False}}
+
+    def test_a_closed_axis_is_sent_as_its_own_value(self):
+        """Never space-joined: `["director founder"]` counts 0 where `["director"]`
+        counts 5.0M, and a place is matched whole."""
+        filters = discovery.filters_for([("lead_seniority", "director"),
+                                         ("lead_location", "California, United States")])
+
+        assert filters == {
+            "lead_seniority": {"include": ["director"]},
+            "lead_location": {"include": ["California, United States"]},
+        }
+
+    def test_the_headcount_band_rides_along_unchanged(self):
+        filters = discovery.filters_for([("lead_seniority", "head")], headcount=(2, 500))
+
+        assert filters["company_headcount_min"] == 2
+        assert filters["company_headcount_max"] == 500
+
+
 class TestProfileTextFor:
     def test_joins_fields_in_order_lowercased(self):
         row = {
@@ -280,3 +352,23 @@ class TestSeedKeywords:
         from openoutreach.core.pipeline.icp import ICPSpec, _seed_keywords
 
         assert _seed_keywords(ICPSpec()) == []
+
+    def test_the_closed_axes_are_seeded_whole(self):
+        """Splitting these is fatal, not merely lossy: `United States` seeded `united`
+        and `states`, which count 0 apiece and die at offset 0 as *nobody matches this*,
+        and `c_suite` came apart at the underscore into `suite`."""
+        from openoutreach.core.pipeline.icp import ICPSpec, _seed_keywords
+
+        keywords = _seed_keywords(ICPSpec(seniority="c_suite", location="United States"))
+
+        assert ("lead_location", "United States") in keywords
+        assert ("lead_seniority", "c_suite") in keywords
+        assert ("lead_location", "united") not in keywords
+        assert ("lead_location", "states") not in keywords
+
+    def test_a_seeded_place_is_re_cased_for_the_index(self):
+        """The index reports `united states` and matches `United States`."""
+        from openoutreach.core.pipeline.icp import ICPSpec, _seed_keywords
+
+        assert _seed_keywords(ICPSpec(location="united kingdom")) == [
+            ("lead_location", "United Kingdom")]
