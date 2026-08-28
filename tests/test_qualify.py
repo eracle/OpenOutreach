@@ -150,6 +150,25 @@ class TestBothVerdictsAreVisible:
         assert "runs a six-person team on CI" in text
         assert "✓" in text and "✗" not in text
 
+    @pytest.mark.parametrize("label, verdict, colour", [
+        (1, "QUALIFIED", "green"),
+        (0, "DISQUALIFIED", "red"),
+    ])
+    def test_the_verdict_is_a_word_in_colour_not_only_a_glyph(
+            self, campaign, caplog, label, verdict, colour):
+        """A ✓/✗ column reads as a diff; the word is what an operator scans a run for.
+
+        Green for a hit and red for a miss. The colour is asserted at the call rather
+        than in the output because ``termcolor`` emits nothing under a captured stdout —
+        a test reading escape codes back out of caplog would pass on any colour at all.
+        """
+        with patch("openoutreach.core.pipeline.qualify.colored",
+                   side_effect=lambda text, color, **kw: text) as tint:
+            assert verdict in self._qualify(campaign, label, "because", caplog)
+
+        assert (verdict.ljust(len("DISQUALIFIED")), colour) in [
+            (call.args[0], call.args[1]) for call in tint.call_args_list]
+
     @pytest.mark.parametrize("label", [1, 0])
     def test_a_verdict_is_announced_once(self, campaign, caplog, label):
         """One judgement, one line. The persistence helpers used to announce it too —

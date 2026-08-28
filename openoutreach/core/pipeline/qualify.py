@@ -123,16 +123,27 @@ def _who(lead) -> str:
     return who or hyperlink(lead.profile_url)
 
 
-def _verdict_line(glyph: str, color: str, who: str, reason: str) -> str:
+# Padded so the names line up under each other whichever verdict landed: the column of
+# green and red is only scannable if it is a column.
+_VERDICT_WIDTH = len("DISQUALIFIED")
+
+
+def _verdict_line(glyph: str, color: str, verdict: str, who: str, reason: str) -> str:
     """One judgement, indented under the ``▶ qualify`` header.
 
-    ``logblock.step_line`` is not the right primitive here: its fixed-width label column
+    **The verdict is said in a word as well as a glyph, in green or red.** A ✓/✗ column
+    alone reads as a diff rather than as a decision about a person, and the word is what
+    an operator scanning a long run actually looks for. It used to arrive on a line of
+    its own from the persistence layer, printed twice with a URL; saying it here costs
+    nothing and keeps one line per verdict.
+
+    ``logblock.step_line`` is not the right primitive: its fixed-width label column
     exists to align short plumbing labels (``bettercontact``, ``hub cache``), and a
-    person's name overflows it on every row. The glyph and the name carry the colour; the
-    reason stays default-weight, because the eye scans the column of ✓ and ✗ first.
+    person's name overflows it on every row. The glyph, the verdict and the name carry
+    the colour; the reason stays default-weight, because the eye scans the column first.
     """
     tint = lambda text: colored(text, color, attrs=["bold"])  # noqa: E731
-    return f"  {tint(glyph)}  {tint(who)} — {reason}"
+    return f"  {tint(glyph)}  {tint(f'{verdict:<{_VERDICT_WIDTH}}')}  {tint(who)} — {reason}"
 
 
 def _save_qualification_result(campaign, qualifier: BayesianQualifier, lead, embedding: np.ndarray, label: int, reason: str):
@@ -150,9 +161,10 @@ def _save_qualification_result(campaign, qualifier: BayesianQualifier, lead, emb
     profile_url = lead.profile_url
     qualifier.update(embedding, label)
 
-    # **Both verdicts are printed, and they differ at a glance.** Watching it turn people
-    # down is what makes the acceptances credible; a log of nothing but hits reads like a
-    # row dump, and the reason it writes is the product either way.
+    # **Both verdicts are printed, and they differ at a glance** — QUALIFIED in green,
+    # DISQUALIFIED in red, each said once. Watching it turn people down is what makes the
+    # acceptances credible; a log of nothing but hits reads like a row dump, and the
+    # reason it writes is the product either way.
     if label == 1:
         try:
             promote_lead_to_deal(campaign, profile_url, reason=reason)
@@ -160,10 +172,10 @@ def _save_qualification_result(campaign, qualifier: BayesianQualifier, lead, emb
             logger.warning("Cannot promote %s: %s — disqualifying", profile_url, e)
             create_disqualified_deal(campaign, profile_url, reason=str(e))
             return
-        logger.info("%s", _verdict_line("✓", "green", _who(lead), reason))
+        logger.info("%s", _verdict_line("✓", "green", "QUALIFIED", _who(lead), reason))
     else:
         create_disqualified_deal(campaign, profile_url, reason=reason)
-        logger.info("%s", _verdict_line("✗", "yellow", _who(lead), reason))
+        logger.info("%s", _verdict_line("✗", "red", "DISQUALIFIED", _who(lead), reason))
     # The URL behind the name on the verdict line above, which carries the reason
     # already — repeating it here made the same sentence appear twice under --debug.
     logger.debug("%s labelled %d", profile_url, label)
