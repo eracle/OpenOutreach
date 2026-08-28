@@ -137,8 +137,15 @@ TEXT_FIELDS = [
 # ``lead_seniority`` is not sourced from rows at all — it is a closed 12-value
 # vocabulary the provider publishes (``Seniority``), so it is seeded whole and never
 # grown. There is no ``lead_department`` source because no lead row carries one.
+#
+# ``contact_headline`` used to feed ``lead_job_title`` and does not any more. A headline
+# is marketing prose — "Building AI-powered agents for users" — and its words repeat
+# across people, so they cleared the df≥2 floor and were filed as job titles: a live
+# campaign grew ``user``, ``agents``, ``agile``, ``shipping`` and ``ai-powered`` as title
+# tokens. Conjoined, they ask for a title nobody holds. Only ``contact_job_title`` says
+# what the provider will match in that field.
 KEYWORD_SOURCE_FIELDS = {
-    "lead_job_title": ("contact_job_title", "contact_headline"),
+    "lead_job_title": ("contact_job_title",),
     "lead_location": ("contact_location_state", "contact_location_country"),
 }
 

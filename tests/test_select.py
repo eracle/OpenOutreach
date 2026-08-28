@@ -296,6 +296,25 @@ class TestExpansion:
         select.expand(parent, store, candidates)
         assert select.expand(parent, store, candidates) == 0
 
+    def test_a_field_holding_two_tokens_takes_no_third(self, db):
+        """Same-field tokens are ANDed inside that field, so a third asks for a title
+        carrying all three words — which nobody's does."""
+        c = _campaign()
+        _labelled(c, "founder cto ai", qualified=True)
+        store = LabelStore.load(c)
+        parent = _node(c, [("lead_job_title", "founder"), ("lead_job_title", "cto")])
+
+        assert select.expand(parent, store, [("lead_job_title", "ai")]) == 0
+
+    def test_a_capped_field_does_not_stop_another_axis(self, db):
+        """The cap is per field: a node full on job title can still narrow on location."""
+        c = _campaign()
+        _labelled(c, "founder cto oman", qualified=True)
+        store = LabelStore.load(c)
+        parent = _node(c, [("lead_job_title", "founder"), ("lead_job_title", "cto")])
+
+        assert select.expand(parent, store, [("lead_location", "oman")]) == 1
+
     def test_a_dead_subset_prunes_the_child_before_it_is_created(self, db):
         # The anti-monotone half that survives the lattice being a DAG: a superset of an
         # empty conjunction is empty, whichever parent reaches it.

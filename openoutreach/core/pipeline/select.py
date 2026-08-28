@@ -52,6 +52,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from collections import Counter
 
 import numpy as np
 
@@ -74,6 +75,15 @@ REACH_CAP = 10_000
 # Draw the frontier's order from each node's Beta, rather than taking its mean. One line,
 # nothing to tune; see the module docstring.
 THOMPSON = True
+
+# How many tokens one field may hold in a single node. Same-field tokens are space-joined
+# and the provider ANDs the words *inside* that field, so a third token asks for a job
+# title carrying all three words — which essentially nobody's does. Two is where the
+# measurement sits (``"founder cto"`` counts 9,027 at near-perfect precision), and without
+# this the walk descends: a live campaign reached 183 frontier nodes at depth 4 asking for
+# titles like ``ai-powered cto founder user``, each costing a provider round-trip to learn
+# it matches nobody. The cap applies per field, so a node can still narrow on another axis.
+MAX_TOKENS_PER_FIELD = 2
 
 
 # ── node identity ────────────────────────────────────────────────────
@@ -383,16 +393,21 @@ def expand(node, store: LabelStore, candidates) -> int:
     """Grow the frontier with this node's children. Returns how many were created.
 
     A child is this node plus one token that has shared a qualified profile with it
-    (``LabelStore.cooccurring``), and that no dead node is a subset of.
+    (``LabelStore.cooccurring``), that no dead node is a subset of, and that does not push
+    any one field past ``MAX_TOKENS_PER_FIELD``.
     """
     campaign = node.campaign
     pairs = node.pairs
     dead = _dead_sets(campaign)
     cache: dict = {}
 
+    per_field = Counter(field for field, _ in pairs)
     offered = store.cooccurring(pairs, candidates)
-    created = pruned = 0
+    created = pruned = capped = 0
     for pair in offered:
+        if per_field[pair[0]] >= MAX_TOKENS_PER_FIELD:
+            capped += 1
+            continue
         child_pairs = sorted([*pairs, pair])
         child_set = frozenset(child_pairs)
         if any(empty <= child_set for empty in dead):
@@ -406,9 +421,10 @@ def expand(node, store: LabelStore, candidates) -> int:
         # different causes: no vocabulary to offer, no *qualified* profile pairing any
         # of it with this node, or every child already known. Name which one.
         logger.debug("  expand [%s]: %d vocabulary → %d co-occurring → "
-                     "%d new, %d dead-pruned, %d already known",
+                     "%d new, %d dead-pruned, %d field-capped, %d already known",
                      describe_filters(filters_for(pairs)), len(candidates), len(offered),
-                     created, pruned, len(offered) - created - pruned)
+                     created, pruned, capped,
+                     len(offered) - created - pruned - capped)
         if candidates and not offered:
             logger.debug("    nothing co-occurs: the store holds %d qualified profile(s), "
                          "and expansion only offers tokens seen alongside this node in one",

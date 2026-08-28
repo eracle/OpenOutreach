@@ -77,6 +77,24 @@ class TestSearch:
         assert page.leads_found is None
 
 
+class TestSourceFieldsFor:
+    def test_the_headline_is_not_kept_as_job_title_vocabulary(self):
+        """A headline is marketing prose, and its words are not job titles. It still
+        reaches ``profile_text`` for the qualifier — only the vocabulary refuses it."""
+        row = {
+            "contact_job_title": "CTO",
+            "contact_headline": "Building AI-powered agents for users",
+            "contact_location_country": "United States",
+        }
+        stored = discovery.source_fields_for(row)
+
+        assert stored == {
+            "contact_job_title": "CTO",
+            "contact_location_country": "United States",
+        }
+        assert "users" in discovery.profile_text_for(row)
+
+
 class TestProfileTextFor:
     def test_joins_fields_in_order_lowercased(self):
         row = {
