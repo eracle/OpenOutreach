@@ -151,12 +151,19 @@ def _handle_empty(node, offset: int, page) -> str | None:
     return verdict
 
 
-def discover(campaign, qualifier=None) -> int:
-    """Fire frontier nodes until one returns leads. Returns the count of new Leads.
+def discover(campaign, qualifier=None) -> bool:
+    """Fire frontier nodes until one returns a page. Returns whether the walk moved.
 
-    ``0`` means the frontier is spanned (nothing unfired and nothing left to deepen) or a
-    fetch was unavailable — both best-effort, since a provider outage must not fail the
-    enclosing task. A provider *refusal* is the exception and propagates
+    **The answer is "did a page come back", not "how many leads were new"** — bug 8 again,
+    one level up. ``_harvest`` counts *newly created* leads, and a page of profiles this
+    campaign already holds counts 0 while still being a perfectly good page: the node's
+    offset advanced, its children joined the frontier, and the next pass draws the next
+    node. Reporting that as nothing left to do stopped a live run dead with 100 rows in
+    hand and the frontier wide open (``top_up`` reads this return as *was there work*).
+
+    ``False`` means the frontier is spanned (nothing unfired and nothing left to deepen)
+    or a fetch was unavailable — both best-effort, since a provider outage must not fail
+    the enclosing task. A provider *refusal* is the exception and propagates
     (``_fetch``): a rejected key must never be read as a query that matches nobody.
     ``qualifier`` is accepted and ignored: the GP no longer selects
     queries (§13), and the parameter stays only so the call sites in ``pools`` read the
@@ -172,9 +179,9 @@ def discover(campaign, qualifier=None) -> int:
     from openoutreach.enrichment import bettercontact
 
     if not bettercontact.is_configured():
-        return 0
+        return False
     if not (campaign.product_docs or campaign.campaign_target):
-        return 0
+        return False
 
     logger.info(colored(f"▶ discover · {campaign}", "blue", attrs=["bold"]))
 
@@ -189,16 +196,16 @@ def discover(campaign, qualifier=None) -> int:
                 f"■ no more people left to find for {campaign} — every search this "
                 f"campaign knows how to make is exhausted", "blue"))
             logger.debug("frontier spanned · %d node(s) retired this pass", retired)
-            return 0
+            return False
 
         offset = node.next_offset
         page = _fetch(node, offset)
         if page is None:
-            return 0  # outage: the node keeps its place, the caller carries on
+            return False  # outage: the node keeps its place, the caller carries on
 
         if not page.leads:
             if _handle_empty(node, offset, page) is None:
-                return 0  # transport artifact — re-firing now would just repeat it
+                return False  # transport artifact — re-firing now would just repeat it
             retired += 1
             continue
 
@@ -210,4 +217,4 @@ def discover(campaign, qualifier=None) -> int:
             glyph="✓", color="green"))
         logger.debug("%s", step_line(
             "frontier", f"+{grown} node(s) from this page", glyph="+", color="cyan"))
-        return created
+        return True

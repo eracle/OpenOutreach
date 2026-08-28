@@ -16,7 +16,7 @@ def test_the_cold_phase_names_itself_and_the_anchor_progress(campaign, caplog):
     qualifier.set_anchors(np.random.RandomState(0).rand(3, 8))
 
     with (
-        patch("openoutreach.core.pipeline.top_up.discover", return_value=0),
+        patch("openoutreach.core.pipeline.top_up.discover", return_value=False),
         patch("openoutreach.core.pipeline.top_up.fetch_qualification_candidates",
               return_value=[]),
         caplog.at_level("INFO"),
@@ -69,9 +69,32 @@ def test_exploit_discovers_rather_than_qualifying_below_the_gate(campaign):
         patch("openoutreach.core.pipeline.top_up.fetch_qualification_candidates",
               return_value=[_Candidate()]),
         patch("openoutreach.core.pipeline.top_up.run_qualification") as qualify,
-        patch("openoutreach.core.pipeline.top_up.discover", return_value=10) as discover,
+        patch("openoutreach.core.pipeline.top_up.discover", return_value=True) as discover,
     ):
         assert top_up(campaign, qualifier) is True
 
     assert not qualify.called
     assert discover.called
+
+
+@pytest.mark.django_db
+def test_explore_counts_a_page_of_familiar_profiles_as_work(campaign):
+    """A fired page is the unit of work, whatever fraction of it was new.
+
+    A live run ended `goal_unreached` on this shape: the page came back 100 rows all
+    already ours, so it left no candidate to label — which is not the same fact as a
+    spanned frontier, and must not stop the job with the walk one node in."""
+    qualifier = BayesianQualifier(embedding_dim=8)
+    rng = np.random.RandomState(0)
+    qualifier.warm_start(rng.rand(7, 8), np.array([1, 1, 1, 1, 0, 0, 0]))
+    assert qualifier.acquisition_mode() != "exploit (p)"
+
+    with (
+        patch("openoutreach.core.pipeline.top_up.fetch_qualification_candidates",
+              return_value=[]),
+        patch("openoutreach.core.pipeline.top_up.run_qualification") as qualify,
+        patch("openoutreach.core.pipeline.top_up.discover", return_value=True),
+    ):
+        assert top_up(campaign, qualifier) is True
+
+    assert not qualify.called

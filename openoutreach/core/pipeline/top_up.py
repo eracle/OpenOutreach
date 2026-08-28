@@ -80,15 +80,21 @@ def top_up(campaign, qualifier: BayesianQualifier) -> bool:
         consumable = _consumable_candidates(qualifier, candidates)
         if consumable:
             return run_qualification(campaign, qualifier, candidates=consumable) is not None
-        return discover(campaign, qualifier) > 0
+        # A fired page is the work, however much of it we had already seen. Reading
+        # *new leads* here is what stopped a live run with 100 rows in hand: the page
+        # was all familiar profiles, so discovery reported nothing and the whole job
+        # ended `goal_unreached` with the frontier untouched below it.
+        return discover(campaign, qualifier)
 
     # Explore — label the most informative lead we have. The GP is fitted here, so it
     # ranks the pool and there is a best lead to pick; an empty pool is the one case
     # with no lead to label, so page one in first.
     if not candidates:
-        if discover(campaign, qualifier) <= 0:
+        if not discover(campaign, qualifier):
             return False
         candidates = fetch_qualification_candidates(campaign)
+        if not candidates:
+            return True  # every profile on that page was already ours — still a move
     return run_qualification(campaign, qualifier, candidates=candidates) is not None
 
 

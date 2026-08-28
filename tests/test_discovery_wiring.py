@@ -69,13 +69,13 @@ class TestGates:
     def test_no_finder_key_is_a_no_op(self, db):
         SiteConfig.objects.update(bettercontact_api_key="")
         with patch.object(discover_mod, "_fetch") as fetch:
-            assert discover(_campaign()) == 0
+            assert discover(_campaign()) is False
         fetch.assert_not_called()
 
     def test_no_icp_text_is_a_no_op(self, db):
         c = _campaign(product_docs="", campaign_target="")
         with patch.object(discover_mod, "_fetch") as fetch:
-            assert discover(c) == 0
+            assert discover(c) is False
         fetch.assert_not_called()
 
 
@@ -86,9 +86,9 @@ class TestHarvest:
         page = Page([_row()], 9027)
 
         with patch.object(discover_mod, "_fetch", return_value=page):
-            created = discover(c)
+            assert discover(c) is True
 
-        assert created == 1
+        assert Lead.objects.count() == 1
         node.refresh_from_db()
         assert node.state == QueryNode.State.FIRED
         assert node.next_offset == select.DISCOVERY_PAGE_SIZE
@@ -98,14 +98,16 @@ class TestHarvest:
     def test_a_page_of_duplicates_is_not_a_stall(self, db):
         # Bug 8: `_harvest` counts *newly created* leads, and a page of already-seen
         # profiles used to read as "nothing left to do" and halt the engine with the
-        # frontier wide open. The node must still advance.
+        # frontier wide open. The node must still advance, and the walk must report
+        # that it moved — `top_up` stops the whole job on a False here.
         c = _campaign()
         node = _node(c, [("lead_job_title", "founder")])
         Lead.objects.create(profile_url="https://linkedin.com/in/a", profile_text="x")
 
         with patch.object(discover_mod, "_fetch", return_value=Page([_row()], 10)):
-            assert discover(c) == 0
+            assert discover(c) is True
 
+        assert Lead.objects.count() == 1  # nothing new created — and that is fine
         node.refresh_from_db()
         assert node.state == QueryNode.State.FIRED
         assert node.next_offset == select.DISCOVERY_PAGE_SIZE
@@ -147,7 +149,7 @@ class TestEmptyPages:
 
         with patch.object(discover_mod, "_fetch",
                           return_value=Page([], 71403396)) as fetch:
-            assert discover(c) == 0
+            assert discover(c) is False
 
         assert fetch.call_count == 1  # not even retried — the count already answered
         node.refresh_from_db()
@@ -172,15 +174,15 @@ class TestEmptyPages:
 
         pages = [Page([], 0), Page([_row()], 10)]
         with patch.object(discover_mod, "_fetch", side_effect=pages):
-            assert discover(c) == 1
+            assert discover(c) is True
 
         assert QueryNode.objects.filter(campaign=c, state=QueryNode.State.DEAD).count() == 1
 
-    def test_saturation_returns_zero(self, db):
+    def test_saturation_is_the_one_false(self, db):
         c = _campaign()
         _node(c, [("lead_job_title", "a")], state=QueryNode.State.DRAINED)
         with patch.object(discover_mod, "_fetch") as fetch:
-            assert discover(c) == 0
+            assert discover(c) is False
         fetch.assert_not_called()
 
 
@@ -192,7 +194,7 @@ class TestOutage:
         node = _node(c, [("lead_job_title", "founder")])
 
         with patch.object(discover_mod, "_fetch", return_value=None):
-            assert discover(c) == 0
+            assert discover(c) is False
 
         node.refresh_from_db()
         assert node.state == QueryNode.State.FRONTIER
