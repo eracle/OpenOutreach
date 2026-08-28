@@ -1,5 +1,5 @@
 # tests/test_top_up.py
-"""`_advance` narrates which regime it is in — cold phase, explore, or exploit —
+"""`top_up` narrates which regime it is in — cold phase, explore, or exploit —
 because it is exactly the question an operator watching the run asks."""
 from unittest.mock import patch
 
@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from openoutreach.core.ml.qualifier import BayesianQualifier
-from openoutreach.core.pipeline.top_up import _advance
+from openoutreach.core.pipeline.top_up import top_up
 
 
 @pytest.mark.django_db
@@ -21,7 +21,7 @@ def test_the_cold_phase_names_itself_and_the_anchor_progress(campaign, caplog):
               return_value=[]),
         caplog.at_level("INFO"),
     ):
-        _advance(campaign, qualifier)
+        top_up(campaign, qualifier)
 
     assert "cold phase" in caplog.text
     assert "0/3 real positive" in caplog.text

@@ -341,12 +341,12 @@ class BayesianQualifier:
                 alpha=0.1,
             )),
         ])
-        # Announced *before* it runs, not after. This is the daemon's one genuinely
+        # Announced *before* it runs, not after. This is the run's one genuinely
         # expensive step and it grows as O(n³) in the label count — 17s at 1,220
         # labels — so a line that only appears on completion means the longest stall
         # in the loop is the one stretch with nothing on screen to explain it.
         logger.info("training this campaign's ranking model on %d judged lead(s)%s "
-                    "— the slowest thing the daemon does, please wait",
+                    "— the slowest thing a run does, please wait",
                     n, f", {len(self._anchor_X)} of them still synthetic"
                        if self._anchor_X else "")
         started = time.monotonic()

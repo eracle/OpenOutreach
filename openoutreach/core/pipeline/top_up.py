@@ -43,7 +43,7 @@ import numpy as np
 from termcolor import colored
 
 from openoutreach.core.conf import CAMPAIGN_CONFIG
-from openoutreach.core.ml.qualifier import BayesianQualifier, qualifier_for
+from openoutreach.core.ml.qualifier import BayesianQualifier
 from openoutreach.core.pipeline.discover import discover
 from openoutreach.core.pipeline.icp import ANCHOR_COUNT
 from openoutreach.core.pipeline.qualify import fetch_qualification_candidates, run_qualification
@@ -51,17 +51,16 @@ from openoutreach.core.pipeline.qualify import fetch_qualification_candidates, r
 logger = logging.getLogger(__name__)
 
 
-def top_up(campaign) -> bool:
+def top_up(campaign, qualifier: BayesianQualifier) -> bool:
     """Spend one unit of work filling *campaign*'s pipeline. Returns whether it did.
 
-    False means the campaign has nothing left to do: nothing worth labelling and
-    nothing left to discover.
+    Label a lead, discover leads, or (cold) both. False means the campaign has nothing
+    left to do: nothing worth labelling and nothing left to discover.
+
+    ``qualifier`` is the caller's, not one built here: the cycle's scoring row may
+    already have fitted this campaign's model in the same action, and the fit is the
+    expensive part. See ``cycle._one_model_per_action``.
     """
-    return _advance(campaign, qualifier_for(campaign))
-
-
-def _advance(campaign, qualifier: BayesianQualifier) -> bool:
-    """Label a lead, discover leads, or (cold) both. Returns whether it did."""
     if qualifier.is_cold:
         logger.info("  %s cold phase — %d/%d real positive(s), exploiting the anchors' guess",
                    colored("·", "cyan", attrs=["bold"]),

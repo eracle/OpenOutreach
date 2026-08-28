@@ -283,10 +283,10 @@ class TestScoringIsSkippedWhenNothingMoved:
                    return_value=object()) as build, \
                 patch("openoutreach.core.pipeline.ready_pool.promote_to_ready",
                       return_value=0):
-            cycle._score_qualified(campaign)
+            cycle._score_qualified(campaign, cycle._one_model_per_action(campaign))
             if between:
                 between(campaign)
-            cycle._score_qualified(campaign)
+            cycle._score_qualified(campaign, cycle._one_model_per_action(campaign))
         return build
 
     def test_an_unchanged_pool_is_not_rescored(self, campaign):
@@ -305,8 +305,26 @@ class TestScoringIsSkippedWhenNothingMoved:
 
     def test_an_empty_pool_never_builds_the_model(self, campaign):
         with patch("openoutreach.core.ml.qualifier.qualifier_for") as build:
-            assert cycle._score_qualified(campaign) is False
+            assert cycle._score_qualified(
+                campaign, cycle._one_model_per_action(campaign)) is False
         build.assert_not_called()
+
+    def test_one_action_fits_the_model_at_most_once(self, campaign):
+        """Scoring and the top-up both need the GP, and the fit is what costs — so an
+        action that falls through the promote gate into the top-up must not build a
+        second model over the very same labels."""
+        _deal(campaign, DealState.QUALIFIED)
+
+        with patch("openoutreach.core.ml.qualifier.qualifier_for",
+                   return_value=object()) as build, \
+                patch("openoutreach.core.pipeline.ready_pool.promote_to_ready",
+                      return_value=0), \
+                patch("openoutreach.core.pipeline.top_up.top_up",
+                      return_value=True) as fill:
+            assert cycle.run_one_action(campaign) is True
+
+        assert build.call_count == 1
+        assert fill.call_args.args[1] is build.return_value
 
 
 # ── An action is one action, and idleness is an answer ────────────

@@ -64,6 +64,7 @@ question has nobody to be fair between and the scheduler that answered it is gon
 """
 from __future__ import annotations
 
+import functools
 import logging
 import time
 
@@ -119,6 +120,7 @@ def run_one_action(campaign, buy_addresses: bool = False, max_new_lookups: int |
         return False
 
     may_spend = buy_addresses and (max_new_lookups is None or max_new_lookups > 0)
+    model = _one_model_per_action(campaign)
     for name, row, spends in ROWS:
         if spends and not may_spend:
             reason = "addresses not requested" if not buy_addresses \
@@ -127,7 +129,7 @@ def run_one_action(campaign, buy_addresses: bool = False, max_new_lookups: int |
             continue
         logger.debug("[%s] → %s?", campaign, name)
         started = time.monotonic()
-        acted = row(campaign)
+        acted = row(campaign, model)
         elapsed = time.monotonic() - started
         if acted:
             # Which row of the hierarchy fired, and how long it took, is how *we* read a
@@ -141,6 +143,26 @@ def run_one_action(campaign, buy_addresses: bool = False, max_new_lookups: int |
     logger.debug("[%s] nothing to do — %s", campaign,
                  pipeline_summary(campaign, buy_addresses=buy_addresses))
     return False
+
+
+def _one_model_per_action(campaign):
+    """The campaign's model, built on first use and shared by every row that scores.
+
+    Rows 2 and 4 both score with the GP, and *building* it is the expensive part —
+    the fit is O(n³) in the label count, seconds where the rest of the action is
+    milliseconds. Each row used to call ``qualifier_for`` for itself, so the ordinary
+    action — the promote gate holds, the walk falls through to the top-up — fitted the
+    same labels twice, back to back, once per action forever.
+
+    Sharing one is safe because nothing between the two rows can change what the model
+    would say: row 4 only runs when row 2 promoted nobody, and a promotion moves a
+    deal's *state*, not its fit verdict, which is what ``Lead.get_labeled_arrays``
+    reads. The cache lives exactly one action — the next call builds a fresh model over
+    whatever labels the last one wrote.
+    """
+    from openoutreach.core.ml.qualifier import qualifier_for
+
+    return functools.cache(lambda: qualifier_for(campaign))
 
 
 # What each waiting state means to someone reading a log, in pipeline order. The state
@@ -198,7 +220,7 @@ def pipeline_summary(campaign, buy_addresses: bool = True) -> str:
 # ── 1. Check an in-flight lookup ──────────────────────────────────
 
 
-def _check_lookups(campaign) -> bool:
+def _check_lookups(campaign, model) -> bool:
     from openoutreach.enrichment.lookup import check_lookup, reclaim_lookup
 
     deal = _due(campaign, DealState.FINDING_EMAIL).first()
@@ -213,12 +235,14 @@ def _check_lookups(campaign) -> bool:
 # ── 4. Score the qualified pool ───────────────────────────────────
 
 
-def _score_qualified(campaign) -> bool:
+def _score_qualified(campaign, model) -> bool:
     """Promote every QUALIFIED deal the campaign's model is confident about.
 
     The one step that is per-campaign rather than per-deal: building the model
     dominates the cost of using it, so once it is in hand it scores the whole pool
-    in a single pass and is then dropped.
+    in a single pass. It is *not* dropped afterwards — ``model`` is the action's
+    shared one (see ``_one_model_per_action``), so the top-up row below reuses this
+    same fit rather than paying for its own.
 
     Skipped entirely while nothing has changed since the last pass. Scoring is a
     pure function of two things — the labels the GP fits on and the pool it scores —
@@ -227,17 +251,13 @@ def _score_qualified(campaign) -> bool:
     forever (measured: ~1.1s at 300 labels, against a 5s cycle). The counts are two
     indexed `COUNT`s, and being wrong costs one cycle's delay, never a wrong answer.
     """
-    from openoutreach.core.ml.qualifier import qualifier_for
     from openoutreach.core.pipeline.ready_pool import promote_to_ready
 
     before = _pool_signature(campaign)
     if before[0] == 0 or _scored_at.get(campaign.pk) == before:
         return False
 
-    qualifier = qualifier_for(campaign)
-    if qualifier is None:
-        return False
-    promoted = promote_to_ready(campaign, qualifier)
+    promoted = promote_to_ready(campaign, model())
     _scored_at[campaign.pk] = _pool_signature(campaign)
     return promoted > 0
 
@@ -261,7 +281,7 @@ def _pool_signature(campaign) -> tuple[int, int]:
 # ── 5. Buy an address ─────────────────────────────────────────────
 
 
-def _buy_addresses(campaign) -> bool:
+def _buy_addresses(campaign, model) -> bool:
     from openoutreach.enrichment.lookup import buy_address
 
     # **This row has no gate on it any more, and that is deliberate.** It used to
@@ -286,7 +306,7 @@ def _buy_addresses(campaign) -> bool:
 # ── 6. Top up the pipeline ────────────────────────────────────────
 
 
-def _top_up(campaign) -> bool:
+def _top_up(campaign, model) -> bool:
     """Discover and qualify, always. This row has no gate, and that is the pivot.
 
     It used to have two — a mailbox had to exist and the campaign had to have send
@@ -310,7 +330,7 @@ def _top_up(campaign) -> bool:
     """
     from openoutreach.core.pipeline.top_up import top_up
 
-    return top_up(campaign)
+    return top_up(campaign, model())
 
 
 # ── The hierarchy ─────────────────────────────────────────────────
@@ -333,6 +353,10 @@ def _top_up(campaign) -> bool:
 # The third element is whether the row spends money, which is what `--emails` turns
 # *on*. Only row 3 carries it: checking a lookup we already submitted is free, and
 # abandoning one would waste a credit already committed rather than save it.
+#
+# Every row is called as `row(campaign, model)` with the action's shared model getter,
+# so the two rows that score share one fit; the rows that do not score take it and
+# ignore it, which is cheaper than two call shapes for the walk to tell apart.
 ROWS = (
     ("check for the email address we ordered", _check_lookups, False),
     ("rank the qualified leads", _score_qualified, False),
