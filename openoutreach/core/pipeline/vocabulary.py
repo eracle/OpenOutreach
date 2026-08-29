@@ -124,6 +124,38 @@ def profile_tokens(profile_text: str) -> frozenset[str]:
 
 # ── growing the vocabulary ───────────────────────────────────────────
 
+# Per-campaign count of accepted leads as of the last refresh, so a pass that changed
+# nothing costs one `COUNT` instead of a tokenize over the whole accepted set.
+# Process-local by design, exactly like `cycle._scored_at`: one process per job, and a
+# second job simply counts once more than it had to.
+_refreshed_at: dict[int, int] = {}
+
+
+def _accepted_count(campaign) -> int:
+    """How many leads this campaign has accepted — what the vocabulary is derived from.
+
+    The whole of the refresh's input state: the admission rule is a document frequency
+    over accepted profiles, so nothing but their number can change the answer.
+    """
+    from openoutreach.crm.models import Deal, DealState, Outcome
+
+    return (
+        Deal.objects.filter(campaign=campaign, lead_id__isnull=False)
+        .exclude(state=DealState.FAILED, outcome=Outcome.WRONG_FIT)
+        .count()
+    )
+
+
+def _anchor_source_fields(campaign) -> list[dict]:
+    """The campaign's synthetic ideal leads as rows the vocabulary can count.
+
+    Empty for a campaign anchored before the fields were asked for — its flat profiles
+    stay GP observations only, because recovering the fields from the line is exactly the
+    guess this avoids.
+    """
+    return [fields for fields in (campaign.anchor_source_fields or []) if fields]
+
+
 def _qualified_source_fields(campaign) -> list[dict]:
     """Per-field raw text of the leads the LLM accepted — the vocabulary's only source.
 
@@ -150,14 +182,34 @@ def _qualified_source_fields(campaign) -> list[dict]:
 def refresh(campaign) -> int:
     """Fold the qualified leads' words into the vocabulary. Returns tokens added.
 
-    Cheap enough to run on every discovery pass — it is a tokenize and a count over a few
-    hundred profiles, with no LLM call and no provider call, which is the whole point of
-    replacing minting with counting. There is no cadence to tune and no high-water mark to
-    store: re-deriving the vocabulary is faster than remembering when we last did.
+    Cheap enough to run on every pass — it is a tokenize and a count over a few hundred
+    profiles, with no LLM call and no provider call, which is the whole point of replacing
+    minting with counting.
+
+    **Its trigger is an acceptance, not a query.** It used to be called from exactly one
+    place, ``discover._ensure_frontier``, so the vocabulary only grew when the walk
+    happened to widen. That was invisible while the exploit state fell through to
+    discovery on every pass — the two always happened together — and becomes a stale
+    frontier the moment a run spends its time labelling instead: acceptances accumulate,
+    none of them reach the vocabulary, and the walk keeps firing queries built on evidence
+    it has already superseded. Callers may therefore call this whenever they like; the
+    signature below makes a redundant call one indexed ``COUNT``.
     """
     from openoutreach.core.models import Keyword
 
-    profiles = _qualified_source_fields(campaign)
+    signature = (_accepted_count(campaign), len(campaign.anchor_source_fields or []))
+    if _refreshed_at.get(campaign.pk) == signature:
+        return 0
+    _refreshed_at[campaign.pk] = signature
+
+    # **Anchors count as documents, not as a special case.** They are invented ideal leads
+    # written in a lead row's own shape, so the df floor applies to them exactly as it does
+    # to real acceptances, and their influence dilutes on its own as real profiles arrive —
+    # 3 anchors among 122 acceptances decide nothing. Without them a campaign with no
+    # acceptances has no vocabulary at all beyond the seed, which is how one live campaign
+    # came to fire 63 queries off a corpus of 3 profiles: at df>=2 a word had to appear in
+    # two of three, so what survived was whatever generic token they happened to share.
+    profiles = _anchor_source_fields(campaign) + _qualified_source_fields(campaign)
     if not profiles:
         # The cold-phase reality, and worth naming: with nothing qualified yet there are
         # no words to count, so the vocabulary is whatever the ICP seed put there and the

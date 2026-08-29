@@ -46,6 +46,7 @@ from termcolor import colored
 
 from openoutreach.core.conf import CAMPAIGN_CONFIG
 from openoutreach.core.ml.qualifier import BayesianQualifier
+from openoutreach.core.pipeline import vocabulary
 from openoutreach.core.pipeline.discover import discover
 from openoutreach.core.pipeline.icp import ANCHOR_COUNT
 from openoutreach.core.pipeline.qualify import fetch_qualification_candidates, run_qualification
@@ -63,6 +64,12 @@ def top_up(campaign, qualifier: BayesianQualifier) -> bool:
     already have fitted this campaign's model in the same action, and the fit is the
     expensive part. See ``cycle._one_model_per_action``.
     """
+    # Whatever last pass accepted reaches the frontier here. Discovery refreshes too, but
+    # a run that only ever labels would otherwise never fold its own acceptances in — and
+    # the walk's ranking is counted from exactly those profiles. Guarded by an accepted
+    # count, so a pass that changed nothing costs one `COUNT`.
+    vocabulary.refresh(campaign)
+
     if qualifier.is_cold:
         logger.info("  %s cold phase — %d/%d real positive(s), exploiting the anchors' guess",
                    colored("·", "cyan", attrs=["bold"]),
@@ -80,6 +87,18 @@ def top_up(campaign, qualifier: BayesianQualifier) -> bool:
         consumable = _consumable_candidates(qualifier, candidates)
         if consumable:
             return run_qualification(campaign, qualifier, candidates=consumable) is not None
+        # **Exploit finding nothing worth buying for is not evidence the pool is spent.**
+        # It is evidence the model cannot tell the pool apart yet — which is the case
+        # explore exists for — so reach for the *informative* leads before widening.
+        # Falling straight to discovery here cost a live campaign 14h33m: with 3 real
+        # positives no lead could reach `min_gp_confidence` (the whole 26,737-lead pool
+        # topped out at P=0.37), so every pass discovered, discovery labels nothing, and
+        # the posterior that would have opened the gate never moved. 295 pages, 19
+        # verdicts, 0 addresses. The two arms select disjoint leads by construction, so
+        # this one reaches exactly the leads the first cannot.
+        informative = _informative_candidates(qualifier, candidates)
+        if informative:
+            return run_qualification(campaign, qualifier, candidates=informative) is not None
         # A fired page is the work, however much of it we had already seen. Reading
         # *new leads* here is what stopped a live run with 100 rows in hand: the page
         # was all familiar profiles, so discovery reported nothing and the whole job
@@ -114,3 +133,26 @@ def _consumable_candidates(qualifier: BayesianQualifier, candidates: list) -> li
         return []
     threshold = CAMPAIGN_CONFIG["min_gp_confidence"]
     return [c for c, p in zip(candidates, probs) if p >= threshold]
+
+
+def _informative_candidates(qualifier: BayesianQualifier, candidates: list) -> list:
+    """The candidates worth a verdict for what it *teaches*, by expected information.
+
+    The second arm of the gate, in the unit the first one cannot express. ``min_bald_gain``
+    is a floor in nats — *is there anything left to learn from this pool* — which is a
+    scale-meaningful question in a way "is any lead 70% likely" is not on an unfitted
+    posterior. Empty means the pool is redundant with what is already labelled, and *then*
+    widening is the right move.
+
+    Deliberately not a quantile: a top-decile rule can never be empty, so it would not be
+    a gate at all and discovery would never run again.
+    """
+    if not candidates:
+        return []
+
+    X = np.array([c.embedding_array for c in candidates], dtype=np.float64)
+    bald = qualifier.compute_bald(X)
+    if bald is None:
+        return []
+    floor = CAMPAIGN_CONFIG["min_bald_gain"]
+    return [c for c, gain in zip(candidates, bald) if gain >= floor]

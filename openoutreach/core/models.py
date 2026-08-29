@@ -113,6 +113,13 @@ class Campaign(models.Model):
     # still waiting for its first positive.
     anchor_profiles = models.JSONField(default=list, blank=True)
     anchor_embeddings = models.BinaryField(null=True, blank=True)
+    # The same invented people as *lead rows* — one ``source_fields`` dict per profile,
+    # parallel to ``anchor_profiles``. This is what lets a campaign with no acceptances
+    # open a precise frontier: ``vocabulary.refresh`` counts these alongside real accepted
+    # profiles, so the walk starts from words the ICP actually named instead of the
+    # generic tokens a three-profile corpus admits. Written by the model, never parsed out
+    # of the flat line — see ``pipeline/icp._AnchorProfile``.
+    anchor_source_fields = models.JSONField(default=list, blank=True)
 
     def __str__(self):
         return self.name

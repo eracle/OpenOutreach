@@ -27,3 +27,13 @@ Example of the required shape (yours must fit the campaign above, not this one):
 - Make the {{ count }} profiles **genuinely different from each other** — vary the title, the seniority, the industry and the geography within what the campaign target allows. They outline a region of good fits, so near-duplicates waste the set.
 - Use realistic titles, industries and locations a lead database would actually hold. Invent a plausible company name for each.
 - Every profile must be one a human would qualify for this exact campaign. Do not hedge toward a broader audience.
+
+Then, for each profile, repeat three of its values **on their own**, so they can be searched as the separate fields a lead database keeps them in:
+
+- `job_title` — the title by itself, no company and no place. From the example above: `head of revenue`.
+- `location_state` — the state, province or region by itself: `california`. Leave it empty if the country has no such division worth naming.
+- `location_country` — the country by itself: `united states`.
+
+These are the same words already inside the line; the point is only that we cannot tell which is which once they are one string. Keep them lowercase and keep them consistent with the profile they came from — a title that does not appear in its own line is a mistake.
+
+**Prefer the words a lead database would hold over the words a person would say.** `vp of sales` rather than `sales leadership`; `germany` rather than `dach region`. These become search terms verbatim, so an invented category matches nobody.

@@ -13,7 +13,13 @@ import numpy as np
 import pytest
 
 from openoutreach.core.ml.qualifier import BayesianQualifier
-from openoutreach.core.pipeline.icp import _AnchorProfiles, ensure_anchors, generate_anchors
+from openoutreach.core.pipeline.icp import (
+    Anchor,
+    _AnchorProfile,
+    _AnchorProfiles,
+    ensure_anchors,
+    generate_anchors,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -28,10 +34,18 @@ def _campaign(**kw):
 
 @contextmanager
 def _llm_returns(profiles):
-    """Stub the whole LLM boundary — model resolution, Agent, and the run."""
+    """Stub the whole LLM boundary — model resolution, Agent, and the run.
+
+    A plain string is the profile line with no fielded values, which is what most of these
+    tests care about; pass an ``_AnchorProfile`` where the fields are the point.
+    """
+    written = [
+        p if isinstance(p, _AnchorProfile) else _AnchorProfile(profile=p)
+        for p in profiles
+    ]
     with (
         patch("openoutreach.core.llm.run_agent_sync",
-              return_value=MagicMock(output=_AnchorProfiles(profiles=profiles))),
+              return_value=MagicMock(output=_AnchorProfiles(profiles=written))),
         patch("openoutreach.core.llm.get_llm_model"),
         patch("pydantic_ai.Agent"),
     ):
@@ -46,7 +60,39 @@ def _stub_embed():
 class TestGenerateAnchors:
     def test_normalizes_the_llm_output(self):
         with _llm_returns(["  Head Of Sales ACME  ", "", "cto northwind"]):
-            assert generate_anchors(_campaign()) == ["head of sales acme", "cto northwind"]
+            written = generate_anchors(_campaign())
+        assert [a.profile for a in written] == ["head of sales acme", "cto northwind"]
+
+    def test_the_fielded_values_become_a_lead_row(self):
+        """An anchor is a synthetic *lead row*, so the walk can count it the way it counts
+        a real acceptance — each value already under the field it is searchable in, with
+        nothing split by guess."""
+        with _llm_returns([_AnchorProfile(
+            profile="head of revenue at northwind california united states",
+            job_title="Head Of Revenue", location_state="California",
+            location_country="United States",
+        )]):
+            (anchor,) = generate_anchors(_campaign())
+
+        assert anchor.source_fields == {
+            "contact_job_title": "head of revenue",
+            "contact_location_state": "california",
+            "contact_location_country": "united states",
+        }
+
+    def test_an_empty_field_is_dropped_rather_than_stored_blank(self):
+        """A country with no region worth naming yields the country alone — a blank state
+        would otherwise reach `keywords_for` and build a place nobody matches."""
+        with _llm_returns([_AnchorProfile(
+            profile="founder at acme singapore", job_title="founder",
+            location_state="", location_country="singapore",
+        )]):
+            (anchor,) = generate_anchors(_campaign())
+
+        assert anchor.source_fields == {
+            "contact_job_title": "founder",
+            "contact_location_country": "singapore",
+        }
 
     def test_an_llm_outage_leaves_the_campaign_unanchored(self):
         """Best-effort: an unanchored campaign still runs, just without a fitted GP."""
@@ -113,7 +159,7 @@ class TestAnchorFillUp:
 
         with (
             patch("openoutreach.core.pipeline.icp.generate_anchors",
-                  return_value=["c three"]) as gen,
+                  return_value=[Anchor("c three", {})]) as gen,
             _stub_embed(),
         ):
             ensure_anchors(campaign)

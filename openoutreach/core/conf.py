@@ -72,10 +72,11 @@ COLLECT_BACKOFF_MAX_S = 30 * 24 * 3600
 # ----------------------------------------------------------------------
 CAMPAIGN_CONFIG = {
     "qualification_n_mc_samples": 100,
-    # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL
-    # (rations the paid BetterContact lookup to leads the model is confident about), and
-    # with it the LLM call — a lead the model would not buy an address for is not one it
-    # spends a verdict judging (pipeline/top_up.py).
+    # GP confidence gate: P(f>0.5) above this promotes QUALIFIED → READY_TO_FIND_EMAIL,
+    # rationing the paid lookup to leads the model is confident about. It is also the
+    # *first* arm of the qualification gate in pipeline/top_up.py — a lead worth buying an
+    # address for is certainly worth a verdict — but no longer the only one: see
+    # `min_bald_gain` below for why an unfitted posterior can never open this one.
     #
     # 0.7, down from 0.9. The bar is what the exploit state has to clear to do anything at
     # all, and at 0.9 a live campaign cleared it with nothing: 7 leads waited to be ranked
@@ -83,6 +84,26 @@ CAMPAIGN_CONFIG = {
     # never moved. A gate the pool cannot reach rations the pipeline shut rather than
     # rationing the spend.
     "min_gp_confidence": 0.7,
+    # The second arm of the qualification gate, in nats of expected information.
+    #
+    # ``min_gp_confidence`` alone cannot open on a cold campaign, and the reason is
+    # arithmetic rather than tuning: ``P(f>0.5)`` is ``norm.sf(0.5, mean, std)``, so a wide
+    # posterior pulls *every* candidate toward 0.5. Measured on a live campaign with 3 real
+    # positives, the highest-scoring lead of 26,737 reached **0.37** — no bar above 0.5
+    # admits anything, and discovery cannot help because it adds unlabelled leads, which
+    # move no posterior. The run spent 14h33m on 295 discovery pages and 19 LLM calls.
+    #
+    # So a lead is worth judging if the model is either confident about it *or* uncertain
+    # enough to learn from it. The two arms are anti-correlated by construction (BALD peaks
+    # where P is near 0.5): on the same live data, leads clearing P>=0.7 and leads in the
+    # top BALD decile were **disjoint sets**, in both campaigns.
+    #
+    # 0.04 measured: it admits 92.9% of the 3-positive campaign's pool and 1.1% of the
+    # 122-positive one's, so the arm carries a cold start and then retires itself as the
+    # posterior tightens. An absolute floor is safe *here* where it was not on P, because
+    # the failure closes a loop instead of an absorbing state: gate shut -> discover ->
+    # novel leads -> BALD rises -> gate reopens.
+    "min_bald_gain": 0.04,
     # There is no discovery cadence knob. Growing the vocabulary used to be an LLM call
     # worth rationing ("mint_every_n_qualified"); it is now a tokenize-and-count over a
     # few hundred profiles (pipeline/vocabulary.py), so it simply runs every pass. The

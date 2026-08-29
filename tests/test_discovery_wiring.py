@@ -270,6 +270,58 @@ class TestVocabulary:
         assert vocabulary.seed_seniorities() == 12
         assert vocabulary.seed_seniorities() == 0
 
+    def test_anchors_give_a_campaign_with_no_acceptances_a_vocabulary(self, db):
+        """The cold-start fix: a campaign that has accepted nobody still has an ICP, and
+        the anchors say it in the fields the walk searches.
+
+        Without this the vocabulary is empty until the first acceptance, so the frontier
+        cannot grow past its depth-1 seed nodes. A live campaign fired 63 queries off a
+        corpus of 3 accepted profiles, where df>=2 admitted only whatever generic token
+        two of the three happened to share."""
+        c = _campaign()
+        c.anchor_source_fields = [
+            {"contact_job_title": "head of revenue", "contact_location_country": "united states"},
+            {"contact_job_title": "head of growth", "contact_location_country": "united states"},
+        ]
+        c.save(update_fields=["anchor_source_fields"])
+
+        vocabulary.refresh(c)
+        pairs = set(vocabulary.admitted_keywords())
+
+        # `head` and `of` are in both anchors; `revenue` and `growth` in one each, so the
+        # df floor applies to anchors exactly as it does to real acceptances.
+        assert ("lead_job_title", "head") in pairs
+        assert ("lead_location", "United States") in pairs
+        assert ("lead_job_title", "revenue") not in pairs
+
+    def test_a_campaign_anchored_before_the_fields_existed_grows_nothing_from_them(self, db):
+        """Flat profiles stay GP observations only — recovering the fields from the line
+        is the guess that would file `united states` as a job title."""
+        c = _campaign()
+        c.anchor_profiles = ["head of revenue at northwind california united states"]
+        c.save(update_fields=["anchor_profiles"])
+
+        assert vocabulary.refresh(c) == 0
+
+    def test_an_acceptance_refreshes_even_when_nothing_was_discovered(self, db):
+        """Refresh is triggered by the qualified set changing, not by a query firing.
+
+        It used to be called from `discover._ensure_frontier` alone, which was invisible
+        only because the exploit state fell through to discovery on every pass. A run that
+        spends its time labelling would otherwise never fold its own acceptances in."""
+        c = _campaign()
+        for _ in range(2):
+            _labelled(c, "founder ai", True, {"contact_job_title": "founder ai"})
+        assert vocabulary.refresh(c) > 0
+
+        # Nothing changed — the signature makes the repeat one COUNT, not a re-count.
+        assert vocabulary.refresh(c) == 0
+
+        for _ in range(2):
+            _labelled(c, "cto robotics", True, {"contact_job_title": "cto robotics"})
+        assert vocabulary.refresh(c) > 0
+        assert ("lead_job_title", "cto") in set(vocabulary.admitted_keywords())
+
     def test_stopwords_never_become_search_terms(self):
         assert "of" not in vocabulary.tokenize("Head of Growth")
         assert vocabulary.tokenize("Head of Growth") == {"head", "growth"}

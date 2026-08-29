@@ -135,11 +135,17 @@ class LabelStore:
         whatever real qualified profiles have accumulated — a small, constant nudge that
         matters early and is swamped by real evidence as the campaign grows.
 
-        They deliberately do **not** feed the vocabulary (``vocabulary.refresh``): an
-        anchor is one flat string with no per-field structure, and splitting it by guess
-        would file ``united states`` as a job title — the error
-        ``discovery.KEYWORD_SOURCE_FIELDS`` exists to prevent. Anchors say which words go
-        *together*; only a real lead row says which field a word is searchable in.
+        They feed the **vocabulary** too (``vocabulary.refresh``), through a second shape
+        rather than through this one: ``Campaign.anchor_source_fields`` carries the same
+        invented people as *lead rows*, each value already under the field it is
+        searchable in. The rule this replaces was that anchors must never reach the
+        vocabulary, and the reason was sound — an anchor was one flat string, and
+        splitting it by guess would file ``united states`` as a job title, the error
+        ``discovery.KEYWORD_SOURCE_FIELDS`` exists to prevent. But that argues against
+        *splitting*, not against asking: ``icp._AnchorProfile`` has the model write the
+        fields out itself, so nothing is inferred from the line. What it buys is the case
+        this store cannot reach — a campaign with no acceptances has no vocabulary beyond
+        the seed, so its frontier cannot grow past depth-1 however well this ranks it.
         """
         from openoutreach.core.pipeline.vocabulary import profile_tokens
         from openoutreach.crm.models import Deal, DealState, Lead, Outcome

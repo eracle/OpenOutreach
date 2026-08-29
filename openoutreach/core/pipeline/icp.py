@@ -33,6 +33,7 @@ ICP attribute that rides every maximal unchanged. See ``discovery.filters_for``.
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
 import jinja2
 import numpy as np
@@ -204,18 +205,57 @@ def generate_seed(campaign) -> list[tuple[str, str]]:
 # ── anchors: the ICP as synthetic profiles ───────────────────────────
 
 
-class _AnchorProfiles(BaseModel):
-    """The LLM's invented ideal leads, each one line in ``profile_text_for``'s shape."""
+class Anchor(NamedTuple):
+    """One invented ideal lead: the line the GP embeds, and the row the walk counts.
 
-    profiles: list[str] = Field(
-        default_factory=list,
-        description="Lowercase one-line lead profiles: headline, industry, job title, "
+    Two shapes of the same claim, because the two consumers read different things. The
+    GP wants ``profile`` — one flat line in ``profile_text_for``'s shape, embedded whole.
+    The vocabulary wants ``source_fields`` — the same person as a *lead row*, each value
+    already under the field it is searchable in, exactly as ``discovery.source_fields_for``
+    stores one for a real lead.
+    """
+
+    profile: str
+    source_fields: dict
+
+
+class _AnchorProfile(BaseModel):
+    """One invented lead — written once as a line, and again as its queryable fields.
+
+    The fields are asked for rather than parsed out. Splitting the flat line by guess is
+    what made anchors unusable as vocabulary: a bag of words cannot say whether
+    ``united states`` is a job title or a place, and filing it wrong poisons the axis for
+    the campaign's life. The model already knows which is which — it just was never asked.
+    """
+
+    profile: str = Field(
+        description="Lowercase one-line lead profile: headline, industry, job title, "
                     "company name, seniority, company industry, state, country — space "
                     "separated, no labels.",
     )
+    job_title: str = Field(
+        default="",
+        description="This lead's job title alone, lowercase, no company and no location "
+                    "— e.g. 'head of revenue'.",
+    )
+    location_state: str = Field(
+        default="",
+        description="State, province or region alone, or empty if the country has none "
+                    "worth naming — e.g. 'california'.",
+    )
+    location_country: str = Field(
+        default="",
+        description="Country alone — e.g. 'united states'.",
+    )
 
 
-def generate_anchors(campaign, count: int = ANCHOR_COUNT, existing=()) -> list[str]:
+class _AnchorProfiles(BaseModel):
+    """The LLM's invented ideal leads, each one line in ``profile_text_for``'s shape."""
+
+    profiles: list[_AnchorProfile] = Field(default_factory=list)
+
+
+def generate_anchors(campaign, count: int = ANCHOR_COUNT, existing=()) -> list[Anchor]:
     """LLM-invent ``count`` ideal-lead profiles. ``[]`` on an outage or empty ICP.
 
     ``existing`` are the profiles already written for this campaign — shown to the model
@@ -249,7 +289,27 @@ def generate_anchors(campaign, count: int = ANCHOR_COUNT, existing=()) -> list[s
         logger.exception("[%s] anchor generation failed — campaign stays unanchored", campaign)
         return []
 
-    return [p.strip().lower() for p in result.profiles if p.strip()]
+    return [anchor for anchor in map(_as_anchor, result.profiles) if anchor.profile]
+
+
+def _as_anchor(written: _AnchorProfile) -> Anchor:
+    """One LLM-written profile as the pair the two consumers need.
+
+    ``source_fields_for`` is reused rather than reimplemented so an anchor row and a
+    discovered lead row are built by the same function: it keeps only the keys
+    ``KEYWORD_SOURCE_FIELDS`` reads and drops the empty ones, which is what makes an
+    anchor with no state contribute its country alone instead of a blank place.
+    """
+    from openoutreach.discovery import source_fields_for
+
+    return Anchor(
+        profile=written.profile.strip().lower(),
+        source_fields=source_fields_for({
+            "contact_job_title": written.job_title.strip().lower(),
+            "contact_location_state": written.location_state.strip().lower(),
+            "contact_location_country": written.location_country.strip().lower(),
+        }),
+    )
 
 
 def stored_anchors(campaign) -> np.ndarray | None:
@@ -287,20 +347,26 @@ def ensure_anchors(campaign) -> np.ndarray | None:
         return stored
 
     fresh = [
-        p for p in generate_anchors(campaign, count=ANCHOR_COUNT - len(profiles),
-                                    existing=profiles)
-        if p not in profiles
+        anchor for anchor in generate_anchors(campaign, count=ANCHOR_COUNT - len(profiles),
+                                              existing=profiles)
+        if anchor.profile not in profiles
     ]
     if not fresh:
         return stored
 
-    embeddings = np.array([embed_profile(p) for p in fresh], dtype=np.float32)
+    embeddings = np.array([embed_profile(a.profile) for a in fresh], dtype=np.float32)
     if stored is not None:
         embeddings = np.vstack([stored, embeddings])
 
-    campaign.anchor_profiles = profiles + fresh
+    campaign.anchor_profiles = profiles + [a.profile for a in fresh]
+    # Kept parallel to the profiles rather than derived from them: the fields are the
+    # model's own assignment, and nothing downstream can recover them from the flat line.
+    campaign.anchor_source_fields = (
+        list(campaign.anchor_source_fields or []) + [a.source_fields for a in fresh]
+    )
     campaign.anchor_embeddings = embeddings.tobytes()
-    campaign.save(update_fields=["anchor_profiles", "anchor_embeddings"])
+    campaign.save(update_fields=["anchor_profiles", "anchor_source_fields",
+                                 "anchor_embeddings"])
     logger.debug("[%s] %s: +%d synthetic ideal profile(s) (%d total)", campaign,
                  colored("anchors", "cyan", attrs=["bold"]), len(fresh), len(embeddings))
     log_icp_echo(campaign)
