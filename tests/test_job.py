@@ -193,7 +193,7 @@ class TestEmailsGoalCapsAddressesOnOrder:
         def miss_twice_then_hit(deal):
             submissions.append(deal.pk)
             if len(submissions) <= 2:
-                return DealState.NO_EMAIL_BETTERCONTACT
+                return DealState.NO_EMAIL_FOUND
             deal.lead.email = f"lead{deal.pk}@acme.com"
             deal.lead.save(update_fields=["email"])
             return DealState.RESOLVED

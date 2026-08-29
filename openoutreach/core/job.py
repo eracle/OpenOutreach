@@ -102,7 +102,7 @@ def _work_to_goal(campaign, goal: Goal, on_new_lead, buy_addresses: bool,
                   started: float) -> JobResult:
     """The loop itself. Every exit is a ``JobResult``; none of them raises."""
     from openoutreach.core.cycle import HALTING_ERRORS, run_one_action
-    from openoutreach.enrichment.bettercontact import BetterContactUnavailable
+    from openoutreach.enrichment.provider import ProviderUnavailable
 
     baseline = _unit_ids(campaign, goal.unit)
     result = JobResult(goal=goal)
@@ -122,7 +122,7 @@ def _work_to_goal(campaign, goal: Goal, on_new_lead, buy_addresses: bool,
                 "and llm_api_base"
             )
             return result
-        except BetterContactUnavailable as exc:
+        except ProviderUnavailable as exc:
             # A refusal the provider will repeat — a rejected key, an empty wallet, a
             # 429 that outlasted its backoff. Discovery raises these rather than
             # returning an empty page, so the run ends naming the refusal instead of
