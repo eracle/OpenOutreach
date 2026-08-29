@@ -109,6 +109,17 @@ budget, in the same unit as the invoice. A `--with-email` modifier would have hi
 `--emails` says what may be **paid for**. They meet in exactly one place: a goal counted in addresses
 cannot be met without buying them, so the unit implies the flag.
 
+**What enforces that ceiling is a cap on addresses _on order_, not on lookups _made_**
+(`job._lookup_budget`: `goal.count − produced − _on_order()`, passed down as
+`run_one_action(max_new_lookups=…)`). The distinction is the whole of it. A submission almost never
+resolves synchronously, so without a cap independent of `produced` a goal of 1 would submit a lookup
+for every lead past the confidence gate; but a lookup that **misses** produced no address and must
+not spend the goal either, or `N emails` tops out at the provider's hit rate — URL-only resolves
+~42%, so counting misses put a ceiling of ~`0.42 × N` on every `emails` goal and left the run
+spinning on discovery once the last submission was spent, unable to buy and unable to stop. A miss
+releases its slot and the run buys again; only a hit spends one, so at most `goal.count` addresses
+ever resolve and the invoice still matches the number typed.
+
 `--debug` is the shorthand for `--log-level debug`; both write the same dest, so they cannot disagree. `find 0` does no work and prints
 what is already there; it is not a special case, it is `produced >= count` being true before the loop.
 

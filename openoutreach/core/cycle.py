@@ -115,6 +115,12 @@ def run_one_action(campaign, buy_addresses: bool = False, max_new_lookups: int |
     operator typed. ``0`` (not ``None``) skips row 3 for this call the same way
     ``buy_addresses=False`` does, so a caller can throttle without disabling spending
     outright.
+
+    **It is a cap on addresses *on order*, not on submissions made** —
+    ``job._lookup_budget`` owns that arithmetic and its docstring says why. What matters
+    here is that the number can go back **up**: a lookup that misses releases its slot,
+    so a row skipped for "budget spent" on one call is live again on a later one, and
+    ``may_spend`` must therefore be recomputed per call rather than latched.
     """
     if campaign is None:
         return False

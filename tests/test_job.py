@@ -123,16 +123,21 @@ class TestUnits:
         assert not result.reached and result.produced == 0
 
 
-# ── capping new paid submissions ─────────────────────────────────
+# ── capping the addresses on order ───────────────────────────────
 
 
 @pytest.mark.django_db
-class TestEmailsGoalCapsNewSubmissions:
-    """A submission almost never resolves synchronously (BetterContact is async), so it
-    never shows up in ``produced`` — but it has already spent a credit and sent a
-    profile to the resolver. Without a cap independent of ``produced``, a goal of 1
-    would keep calling ``run_one_action`` and submitting a *different* lead's lookup
-    every time, since nothing else stops the loop before the goal-met check."""
+class TestEmailsGoalCapsAddressesOnOrder:
+    """The budget is counted in **addresses**, not in submissions.
+
+    A submission almost never resolves synchronously (the provider is async), so it never
+    shows up in ``produced`` — but it has sent a profile to the resolver, and without a
+    cap independent of ``produced`` a goal of 1 would submit a *different* lead's lookup
+    on every call, since nothing else stops the loop before the goal-met check. So the
+    run caps what is **on order at once**.
+
+    What it must not cap is submissions *made*: a miss produced no address and must not
+    spend the goal, or ``N emails`` tops out at the provider's hit rate."""
 
     def test_a_goal_of_one_submits_at_most_one_lookup(self, campaign):
         deals = [
@@ -170,6 +175,37 @@ class TestEmailsGoalCapsNewSubmissions:
 
         assert submissions == [deals[0].pk]
         assert not result.reached  # the one submission is still in flight, not resolved
+
+    def test_a_miss_does_not_spend_the_goal(self, campaign):
+        """``find 2 emails`` means two addresses, not two lookups.
+
+        The URL-only query resolves ~42% of the time, so counting misses against the goal
+        capped every ``emails`` run at the hit rate — ``find 400 emails`` could reach at
+        most ~168 and then spun on discovery, unable to buy and unable to stop, until the
+        operator interrupted it. A miss releases its slot; only a hit spends one."""
+        deals = [
+            DealFactory(campaign=campaign, lead=LeadFactory(email=None),
+                        state=DealState.READY_TO_FIND_EMAIL)
+            for _ in range(5)
+        ]
+        submissions = []
+
+        def miss_twice_then_hit(deal):
+            submissions.append(deal.pk)
+            if len(submissions) <= 2:
+                return DealState.NO_EMAIL_BETTERCONTACT
+            deal.lead.email = f"lead{deal.pk}@acme.com"
+            deal.lead.save(update_fields=["email"])
+            return DealState.RESOLVED
+
+        with patch("openoutreach.core.ml.qualifier.qualifier_for", return_value=object()), \
+             patch("openoutreach.enrichment.lookup.buy_address",
+                   side_effect=miss_twice_then_hit), \
+             patch("openoutreach.core.pipeline.top_up.top_up", return_value=False):
+            result = run_job(campaign, Goal(2, EMAILS), buy_addresses=True)
+
+        assert result.reached and result.produced == 2
+        assert submissions == [deal.pk for deal in deals[:4]]  # two misses, then two hits
 
 
 # ── stopping short ────────────────────────────────────────────────

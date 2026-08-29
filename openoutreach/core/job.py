@@ -105,14 +105,13 @@ def _work_to_goal(campaign, goal: Goal, on_new_lead, buy_addresses: bool,
     from openoutreach.enrichment.bettercontact import BetterContactUnavailable
 
     baseline = _unit_ids(campaign, goal.unit)
-    presented_baseline = _presented_ids(campaign) if goal.unit == EMAILS else None
     result = JobResult(goal=goal)
 
     while result.produced < goal.count:
         try:
             acted = run_one_action(
                 campaign, buy_addresses=buy_addresses,
-                max_new_lookups=_lookup_budget(campaign, goal, presented_baseline))
+                max_new_lookups=_lookup_budget(campaign, goal, result))
             _collect(campaign, goal, baseline, result, on_new_lead, started)
         except HALTING_ERRORS as exc:
             # A bad LLM key is not a transient fault: every action would raise it. The
@@ -168,37 +167,42 @@ def _unit_ids(campaign, unit: str) -> set[int]:
     }
 
 
-def _presented_ids(campaign) -> set[int]:
-    """Deals this campaign has handed to ``buy_address`` — resolved, in flight, or
-    determined unfindable.
+def _on_order(campaign) -> int:
+    """How many addresses this campaign is waiting on — submitted, not yet hit or miss.
 
-    This, not ``produced``, is what caps *new* paid submissions for an ``emails``
-    goal: a submission almost never resolves synchronously, so it never shows up in
-    ``produced`` (which only counts *resolved* addresses) — but it has still spent a
-    credit and sent a profile to the resolver. Counting it here, and capping new
-    submissions at ``goal.count`` minus this count, is what stops a goal of 1 from
-    quietly submitting a lookup for every lead that clears the confidence gate.
+    Campaign-wide rather than run-scoped, because a lookup already in flight when the
+    job started will count toward the goal the moment it lands (``_unit_ids`` reads the
+    address, not who ordered it), so it has to count against the budget too.
     """
     from openoutreach.crm.models import Deal, DealState
 
-    return set(
-        Deal.objects.filter(
-            campaign=campaign,
-            state__in=(DealState.FINDING_EMAIL, DealState.RESOLVED, DealState.NO_EMAIL_BETTERCONTACT),
-        ).values_list("pk", flat=True)
-    )
+    return Deal.objects.filter(campaign=campaign, state=DealState.FINDING_EMAIL).count()
 
 
-def _lookup_budget(campaign, goal: Goal, presented_baseline: set[int] | None) -> int | None:
+def _lookup_budget(campaign, goal: Goal, result: JobResult) -> int | None:
     """How many *more* paid lookups this run may still submit, or ``None`` (no cap).
+
+    **The budget is counted in addresses, not in submissions**, because that is the unit
+    the operator typed. A lookup that comes back a miss produced no address, so it must
+    not spend the goal — the URL-only query resolves ~42% of the time, so capping
+    *submissions* at ``goal.count`` put a hard ceiling of ~``0.42 × N`` on every
+    ``emails`` goal. ``find 400 emails`` could not reach 400 at any runtime, and once the
+    last submission was spent the paid row was skipped forever while discovery kept
+    acting, so the loop could not end either. It ran until the operator interrupted it.
+
+    What is capped instead is how many addresses may be **on order at once**: the goal,
+    less what has resolved, less what is still in flight. A miss releases its slot and the
+    run buys again; a hit spends one for good. So at most ``goal.count`` addresses ever
+    resolve, the spend is still capped at the number typed — one credit per verified hit —
+    and a goal of 1 still submits exactly one lookup at a time rather than one for every
+    lead that clears the confidence gate.
 
     Only an ``emails`` goal has a budget at all — ``leads`` isn't counted in paid
     lookups, so nothing here should throttle it.
     """
-    if presented_baseline is None:
+    if goal.unit != EMAILS:
         return None
-    new_presented = len(_presented_ids(campaign) - presented_baseline)
-    return max(0, goal.count - new_presented)
+    return max(0, goal.count - result.produced - _on_order(campaign))
 
 
 def _collect(campaign, goal: Goal, baseline: set[int], result: JobResult, on_new_lead,
