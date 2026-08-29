@@ -39,7 +39,7 @@ can do, so priority is just the order these are written in:
     4  (the campaign itself)  top up the pipeline         (always)
 
 A state that is not listed is terminal, and terminal costs nothing: RESOLVED,
-NO_EMAIL_BETTERCONTACT and FAILED. Most deals come to rest at one of those three,
+NO_EMAIL_FOUND and FAILED. Most deals come to rest at one of those three,
 and resting is free because nothing iterates them.
 
 **There is no spend gate on rows 2 and 4, and that is the shape of the finder.**
@@ -109,7 +109,7 @@ def run_one_action(campaign, buy_addresses: bool = False, max_new_lookups: int |
     this call, independent of ``buy_addresses``.** Without it, a goal counted in
     ``emails`` could submit far more paid lookups than asked for: ``core/job.py``'s loop
     keeps calling this function until a lookup *resolves*, but a submission almost never
-    resolves synchronously (BetterContact is async), so every call that doesn't resolve
+    resolves synchronously (the provider is async), so every call that doesn't resolve
     one just goes and submits a *different* lead's lookup instead — one credit and one
     profile handed to the resolver per call, with nothing stopping it at the count the
     operator typed. ``0`` (not ``None``) skips row 3 for this call the same way
@@ -201,7 +201,7 @@ def pipeline_summary(campaign, buy_addresses: bool = True) -> str:
     from django.db.models import Count
 
     from openoutreach.crm.models import Deal
-    from openoutreach.enrichment import bettercontact
+    from openoutreach.enrichment import bettercontact, provider
 
     counts = dict(
         Deal.objects.filter(campaign=campaign, lead__disqualified=False)
@@ -212,14 +212,21 @@ def pipeline_summary(campaign, buy_addresses: bool = True) -> str:
     waiting = [f"{counts.get(state, 0)} {phrase}" for state, phrase in _WAITING_ON]
 
     # Each gate said as its consequence rather than as its name — a boolean tells you
-    # nothing — and **every consequence it has**. The finder key is one key doing two
-    # jobs, so losing it stops the walk finding anybody *and* stops the paid lookup;
-    # naming only the second sent the operator after the wrong thing. What it does not
-    # stop is the free address sources: an address already on the lead and the hub's
-    # cache are both still read. Qualification has no gate to report — it always runs.
+    # nothing — and **every consequence it has**. The two keys are not symmetric: the
+    # BetterContact key does two jobs (Lead Finder discovery *and* paid enrichment)
+    # while an Apollo key does only the second, so an Apollo-only install discovers
+    # nobody however healthy its enrichment is. Reporting that as one "no finder key"
+    # sent the operator after the wrong key, so the two consequences are named apart.
+    # What neither stops is the free address sources: an address already on the lead
+    # and the hub's cache are both still read. Qualification has no gate — it always runs.
     ranked = counts.get(DealState.READY_TO_FIND_EMAIL, 0)
-    if not bettercontact.is_configured():
+    can_discover = bettercontact.is_configured()
+    can_resolve = provider.active() is not None
+
+    if not can_discover and not can_resolve:
         held = " · no finder key, so no new discovery and free address sources only"
+    elif not can_discover:
+        held = " · no BetterContact key, so no new discovery — enrichment still runs"
     elif not buy_addresses and ranked:
         held = f" · {ranked} ranked but addresses not requested — add --emails to buy them"
     else:

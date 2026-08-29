@@ -105,7 +105,7 @@ class TestLeadEmbeddingFields:
         assert set(y) == {0, 1}
 
     def test_get_labeled_arrays_keeps_no_email_miss_positive(self, campaign):
-        """A NO_EMAIL_BETTERCONTACT miss is a fit positive (label=1), not skipped —
+        """A NO_EMAIL_FOUND miss is a fit positive (label=1), not skipped —
         the LLM qualified it; only enrichment failed."""
         from openoutreach.crm.models import Deal, Lead, DealState
 
@@ -116,7 +116,7 @@ class TestLeadEmbeddingFields:
         )
         Deal.objects.create(
             lead=lead, campaign=campaign,
-            state=DealState.NO_EMAIL_BETTERCONTACT,
+            state=DealState.NO_EMAIL_FOUND,
         )
 
         X, y = Lead.get_labeled_arrays(campaign)

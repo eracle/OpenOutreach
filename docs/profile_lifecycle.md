@@ -7,7 +7,7 @@ Discover (Lead Finder) → embed → Qualify (LLM) → QUALIFIED ─(GP gate)─
   licensed firmographics                            (Deal)              │ buy_address (submit)
                                                  exportable already     ▼
                                      free hub hit ─▶ RESOLVED       FINDING_EMAIL ─(check_lookup poll)─▶ hit: RESOLVED
-                                                                     provider job in flight        miss: NO_EMAIL_BETTERCONTACT
+                                                                     provider job in flight        miss: NO_EMAIL_FOUND
 
                                      openoutreach find 10 emails  →  CSV on stdout  →  whatever you send with
 ```
@@ -43,14 +43,14 @@ Embedded leads with no Deal are the pool. The GP selects which candidate to eval
 
 A GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL` when `P(f>0.5) >= min_gp_confidence` (0.9). This **rations the paid lookup** — only leads the model is confident about ever cost a credit.
 
-## 5. Resolve an address — two-leg async (READY_TO_FIND_EMAIL → RESOLVED / NO_EMAIL_BETTERCONTACT)
+## 5. Resolve an address — two-leg async (READY_TO_FIND_EMAIL → RESOLVED / NO_EMAIL_FOUND)
 
 **Where:** `enrichment/lookup.py` — `buy_address` (submit) + `check_lookup` (poll)
 
 `buy_address` tries the free cross-operator hub cache first (`contacts.resolve`) — a hit routes straight to `RESOLVED`. Otherwise it fires a paid BetterContact job and parks the deal at `FINDING_EMAIL`, holding the `request_id` on the deal itself; `check_lookup` polls it:
 
 - **hit** → `RESOLVED` (address stored, and given back to the hub)
-- **miss** (job done, no address) → `NO_EMAIL_BETTERCONTACT`, **blank outcome** (ML-skipped — an unfindable address is not a fit signal, so the labeler keeps the lead at label=1)
+- **miss** (job done, no address) → `NO_EMAIL_FOUND`, **blank outcome** (ML-skipped — an unfindable address is not a fit signal, so the labeler keeps the lead at label=1)
 - **still running** → double `not_before` and ask again on the same `request_id`. There is no deadline and no attempt limit: an unterminated job is queued, not lost, and abandoning it would pay for a second one.
 - **couldn't run** → back to `READY_TO_FIND_EMAIL` (no credit spent)
 
@@ -73,7 +73,7 @@ The boundary is **one-way**. Leads leave; nothing comes back. There is no inboun
 ## 7. Terminal states
 
 - **RESOLVED** — an address is in hand. Where a fully-enriched deal comes to rest.
-- **NO_EMAIL_BETTERCONTACT** — no address could be resolved. Blank outcome, ML-skipped: the lead was a fit, only reachability failed.
+- **NO_EMAIL_FOUND** — no address could be resolved. Blank outcome, ML-skipped: the lead was a fit, only reachability failed.
 - **FAILED** — an LLM qualification rejection (`wrong_fit`, campaign-scoped).
 
 `Lead.disqualified=True` is a separate, permanent account-level exclusion (never given a new deal in any campaign) and is filtered by the export. Nothing sets it automatically any more: the inbound path that used to — an unsubscribe read out of the mailbox — left with the sending leg.

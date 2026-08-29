@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 
 # Keep in sync with DealState: every state a Deal can transition *into* needs an
 # entry here, or set_profile_state falls back to a red "ERROR" label (see below).
-# NO_EMAIL_BETTERCONTACT is an enrichment miss (provider found no address) — an
+# NO_EMAIL_FOUND is an enrichment miss (provider found no address) — an
 # expected terminal, not an operational error, so it renders muted yellow.
 _STATE_LOG_STYLE = {
     DealState.QUALIFIED: ("QUALIFIED", "green", []),
     DealState.READY_TO_FIND_EMAIL: ("READY_TO_FIND_EMAIL", "yellow", ["bold"]),
     DealState.FINDING_EMAIL: ("FINDING_EMAIL", "cyan", []),
     DealState.RESOLVED: ("RESOLVED", "green", ["bold"]),
-    DealState.NO_EMAIL_BETTERCONTACT: ("NO EMAIL", "yellow", []),
+    DealState.NO_EMAIL_FOUND: ("NO EMAIL", "yellow", []),
     DealState.FAILED: ("FAILED", "red", ["bold"]),
 }
 

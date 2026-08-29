@@ -26,8 +26,11 @@ from urllib3.util.retry import Retry
 
 from openoutreach.core.errors import ErrorType
 from openoutreach.core.logblock import step_line
+from openoutreach.enrichment.provider import Lookup, PollOutcome, ProviderUnavailable
 
 logger = logging.getLogger(__name__)
+
+NAME = "bettercontact"
 
 SIGNUP_URL = "https://openoutreach.app/go/email-finder"
 """The one path to an account, and it lives here so no caller can write it without the
@@ -77,7 +80,7 @@ _BROWSER_UA = (
 )
 
 
-class BetterContactUnavailable(Exception):
+class BetterContactUnavailable(ProviderUnavailable):
     """BetterContact could not run — no API key configured, or the service was
     unreachable. Distinct from a genuine miss (it ran, found no email).
 
@@ -85,11 +88,10 @@ class BetterContactUnavailable(Exception):
     tell *why* without matching on the message. The default is
     ``provider_unavailable``; the HTTP layer narrows it to auth, out-of-credits or
     rate-limited, which are three different things to a reader and to the funnel.
-    """
 
-    def __init__(self, message: str, error_type: str = ErrorType.PROVIDER_UNAVAILABLE) -> None:
-        self.error_type = error_type
-        super().__init__(message)
+    Kept as its own name so existing callers and tests still catch it, but it is a
+    ``ProviderUnavailable`` — ``lookup.py`` catches the base and never names a vendor.
+    """
 
 
 @dataclass(frozen=True)
@@ -118,29 +120,20 @@ class BetterContactResult:
     last_name: str | None = None
 
 
-@dataclass(frozen=True)
-class PollOutcome:
-    """Result of a single poll of an in-flight lookup.
+def start(profile_url: str) -> Lookup:
+    """Fire one lookup job and hand back its handle — the async half of the interface.
 
-    ``running`` — the job hasn't terminated; the collect leg backs off and polls
-    again. ``hit`` — terminated with a usable email (``email`` set). ``miss`` —
-    terminated with no usable email (a genuine, terminal miss).
+    Never terminates here: BetterContact's waterfall walks 20+ vendors and takes
+    seconds to minutes, so the deal parks at FINDING_EMAIL on the ``request_id`` and
+    ``poll_once`` finishes the job later.
 
-    A hit also carries the name parts the provider resolved, for the collect leg to
-    persist alongside the address.
+    **Only the profile URL is sent.** ``BetterContactQuery`` accepts name and company
+    too and resolves better with them, but the lookup is deliberately minimal — the
+    less of a lead's record leaves for a third party, the better, and URL-only is
+    measured at ~42% usable (2026-06-11, 45 real leads), which is enough. Do not widen
+    this query without a decision to widen it.
     """
-    running: bool
-    email: str = ""
-    first_name: str | None = None
-    last_name: str | None = None
-
-    @property
-    def hit(self) -> bool:
-        return not self.running and bool(self.email)
-
-    @property
-    def miss(self) -> bool:
-        return not self.running and not self.email
+    return Lookup(request_id=submit(BetterContactQuery(linkedin_url=profile_url)))
 
 
 def is_configured() -> bool:

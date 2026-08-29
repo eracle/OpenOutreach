@@ -344,17 +344,40 @@ def _run_bettercontact() -> None:
 
 
 def _bettercontact_from_env() -> bool:
+    """Hydrate the finder keys from the environment.
+
+    **The optional Apollo key is taken first, and independently of the outcome.** Apollo
+    replaces only the resolver leg — discovery still needs the BetterContact key — so it
+    is never enough on its own to call this step done, and returning early on a missing
+    BetterContact key would silently drop a key the operator did set. The wizard has no
+    Apollo prompt on purpose: a second, optional vendor does not belong in the path every
+    first run walks.
+    """
     from openoutreach.core.models import SiteConfig
 
-    key = _env("BETTERCONTACT_API_KEY")
-    if not key:
-        return False
-
     cfg = SiteConfig.load()
-    cfg.bettercontact_api_key = key
-    cfg.save()
-    logger.info("BetterContact key set from the environment.")
-    return True
+    changed = []
+
+    apollo_key = _env("APOLLO_API_KEY")
+    if apollo_key:
+        cfg.apollo_api_key = apollo_key
+        changed.append("Apollo key")
+
+    preferred = _env("EMAIL_FINDER")
+    if preferred:
+        cfg.email_finder = preferred
+        changed.append(f"finder preference ({preferred})")
+
+    key = _env("BETTERCONTACT_API_KEY")
+    if key:
+        cfg.bettercontact_api_key = key
+        changed.append("BetterContact key")
+
+    if changed:
+        cfg.save()
+        logger.info("%s set from the environment.", ", ".join(changed).capitalize())
+
+    return bool(key)
 
 
 # ── Account: country + newsletter + information notice + legal, then the operator User ─

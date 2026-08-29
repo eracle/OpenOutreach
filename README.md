@@ -272,7 +272,7 @@ enrichment on top, never a precondition — so the file can carry rows with a bl
 
 | # | Step | What it does |
 |---|------|-------------|
-| 1 | **check a lookup** | Polls an in-flight work-email job: hit → `RESOLVED`, miss → `NO_EMAIL_BETTERCONTACT`, still running → ask again later on the same job. |
+| 1 | **check a lookup** | Polls an in-flight work-email job: hit → `RESOLVED`, miss → `NO_EMAIL_FOUND`, still running → ask again later on the same job. |
 | 2 | **rank the pool** | Promotes the qualified leads the model is confident about. |
 | 3 | **buy an address** | Free hub-cache hit resolves immediately; otherwise fires a paid provider job and parks the deal at `FINDING_EMAIL`. |
 | 4 | **top up** | Discovers and qualifies more leads. |
@@ -281,7 +281,7 @@ Only step 3 costs money, and its only gate is whether you configured a provider.
 
 The run ends when the goal is met, or when **nothing can advance right now** — every lead is waiting on a lookup that is not due yet, or the search has drained. There is no timeout to configure, because each thing being waited on carries its own.
 
-**Discover → qualify → gate → resolve → export.** One LLM pass turns your campaign into opening search keywords; from there the keyword vocabulary grows by counting the words that appear in profiles the LLM has accepted, and the walk keeps firing the most promising set. Qualification runs the GP + LLM loop over the stored firmographic text and writes the `reason`. The GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL`, **rationing the paid lookup** so only the best-fit leads cost a credit. A miss ends the deal as `NO_EMAIL_BETTERCONTACT` with a blank outcome (so the labeler skips it — an unfindable address is not a fit signal).
+**Discover → qualify → gate → resolve → export.** One LLM pass turns your campaign into opening search keywords; from there the keyword vocabulary grows by counting the words that appear in profiles the LLM has accepted, and the walk keeps firing the most promising set. Qualification runs the GP + LLM loop over the stored firmographic text and writes the `reason`. The GP confidence gate promotes `QUALIFIED → READY_TO_FIND_EMAIL`, **rationing the paid lookup** so only the best-fit leads cost a credit. A miss ends the deal as `NO_EMAIL_FOUND` with a blank outcome (so the labeler skips it — an unfindable address is not a fit signal).
 
 **The qualification loop in detail:**
 

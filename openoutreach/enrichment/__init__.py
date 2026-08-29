@@ -1,12 +1,21 @@
 """Enrichment — the finder's one paid step: a profile URL in, a work email out.
 
-Two modules, and the split is between *the provider* and *the pipeline step*:
+The split is between *the providers*, *the seam* and *the pipeline step*:
 
-- ``bettercontact`` is the client. It also serves ``discovery.py``, which pages the
-  same vendor's free Lead Finder index through ``submit_and_poll`` — one account, one
-  key, two endpoints, and only this one bills.
-- ``lookup`` is the two-step handshake the cycle drives: ``buy_address`` resolves the
-  free sources first and fires a job only if they miss, ``check_lookup`` polls it.
+- ``provider`` is the seam: one interface, and ``active()`` names which vendor an
+  install resolves with, from whichever key is configured. Everything above this
+  package talks to a provider, never to a vendor.
+- ``bettercontact`` and ``apollo`` are the clients, interchangeable at this leg. They
+  differ only in transport — BetterContact's waterfall is a submit-and-poll job,
+  Apollo's ``people/match`` answers in one call — and ``provider.Lookup`` carries that
+  difference so the pipeline does not have to know it.
+- **Discovery is not interchangeable.** ``discovery.py`` pages BetterContact's free
+  Lead Finder index through ``submit_and_poll`` on the same key that pays for its
+  enrichment; Apollo replaces only the resolver, so an Apollo-only install can enrich
+  but cannot discover.
+- ``lookup`` is the step the cycle drives: ``buy_address`` resolves the free sources
+  first and runs the finder only if they miss, ``check_lookup`` polls anything left
+  in flight.
 
 **This is deliberately not part of discovery, and no longer part of a mail package.**
 It used to live under ``emails/`` because a resolved address existed to be written to;

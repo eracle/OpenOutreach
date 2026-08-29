@@ -68,6 +68,7 @@ class ColoredFormatter(logging.Formatter):
 
 _BRANDS = {
     "bettercontact": ("BetterContact", (155, 81, 224)),  # bettercontact.rocks #9b51e0
+    "apollo": ("Apollo", (58, 106, 255)),  # apollo.io #3a6aff
     "icemail": ("IceMail", (34, 197, 94)),               # icemail.ai --brand #22c55e
 }
 

@@ -30,7 +30,13 @@ _TIMEOUT_S = 30
 # Where a contributed address came from — the wire values the hub maps to its
 # Contribution.Origin (an unrecognized value degrades to "unknown" server-side).
 ORIGIN_BETTERCONTACT = "bettercontact"  # paid BetterContact hit
+ORIGIN_APOLLO = "apollo"  # paid Apollo people/match hit
 ORIGIN_PROFILE_INFO = "profile_info"  # 1st-degree contact-info overlay
+
+# These match ``enrichment.provider``'s module ``NAME``s, which is what ``lookup``
+# actually passes — a finder stamps its own contributions and no caller maps between
+# the two vocabularies. **The hub needs the matching Contribution.Origin entry**, or
+# an Apollo give-back degrades to "unknown" server-side (still stored, just unlabelled).
 
 
 def resolve(lead) -> str | None:

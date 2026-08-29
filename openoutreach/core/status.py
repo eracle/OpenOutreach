@@ -25,7 +25,7 @@ from __future__ import annotations
 import logging
 
 from openoutreach.core.errors import ErrorType
-from openoutreach.enrichment.bettercontact import SIGNUP_URL as BETTERCONTACT_SIGNUP_URL
+from openoutreach.enrichment.bettercontact import SIGNUP_URL as DEFAULT_SIGNUP_URL
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def _campaign_counts() -> list[dict]:
                 DealState.READY_TO_FIND_EMAIL,
                 DealState.FINDING_EMAIL,
                 DealState.RESOLVED,
-                DealState.NO_EMAIL_BETTERCONTACT,
+                DealState.NO_EMAIL_FOUND,
                 DealState.FAILED,
             )
         }
@@ -97,7 +97,7 @@ def _campaign_counts() -> list[dict]:
             "ranked_for_lookup": by_state[DealState.READY_TO_FIND_EMAIL],
             "lookup_in_flight": by_state[DealState.FINDING_EMAIL],
             "resolved": by_state[DealState.RESOLVED],
-            "no_email_found": by_state[DealState.NO_EMAIL_BETTERCONTACT],
+            "no_email_found": by_state[DealState.NO_EMAIL_FOUND],
             "rejected": by_state[DealState.FAILED],
             "exportable": exportable,
             "exportable_with_email": with_email,
@@ -124,21 +124,30 @@ def _credits() -> dict:
     A balance we could not read is not a balance of zero, and the difference decides
     whether the operator is asked to top up.
     """
-    from openoutreach.enrichment import bettercontact
+    from openoutreach.enrichment import provider
 
-    if not bettercontact.is_configured():
+    finder = provider.active()
+    if finder is None:
         return {"balance": None, "error": ErrorType.NO_CREDENTIAL}
 
     try:
-        return {"balance": bettercontact.credit_balance(), "error": None}
-    except bettercontact.BetterContactUnavailable as exc:
+        return {"balance": finder.credit_balance(), "provider": finder.NAME, "error": None}
+    except provider.ProviderUnavailable as exc:
         logger.debug("Could not read the credit balance: %s", exc)
         return {"balance": None, "error": exc.error_type, "detail": str(exc)}
 
 
+def _signup_url() -> str:
+    """The attributed account link for the configured finder, or the default."""
+    from openoutreach.enrichment import provider
+
+    finder = provider.active()
+    return finder.SIGNUP_URL if finder else DEFAULT_SIGNUP_URL
+
+
 def _hub_balance() -> dict:
     """The give-to-get counter — a different number on a different service than
-    ``_credits()``, which is BetterContact's own prepaid balance. Showing one while
+    ``_credits()``, which is the configured finder's own prepaid balance. Showing one while
     calling it the other would be worse than showing neither, so it gets its own key.
     """
     from openoutreach.contacts.service import hub_balance
@@ -225,7 +234,10 @@ def next_action(onboarding_state: dict, credits: dict, totals: dict) -> dict:
             ),
             "unlocks": "a work email address for each of them",
             "leads": totals["ranked_for_lookup"],
-            "url": BETTERCONTACT_SIGNUP_URL,
+            # Top up where the operator actually banks: the ask must point at the
+            # finder that ran out, not at whichever vendor shipped first. An install
+            # with no finder at all gets the default, which is also the signup path.
+            "url": _signup_url(),
         }
 
     if totals["exportable"]:

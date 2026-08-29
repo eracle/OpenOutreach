@@ -3,7 +3,7 @@
 
 The regression locked down here: a `no email` enrichment miss is a benign,
 expected terminal outcome, so it has its own terminal state
-(`NO_EMAIL_BETTERCONTACT`) that logs as a muted `NO EMAIL` — not the red `FAILED`
+(`NO_EMAIL_FOUND`) that logs as a muted `NO EMAIL` — not the red `FAILED`
 reserved for genuine failures.
 """
 import logging
@@ -33,7 +33,7 @@ def _make_deal(session, slug="alice"):
 def test_no_email_miss_logs_muted_not_failed(campaign, caplog):
     url = _make_deal(campaign)
     with caplog.at_level(logging.INFO, logger="openoutreach.core.db.deals"):
-        set_profile_state(campaign, url, DealState.NO_EMAIL_BETTERCONTACT.value)
+        set_profile_state(campaign, url, DealState.NO_EMAIL_FOUND.value)
 
     line = caplog.text
     assert "NO EMAIL" in line

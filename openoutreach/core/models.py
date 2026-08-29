@@ -25,8 +25,21 @@ class SiteConfig(models.Model):
     # Only consulted for the openai_compatible provider (OpenRouter / Together / Ollama / vLLM).
     llm_api_base = models.CharField(max_length=500, blank=True, default="")
 
-    # BetterContact email-finder key; blank disables enrichment (see emails/bettercontact.py).
+    # Email-finder keys — one per supported vendor, and a key is all it takes to select
+    # one (see enrichment/provider.py:active). Blank everywhere disables enrichment.
+    # BetterContact's key additionally powers Lead Finder *discovery*, which is billed
+    # nothing; Apollo's does not, so an Apollo-only install still needs the other key
+    # for discovery. They are not interchangeable at that leg, only at enrichment.
     bettercontact_api_key = models.CharField(max_length=500, blank=True, default="")
+    apollo_api_key = models.CharField(max_length=500, blank=True, default="")
+
+    # Which finder resolves addresses when *both* keys are set. Blank means "decide from
+    # whichever key exists", which is the whole answer for a one-vendor install; it only
+    # has to be set to move an install that holds both.
+    email_finder = models.CharField(
+        max_length=32, blank=True, default="",
+        help_text="bettercontact | apollo — blank picks whichever key is configured",
+    )
 
     # Central contacts service (see openoutreach/contacts/). The token is earned
     # on the first contribution and persisted here — never in the repo; blank

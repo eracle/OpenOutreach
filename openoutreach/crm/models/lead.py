@@ -109,11 +109,11 @@ class Lead(models.Model):
         """Labeled embeddings for a campaign as (X, y) numpy arrays for warm start.
 
         The label is the LLM *fit* verdict, not the pipeline outcome — a qualified
-        lead whose enrichment later missed (NO_EMAIL_BETTERCONTACT) is still a fit
+        lead whose enrichment later missed (NO_EMAIL_FOUND) is still a fit
         positive; only reachability failed. Since that miss now has its own terminal
         state (not FAILED), FAILED means exactly "wrong_fit" here:
         - label=1: Deals at any non-FAILED state (QUALIFIED and beyond, incl. a
-          NO_EMAIL_BETTERCONTACT miss)
+          NO_EMAIL_FOUND miss)
         - label=0: FAILED Deals with outcome "wrong_fit" (LLM rejection)
         - Skipped: any other FAILED outcome (defensive — none are produced today)
         """

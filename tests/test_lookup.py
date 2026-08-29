@@ -208,7 +208,7 @@ class TestCheckLookup:
 
         with patch("openoutreach.enrichment.bettercontact.poll_once",
                    return_value=PollOutcome(running=False, email="")):
-            assert check_lookup(deal) == DealState.NO_EMAIL_BETTERCONTACT
+            assert check_lookup(deal) == DealState.NO_EMAIL_FOUND
 
     def test_a_running_job_backs_off_on_its_own_row(self, campaign):
         deal = _in_flight(campaign, attempt=0)

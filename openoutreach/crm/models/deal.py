@@ -18,7 +18,7 @@ class DealState(models.TextChoices):
         QUALIFIED ─(GP rank gate)─▶ READY_TO_FIND_EMAIL ─(buy_address)─▶
             FINDING_EMAIL ─(check_lookup on lookup_request_id)─▶
                 hit:  RESOLVED (an address is in hand — terminal, and exportable)
-                miss: NO_EMAIL_BETTERCONTACT (provider found no address — a distinct
+                miss: NO_EMAIL_FOUND (provider found no address — a distinct
                       terminal, not a failure; still a fit positive → ML label=1)
 
     **Every state below RESOLVED is terminal, and that is the shape of the product.**
@@ -39,7 +39,7 @@ class DealState(models.TextChoices):
     - **RESOLVED** — an address is in hand. This is where a fully-enriched deal comes
       to rest, and resting costs nothing because nothing iterates it.
 
-    A lookup *miss* is terminal (NO_EMAIL_BETTERCONTACT — the provider resolved no
+    A lookup *miss* is terminal (NO_EMAIL_FOUND — the provider resolved no
     address). It is a *distinct* terminal from FAILED so downstream work can build on
     it (e.g. retry once another enrichment provider exists). The lead was an LLM fit
     positive, so the ML labeler keeps it as label=1 — only reachability failed, not
@@ -71,7 +71,7 @@ class DealState(models.TextChoices):
     READY_TO_FIND_EMAIL = "Ready to Find Email"
     FINDING_EMAIL = "Finding Email"
     RESOLVED = "Resolved"
-    NO_EMAIL_BETTERCONTACT = "No Email (BetterContact)"
+    NO_EMAIL_FOUND = "No Email Found"
     FAILED = "Failed"
 
 
@@ -138,6 +138,12 @@ class Deal(models.Model):
     # can never hold up anything but this lead.
     lookup_request_id = models.CharField(max_length=64, blank=True, default="")
     lookup_attempt = models.PositiveSmallIntegerField(default=0)
+    # Which finder issued ``lookup_request_id``. A handle is only meaningful to the
+    # vendor that minted it, so the poll goes back to *that* module rather than to
+    # whichever key happens to be configured when the poll comes due. Blank on rows
+    # written before finders were interchangeable, and on every synchronous lookup,
+    # which never parks here at all.
+    lookup_provider = models.CharField(max_length=32, blank=True, default="")
     creation_date = models.DateTimeField(default=timezone.now)
     update_date = models.DateTimeField(auto_now=True)
 

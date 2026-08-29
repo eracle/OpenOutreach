@@ -2,14 +2,19 @@
 """The paid email lookup, in two steps: buy the address, then check on it.
 
 ``buy_address`` resolves free sources first — an address already on the lead, then
-the hub's cross-operator cache — and only pays BetterContact when both miss. A paid
-submit returns a ``request_id`` and nothing waits on it: the deal parks at
-FINDING_EMAIL carrying the handle, and ``check_lookup`` polls it later.
+the hub's cross-operator cache — and only pays the configured finder when both miss.
+**Which finder that is, this module does not know**: ``provider.active()`` answers with
+whichever vendor the operator holds a key for, and the two differ only in whether they
+answer in the same call. An async finder returns a ``request_id`` and nothing waits on
+it — the deal parks at FINDING_EMAIL carrying the handle and ``check_lookup`` polls it
+later; a sync one is already terminal when ``start`` returns and lands on RESOLVED
+without touching FINDING_EMAIL at all.
 
     already has email  → RESOLVED                (no lookup, no credit)
     free hub-cache hit → RESOLVED                (no provider job, no credit)
-    hub miss           → FINDING_EMAIL           (job submitted, poll from the deal)
-    couldn't submit    → stays READY_TO_FIND_EMAIL (no key / no credits / API down)
+    sync finder hit    → RESOLVED                (one call, no handle, no poll)
+    async submit       → FINDING_EMAIL           (job submitted, poll from the deal)
+    couldn't run       → stays READY_TO_FIND_EMAIL (no key / no credits / API down)
 
 **The free sources are not gated on the paid one.** The key check sits in ``_submit``,
 on the paid leg alone, and an empty wallet is a 402 raised from the same place — so an
@@ -75,9 +80,15 @@ def buy_address(deal) -> DealState | None:
 
 
 def _submit(deal) -> DealState | None:
-    """Fire the paid provider job and park the deal on its handle.
+    """Run the configured finder — resolving outright, or parking on a job handle.
 
-    A couldn't-submit (no key, no credits, API down) leaves the deal in
+    Which vendor answers is ``provider.active()``'s decision and nothing here knows the
+    name; the branch that matters is *sync or async*, and the provider reports that by
+    what ``start`` returns. A synchronous hit lands on RESOLVED without the deal ever
+    entering FINDING_EMAIL, so it never occupies a poll slot and never risks the
+    stranded-handle case ``reclaim_lookup`` exists for.
+
+    A couldn't-run (no key, no credits, API down) leaves the deal in
     `READY_TO_FIND_EMAIL` — no credit was spent and there is no handle to poll — but
     **backs it off first**. Without that the row is still due on the very next pass,
     so the same deal is re-picked
@@ -85,40 +96,34 @@ def _submit(deal) -> DealState | None:
     never returns now that a bounded run stops only when nothing can advance. Writing
     ``not_before`` is the architecture's one waiting mechanism, and an unreachable
     provider is exactly the case it exists for.
-
-    **Only the profile URL is sent.** The provider accepts name and company too and
-    resolves better with them, but the lookup is deliberately minimal: the less of a
-    lead's record leaves for a third party, the better, and URL-only is measured at
-    ~42% usable (2026-06-11, 45 real leads) which is enough. Do not widen this query
-    without a decision to widen it.
     """
-    from openoutreach.enrichment import bettercontact
-    from openoutreach.enrichment.bettercontact import (
-        BetterContactQuery,
-        BetterContactUnavailable,
-    )
+    from openoutreach.enrichment import provider
 
-    if not bettercontact.is_configured():
+    finder = provider.active()
+    if finder is None:
         logger.info("%s", step_line(
-            "bettercontact", "finder unconfigured — left queued", glyph="⚠", color="yellow"))
+            "finder", "unconfigured — left queued", glyph="⚠", color="yellow"))
         _back_off(deal, advance=True)
         return None
 
     try:
-        request_id = bettercontact.submit(
-            BetterContactQuery(linkedin_url=deal.lead.profile_url))
-    except BetterContactUnavailable as exc:
+        lookup = finder.start(deal.lead.profile_url)
+    except provider.ProviderUnavailable as exc:
         logger.info("%s", step_line(
-            "bettercontact", f"submit unavailable ({exc}) — left queued",
+            finder.NAME, f"unavailable ({exc}) — left queued",
             glyph="⚠", color="yellow"))
         _back_off(deal, advance=True)
         return None
 
-    deal.lookup_request_id = request_id
+    if not lookup.pending:
+        return _finish(deal, finder, lookup.outcome)
+
+    deal.lookup_request_id = lookup.request_id
+    deal.lookup_provider = finder.NAME
     deal.lookup_attempt = 0
     deal.not_before = timezone.now() + timedelta(seconds=COLLECT_BACKOFF_BASE_S)
     logger.info("%s", step_line(
-        "bettercontact", f"submitted · req {request_id[:12]}… → FINDING_EMAIL · polling",
+        finder.NAME, f"submitted · req {lookup.request_id[:12]}… → FINDING_EMAIL · polling",
         glyph="✓", color="green"))
     return DealState.FINDING_EMAIL
 
@@ -148,21 +153,28 @@ def check_lookup(deal) -> DealState | None:
     """Poll this deal's in-flight lookup exactly once and act on the outcome.
 
         hit           → RESOLVED (address stored + given back to the hub)
-        miss          → NO_EMAIL_BETTERCONTACT (terminal — a fit positive the ML keeps)
+        miss          → NO_EMAIL_FOUND (terminal — a fit positive the ML keeps)
         still running → back off, stay put
         couldn't poll → retry at the same interval (nothing was learned about the job)
     """
-    from openoutreach.contacts import service as contacts
-    from openoutreach.enrichment import bettercontact
-    from openoutreach.enrichment.bettercontact import BetterContactUnavailable
+    from openoutreach.enrichment import bettercontact, provider
 
     logger.info("%s", block_header(
         f"check_lookup · {deal.campaign} · {deal.lead.profile_url}", "magenta",
         meta=f"attempt {deal.lookup_attempt}"))
 
+    # Back to the vendor that minted the handle, never to whichever key is configured
+    # now. A blank owner is a row from before the column existed, and every one of
+    # those is BetterContact's: it was the only finder, and it is still the only one
+    # that issues a handle at all — a synchronous provider never parks a deal here.
+    # There is deliberately no configured-key check in front of this: a missing key
+    # already raises from inside ``poll_once``, and that path backs the deal off
+    # without touching the job, which is exactly the right answer.
+    finder = provider.by_name(deal.lookup_provider) or bettercontact
+
     try:
-        outcome = bettercontact.poll_once(deal.lookup_request_id)
-    except BetterContactUnavailable as exc:
+        outcome = finder.poll_once(deal.lookup_request_id)
+    except provider.ProviderUnavailable as exc:
         # Transient — the job is untouched, so wait the same interval and ask again.
         logger.info("%s", step_line(
             "poll", f"unavailable ({exc}) — retrying", glyph="⚠", color="yellow"))
@@ -176,17 +188,30 @@ def check_lookup(deal) -> DealState | None:
                        f"(attempt {deal.lookup_attempt})"))
         return None
 
+    return _finish(deal, finder, outcome)
+
+
+def _finish(deal, finder, outcome) -> DealState:
+    """Land a terminated lookup — the one place a hit or a miss becomes a state.
+
+    Shared by both transports on purpose: a synchronous provider reaches it straight
+    from ``_submit`` and an async one from ``check_lookup``, and the deal must come to
+    rest identically either way. The hub give-back is stamped with the provider that
+    paid for the address, so the store records which vendor a contact came from.
+    """
+    from openoutreach.contacts import service as contacts
+
     deal.not_before = None
     deal.lookup_request_id = ""
 
     if not outcome.email:
         logger.info("%s", step_line(
-            "no email", "terminal miss → NO_EMAIL_BETTERCONTACT", glyph="✗", color="yellow"))
-        return DealState.NO_EMAIL_BETTERCONTACT
+            "no email", "terminal miss → NO_EMAIL_FOUND", glyph="✗", color="yellow"))
+        return DealState.NO_EMAIL_FOUND
 
     deal.lead.email = outcome.email
     _store_identity(deal.lead, outcome)
-    contacts.contribute(deal.lead, [outcome.email], contacts.ORIGIN_BETTERCONTACT)
+    contacts.contribute(deal.lead, [outcome.email], finder.NAME)
     logger.info("%s", step_line(
         "hit", f"{outcome.email} → RESOLVED", glyph="✓", color="green"))
     return DealState.RESOLVED
