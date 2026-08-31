@@ -51,8 +51,8 @@ classifiers = [
 # instead of restating both config surfaces as env-var strings.
 dependencies = [
     "Django>=5.2,<7.0",
-    "openoutfind==0.1.5",
-    "openoutsend==0.1.29",
+    "openoutfind==0.1.7",
+    "openoutsend==0.1.30",
 ]
 
 [project.optional-dependencies]
