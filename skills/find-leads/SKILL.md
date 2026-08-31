@@ -1,6 +1,6 @@
 ---
 name: find-leads
-description: Find qualified B2B leads with OpenOutreach — run `openoutreach find N [emails]`, read the CSV it prints on stdout, and hand the rows to whatever sends. Use when the user wants leads, prospects, an ICP-matched contact list, or asks what a campaign already has. Also covers first-run setup (`openoutreach init`), `openoutreach status`, and when a lookup costs money.
+description: Find qualified B2B leads with OpenOutreach — run `openoutreach find N [emails]`, read the CSV it prints on stdout, and hand the rows to whatever sends. Use when the user wants leads, prospects, an ICP-matched contact list, or asks what a campaign already has. Also covers first-run setup (`openoutreach init`), `openoutreach status`, when a lookup costs money, and the verbs that actually send mail (`send`, `run`) — which you never run unasked.
 user-invocable: true
 argument-hint: [N] [emails]
 ---
@@ -15,7 +15,10 @@ It is one bounded command: ask for an amount, get rows, exit. **There is no daem
 job, no file the tool writes for the operator, and nothing to poll.** If you find yourself wanting
 to tail a log or wait for something, you have the wrong model of this tool.
 
-It does **not** send email. The deliverable is a CSV for whatever the user already sends with.
+**It can also send** — `send` mails what is stored, and `run` is find-then-send in one pass. Both
+put mail in strangers' inboxes under the user's own identity, so **never run either one unless the
+user asked for mail to go out.** `find` is the default answer to "get me leads"; its deliverable is
+a CSV for whatever they already send with.
 
 ## Is it installed?
 
@@ -29,8 +32,9 @@ with `pip install openoutreach`. Inside a checkout of the repo, `python manage.p
 same entry point.
 
 `status` never blocks and never spends. It answers `onboarding` (complete or which
-`OPENOUTREACH_*` variables are missing), per-campaign counts, the credit balance, anything
-`blocked`, and a `next_action` — start there whenever you are unsure what state the user is in.
+`OPENOUTFIND_*` variables are missing), the counts, the credit balance, anything `blocked`, and a
+`next_action` — start there whenever you are unsure what state the user is in. It reports the
+finding half; the sending half reports itself when `send` runs.
 
 ## Setup, if `status` says onboarding is incomplete
 
@@ -38,16 +42,20 @@ same entry point.
 openoutreach init            # interactive wizard on a TTY; environment otherwise
 ```
 
-`init` creates the database and the campaign, prints what it created, and stops **before spending
-anything**. Four steps' worth of input, each of which can come from the environment instead of a
-prompt (which is what makes a headless setup possible):
+`init` creates the database, prints what it created, and stops **before spending anything**. It is
+one flow over both halves — the finding first, then what only the sending needs. Every answer can
+come from the environment instead of a prompt, which is what makes a headless setup possible:
 
 | Step | Environment variables |
 |------|----------------------|
-| campaign | `OPENOUTREACH_PRODUCT_DESCRIPTION`, `OPENOUTREACH_CAMPAIGN_TARGET` |
-| llm | `OPENOUTREACH_AI_MODEL`, `OPENOUTREACH_LLM_API_KEY` |
-| bettercontact | `OPENOUTREACH_BETTERCONTACT_API_KEY` |
-| account | `OPENOUTREACH_OPERATOR_EMAIL`, `OPENOUTREACH_COUNTRY`, `OPENOUTREACH_ACCEPT_LEGAL_NOTICE` |
+| campaign | `OPENOUTFIND_PRODUCT_DESCRIPTION`, `OPENOUTFIND_CAMPAIGN_TARGET` |
+| llm | `OPENOUTFIND_AI_MODEL`, `OPENOUTFIND_LLM_API_KEY` |
+| bettercontact | `OPENOUTFIND_BETTERCONTACT_API_KEY` |
+| account | `OPENOUTFIND_OPERATOR_EMAIL`, `OPENOUTFIND_COUNTRY`, `OPENOUTFIND_ACCEPT_LEGAL_NOTICE` |
+| the sender | `OUTSEND_OPERATOR_NAME` (who signs the mail), `OUTSEND_MAILBOX_ADDRESS`, `OUTSEND_MAILBOX_PASSWORD` (the provider's **app password**), optional `OUTSEND_BOOKING_LINK` |
+
+The five fields both halves share — what you sell, who for, the model and its key — are asked once
+by the finder and copied to the sender, so there is no second copy to keep in step.
 
 The product description and target market are pages of prose, so pass them as files rather than
 shell-quoted strings — quoting a markdown paragraph on a command line corrupts it quietly:
@@ -56,14 +64,15 @@ shell-quoted strings — quoting a markdown paragraph on a command line corrupts
 openoutreach init --product-docs product.md --target target.md
 ```
 
-**Never accept the legal notice on the user's behalf.** If `OPENOUTREACH_ACCEPT_LEGAL_NOTICE` is
-unset, say so and let them set it; do not export it yourself.
+**Never accept the legal notice on the user's behalf.** If `OPENOUTFIND_ACCEPT_LEGAL_NOTICE` is
+unset, say so and let them set it; do not export it yourself. The same goes for the mailbox
+credentials: ask, never guess.
 
 You never need to run `init` first — `find` does the same setup if it hasn't happened — but do run
 it when the user has not configured anything, because it fails cheaply and prints the campaign it
 built, so a misread product description is caught before any work.
 
-## The one work verb
+## The work verb you reach for
 
 ```bash
 openoutreach find 10                 # ten more qualified leads — free, and cannot spend
@@ -103,7 +112,6 @@ exports — the row carries the person, the company and the reason with a blank 
 | `--new` | Print only the rows *this run* produced, instead of the whole campaign. Use this when you are reading stdout into your own context rather than into a file. |
 | `--json` | The rows as JSON Lines on stdout (the full record, `profile_text` included); the run's metadata — goal, outcome, `next_action` — as one JSON object on stderr, and nothing else there. Prefer it when you are going to parse. |
 | `--batch` | Hold everything until the job ends, then print the whole campaign once — the old, pre-streaming shape. Output is progressive *by default* now (see below); reach for `--batch` only if whatever you are piping into cannot handle a stream — a strict single-document JSON parser, for instance. Not something you need for reading into your own context — that is what `--new` is for. |
-| `--campaign NAME` | Required only when the operator has more than one campaign; ambiguity is an error, never a guess. |
 | `--debug` | Show the discovery walk's reasoning on stderr. For diagnosing a run that finds nothing. |
 | `--open` | Opens each new lead's profile in a browser. **Never pass this** — it is for a human at a terminal, and it errors out headless. |
 | `--db PATH` | Work against a SQLite file other than `~/.openoutreach/data/db.sqlite3` (same as `OPENOUTREACH_DB`). Accepted by every verb. |
@@ -210,13 +218,39 @@ The export is a one-way boundary: leads leave, nothing comes back. There is no i
 no callback. Whoever sends owns the conversation, the suppression list and the opt-out duty.
 
 So the natural next step after a run is another tool's importer — Instantly, Smartlead, Lemlist, a
-CRM, a spreadsheet, or [OpenOutSend](https://github.com/eracle/OpenOutSend) for the
-sending half. **Tell the user to switch on their sequencer's import deduplication**: it is opt-in on
-Smartlead and undocumented on Instantly, so a lead exported twice can otherwise be contacted twice.
+CRM, a spreadsheet. **Tell the user to switch on their sequencer's import deduplication**: it is
+opt-in on Smartlead and undocumented on Instantly, so a lead exported twice can otherwise be
+contacted twice.
+
+## The verbs that send mail
+
+```bash
+openoutreach send                    # one pass: open whatever the guards allow right now
+openoutreach send 5                  # keep going until five conversations are open
+openoutreach run 5                   # find five leads carrying an address, then send
+```
+
+**These put real mail in strangers' inboxes, signed with the user's name, from the user's mailbox.**
+Run them only when the user has asked for mail to go out, in this session, in so many words. "Find
+me some leads" is not that ask, and neither is "set this up".
+
+Three things to know if you do run one:
+
+- **`run` spends.** There is no sending without an address, so `run N` finds in the `emails` unit —
+  at most N credits — where a bare `find N` cannot spend at all.
+- **`send` has its own clocks.** A sending window, a daily cap and pacing between messages all sit
+  between "queued" and "sent", so a pass can legitimately open nothing and still succeed.
+- **`run` is `find --json` piped into the sender**, in one process. If the search stops short, what
+  it found is still sent — a partial find is not a failed run.
+
+Everything the sender knows about a lead comes from the finder's JSON record, so the outreach
+agent's opener is written from `profile_text`, not from `reason`.
 
 ## Things not to do
 
-- Don't invent a daemon, a `run` verb, a scheduler, or a watch loop. `find` is the whole of it.
+- Don't send mail the user didn't ask for. `find` is the answer to "get me leads"; `send` and `run`
+  are answers only to "email them".
+- Don't invent a daemon, a scheduler, or a watch loop. Every verb is bounded and exits.
 - Don't go looking for an output file. There isn't one unless the user redirected stdout.
 - Don't spend credits the user didn't ask for (see *What costs money*).
 - Don't parse stderr for data, or expect data on stdout to be anything but the result.

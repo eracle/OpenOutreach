@@ -38,26 +38,21 @@ classifiers = [
     "Topic :: Office/Business",
 ]
 
+# Both children are required, not extras: `pip install openoutreach` alone has to be the
+# whole find-then-send flow, or the second install is the friction this package exists to
+# remove. Everything the finding and the sending need — pydantic-ai, fastembed, sklearn,
+# the mail transport — arrives through them; what is declared here is what *this* package
+# imports directly.
+#
+# **The pins are exact, and the cost is known.** This project hosts both children's Django
+# apps in one registry and owns the one migration graph over them, so a model change in
+# either child needs a matching release here. Three repos that move together is the price
+# of a wizard that writes each child's own `SiteConfig` through that child's own model
+# instead of restating both config surfaces as env-var strings.
 dependencies = [
     "Django>=5.2,<7.0",
-    "pydantic>=2.9,<3",
-    "pydantic-ai-slim[openai,anthropic,google,groq,mistral,cohere,bedrock]>=2,<3",
-    # pydantic-ai 1.96 imports `from griffe import ...`, but griffe 2.x split into an
-    # empty `griffelib` meta-package and reorganized symbols. Pin until upstream fixes.
-    "griffe>=1,<2",
-    "jsonpath-ng>=1.6,<2",
-    "pandas>=2.2,<3",
-    "jinja2>=3.1,<4",
-    "termcolor>=2.4,<4",
-    "tendo>=0.3,<0.4",
-    "pyyaml>=6,<7",
-    "fastembed>=0.4,<1",
-    "scikit-learn>=1.4,<2",
-    "huggingface_hub>=0.23,<1",
-    "questionary>=2,<3",
-    "pytz>=2024.1",
-    "imapclient>=3,<4",
-    "tenacity>=8,<10",
+    "openoutfind==0.1.5",
+    "openoutsend==0.1.29",
 ]
 
 [project.optional-dependencies]
@@ -66,15 +61,7 @@ dev = [
     "pytest-django>=4.8",
     "pytest-mock>=3.14",
     "pytest-cov>=5",
-    "factory-boy>=3.3",
 ]
-# The right of the pipe. `pip install openoutreach[send]` puts both commands in one
-# environment so `openoutreach find 50 --json | outsend` works after a single install;
-# the two remain separate distributions and separate products. **This is a dependency,
-# not a coupling** — nothing under `openoutreach/` imports `openoutsend`, and nothing
-# may start to: the boundary is a pipe, and a receiver reached by import would be a
-# privileged path the CSV contract exists to refuse.
-send = ["openoutsend>=0.1.16"]
 
 [project.scripts]
 openoutreach = "openoutreach.__main__:main"
@@ -87,12 +74,5 @@ Issues = "https://github.com/eracle/OpenOutreach/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["openoutreach"]
 
-# Onboarding reads §4/§6 of the notice verbatim at runtime. From site-packages there
-# is no repo root, so the file ships inside the package instead.
-[tool.hatch.build.targets.wheel.force-include]
-"LEGAL_NOTICE.md" = "openoutreach/LEGAL_NOTICE.md"
-
 [tool.hatch.build.targets.sdist]
-# LEGAL_NOTICE.md is here because the wheel force-includes it: `python -m build`
-# builds the wheel *from the sdist*, so a file missing here fails the release.
 include = ["openoutreach", "README.md", "LICENCE.md", "LEGAL_NOTICE.md", "pyproject.toml"]

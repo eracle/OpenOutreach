@@ -62,18 +62,19 @@ journal will have. Stopping it is `docker stop`, and data persists in the mounte
 the number you ask for is *more than you already have*, so the next run continues rather than
 restarting.
 
-### View your CRM (Django Admin)
+### Look at what it found
 
-The image runs a job, not a web server. To browse Leads and Deals, run the admin server
-(locally or in a second container) and publish port 8000:
+**There is no web surface.** The bundled binary is a CLI over two libraries and ships no URLconf and
+no Django Admin — its answers are `openoutreach status`, the CSV that `openoutreach find 0` prints,
+and the SQLite file itself:
 
 ```bash
-docker run --pull always -it -p 8000:8000 -v ~/.openoutreach/data:/app/data \
-  ghcr.io/eracle/openoutreach:latest openoutreach runserver 0.0.0.0:8000
+docker run --rm -v /srv/openoutreach:/app/data \
+  ghcr.io/eracle/openoutreach:latest openoutreach status
 ```
 
-Then open **http://localhost:8000/admin/** (create a superuser first with
-`openoutreach createsuperuser`).
+To browse the rows in a GUI, open `/app/data/db.sqlite3` with any SQLite client — one file holds the
+finder's leads and the sender's mail log both.
 
 ---
 

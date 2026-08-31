@@ -1,6 +1,6 @@
-# Production image. The supported install is `uvx openoutreach` / `pip install
-# openoutreach` — this exists for running the daemon on a server (docs/infrastructure.md §7),
-# not for local development and not for tests. Run those natively.
+# Production image. The supported install is `uv tool install openoutreach` — this exists for
+# running a bounded job on a server from a timer (docs/infrastructure.md §7), not for local
+# development and not for tests. Run those natively.
 
 # ── Stage 1: build a venv holding the package and its dependencies ──
 FROM python:3.12-slim-bookworm AS deps
