@@ -68,7 +68,7 @@ openoutreach run 5            # ...with an explicit goal
 openoutreach init             # onboard only — both halves, one flow
 openoutreach find 10          # ten more qualified leads → CSV on stdout — free, cannot spend
 openoutreach find 10 emails   # ...carrying a work email (one credit each)
-openoutreach find 0           # no work — print what the campaign already has
+openoutreach find 0           # no work — print what you already have
 openoutreach send             # mail what is already stored
 openoutreach send 5           # ...until five conversations are open
 openoutreach status           # what is configured, blocked and counted
@@ -116,7 +116,7 @@ The finder's deliverable is a file, and it is shaped for the tools you already s
 openoutreach find 10 emails > leads.csv
 ```
 
-It runs until it has ten more leads carrying an address, prints **the whole campaign** as CSV, and
+It runs until it has ten more leads carrying an address, prints **every lead you have** as CSV, and
 exits — so the file you just wrote is always the current truth. Exit 0 means it got what you asked
 for; anything short still prints its rows and says why it stopped.
 
@@ -210,8 +210,8 @@ for you. Prefer skills to plugins? Copy `skills/find-leads/` into `~/.claude/ski
    a **licensed discovery source** (BetterContact Lead Finder) — no emails yet, billed nothing
 3. **Discovery walks the keyword index by counting**, adding one word at a time and spending its next
    query where the accepted-lead counts say the best ones came from
-4. **An LLM qualifies each candidate** against your ICP and **writes down why**. A per-campaign
-   Gaussian Process over profile embeddings learns from those verdicts and picks who to qualify next
+4. **An LLM qualifies each candidate** against your ICP and **writes down why**. A Gaussian Process
+   over profile embeddings learns from those verdicts and picks who to qualify next
 5. **A confidence gate rations the one paid step** — a work address is resolved for the best-fit
    leads only, one credit per verified hit
 6. **The outreach agent writes each opener** from the same product description, and the send guards

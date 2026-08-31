@@ -9,7 +9,7 @@ argument-hint: [N] [emails]
 
 OpenOutreach is a self-hosted CLI lead finder. You describe a product and a target market once;
 each run discovers candidates from a licensed data source, has an LLM judge each one against that
-ICP, **writes down why**, and prints the campaign as CSV on stdout.
+ICP, **writes down why**, and prints every lead it has as CSV on stdout.
 
 It is one bounded command: ask for an amount, get rows, exit. **There is no daemon, no background
 job, no file the tool writes for the operator, and nothing to poll.** If you find yourself wanting
@@ -69,7 +69,7 @@ unset, say so and let them set it; do not export it yourself. The same goes for 
 credentials: ask, never guess.
 
 You never need to run `init` first — `find` does the same setup if it hasn't happened — but do run
-it when the user has not configured anything, because it fails cheaply and prints the campaign it
+it when the user has not configured anything, because it fails cheaply and prints the config it
 built, so a misread product description is caught before any work.
 
 ## The work verb you reach for
@@ -78,12 +78,12 @@ built, so a misread product description is caught before any work.
 openoutreach find 10                 # ten more qualified leads — free, and cannot spend
 openoutreach find 10 --emails        # ...and buy an address for whatever cleared the gate
 openoutreach find 10 emails          # ten more *carrying* a verified email (≤10 credits)
-openoutreach find 0                  # no work at all — just print what the campaign has
+openoutreach find 0                  # no work at all — just print what is already there
 ```
 
 Three things about `N` that are easy to get wrong:
 
-- **`N` is how many *more*, not a total.** A campaign with 30 leads answers `find 10` by working
+- **`N` is how many *more*, not a total.** A store with 30 leads answers `find 10` by working
   until it has 40. Runs are fully resumable; re-running continues rather than restarting.
 - **`find 0` does no work and spends nothing.** It is how you re-export, or answer "what do we
   have?" without running a job.
@@ -109,9 +109,9 @@ exports — the row carries the person, the company and the reason with a blank 
 
 | Flag | What it does |
 |------|--------------|
-| `--new` | Print only the rows *this run* produced, instead of the whole campaign. Use this when you are reading stdout into your own context rather than into a file. |
+| `--new` | Print only the rows *this run* produced, instead of every lead in the store. Use this when you are reading stdout into your own context rather than into a file. |
 | `--json` | The rows as JSON Lines on stdout (the full record, `profile_text` included); the run's metadata — goal, outcome, `next_action` — as one JSON object on stderr, and nothing else there. Prefer it when you are going to parse. |
-| `--batch` | Hold everything until the job ends, then print the whole campaign once — the old, pre-streaming shape. Output is progressive *by default* now (see below); reach for `--batch` only if whatever you are piping into cannot handle a stream — a strict single-document JSON parser, for instance. Not something you need for reading into your own context — that is what `--new` is for. |
+| `--batch` | Hold everything until the job ends, then print every lead once — the old, pre-streaming shape. Output is progressive *by default* now (see below); reach for `--batch` only if whatever you are piping into cannot handle a stream — a strict single-document JSON parser, for instance. Not something you need for reading into your own context — that is what `--new` is for. |
 | `--debug` | Show the discovery walk's reasoning on stderr. For diagnosing a run that finds nothing. |
 | `--open` | Opens each new lead's profile in a browser. **Never pass this** — it is for a human at a terminal, and it errors out headless. |
 | `--db PATH` | Work against a SQLite file other than `~/.openoutreach/data/db.sqlite3` (same as `OPENOUTREACH_DB`). Accepted by every verb. |
@@ -129,10 +129,10 @@ redirection correct:
 openoutreach find 10 > leads.csv
 ```
 
-**stdout carries the whole campaign, not just this run's rows.** The newest file supersedes every
+**stdout carries every lead in the store, not just this run's rows.** The newest file supersedes every
 earlier one, and a lead whose address resolved since last time comes back with it filled in. It is
 one file to overwrite, never a batch per run — so never append, and never stitch runs together.
-Rows arrive progressively by default (what the campaign already has, immediately, then each new
+Rows arrive progressively by default (what is already stored, immediately, then each new
 lead as it resolves) rather than all at once at the end — the total is the same either way, so this
 only matters if you are piping into something that cannot take a partial stream, in which case
 `--batch` restores the old wait-for-the-end behavior.
@@ -154,7 +154,7 @@ email, first_name, last_name, company, title, website, linkedin_url, reason, lea
 - **There is no score column, on purpose.** The model's confidence is a spend gate for the paid
   lookup, not a quality signal — do not go looking for one, and do not synthesise one.
 - `lead_id` is the stable key for dedupe across exports. `qualified_at` is when the verdict landed.
-- Rejected leads never export: neither the LLM's campaign-scoped "wrong fit" nor a permanent
+- Rejected leads never export: neither the LLM's "wrong fit" verdict nor a permanent
   account-level opt-out.
 - **`reason` is written for the operator, not the prospect.** It justifies a yes/no —
   third-person and evaluative. Never paste it into a message to the lead.
@@ -164,7 +164,7 @@ imports as-is, and there is no adapter, webhook or plugin to look for. One thing
 operator when you hand a file on: **turn on their tool's import deduplication**. It is opt-in on
 Smartlead and undocumented on Instantly, so a re-exported lead can otherwise be contacted twice.
 
-**`find 0` is the re-emit path** — no work, no spend, prints what the campaign already has. That is
+**`find 0` is the re-emit path** — no work, no spend, prints what is already stored. That is
 what to run for *give me that file again*; there is no `export` verb and none is coming.
 
 ### The JSON record
@@ -205,7 +205,7 @@ is a stable string worth branching on:
 | `provider_out_of_credits` | Credits exhausted. | Free `find N` still works; addresses do not. |
 | `provider_rate_limited` | 429. | Back off. **Never retry at speed** — the provider's docs say that can block the account. |
 | `provider_unavailable` | Provider unreachable at all. | Transient; retry later. |
-| `bad_config` | A value is set but unusable (e.g. an unknown `--campaign`). | Read the message; it names the field. |
+| `bad_config` | A value is set but unusable (e.g. an LLM model id no provider answers to). | Read the message; it names the field. |
 
 Treat a non-zero exit as *partial success with a stated reason*, not as "nothing happened" — the
 rows are already on stdout. And never report a failed run to the user as "no leads matched": a

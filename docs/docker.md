@@ -24,7 +24,7 @@ docker run --pull always -it -v ~/.openoutreach/data:/app/data \
 
 - **The arguments are the goal.** Anything after the image name goes to `find`, so `10 emails` is ten
   more leads carrying an address; with none given it finds one. The CSV lands on **stdout** —
-  redirect it, and note that it carries the whole campaign, so the newest file supersedes the last.
+  redirect it, and note that it carries every lead in the store, so the newest file supersedes the last.
 - `-it` is only needed for the **interactive onboarding** on first run — product/objective → LLM key →
   BetterContact key → your email → country → newsletter/legal. Configure those by environment instead
   and the container needs no TTY at all. Do not pass `-t` when redirecting: a TTY makes stdout and
