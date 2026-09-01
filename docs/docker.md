@@ -26,11 +26,15 @@ docker run --pull always -it -v ~/.openoutreach/data:/app/data \
   more leads carrying an address; with none given it finds one. The CSV lands on **stdout** —
   redirect it, and note that it carries every lead in the store, so the newest file supersedes the last.
 - `-it` is only needed for the **interactive onboarding** on first run — product/objective → LLM key →
-  BetterContact key → your email → country → newsletter/legal. Configure those by environment instead
-  and the container needs no TTY at all. Do not pass `-t` when redirecting: a TTY makes stdout and
+  BetterContact key → who you are and your country → the mailbox and its app password →
+  newsletter/legal. Pass those as `OPENOUTFIND_*` / `OUTSEND_*` environment variables instead
+  (`--env-file` is the usual way) and the container needs no TTY at all: a question whose variable
+  is already set is not asked. Missing something with no TTY, it exits naming the variables rather
+  than hanging on a prompt. Do not pass `-t` when redirecting: a TTY makes stdout and
   stderr the same stream, and the CSV would arrive with the logs mixed into it.
-- `-v ~/.openoutreach/data:/app/data` persists everything (CRM database, model blobs, embeddings) on
-  your host across restarts. The image sets `OPENOUTREACH_DB=/app/data/db.sqlite3`.
+- `-v ~/.openoutreach/data:/app/data` persists everything on your host across restarts — one SQLite
+  file holding the leads, the walk, the mail log and the answers onboarding was given. The image
+  sets `OPENOUTREACH_DB=/app/data/db.sqlite3`.
 
 There are **no ports to publish** — there is no web server of its own and no browser to watch.
 (To browse your CRM, run the Django Admin separately; see below.)

@@ -42,20 +42,24 @@ finding half; the sending half reports itself when `send` runs.
 openoutreach init            # interactive wizard on a TTY; environment otherwise
 ```
 
-`init` creates the database, prints what it created, and stops **before spending anything**. It is
-one flow over both halves — the finding first, then what only the sending needs. Every answer can
-come from the environment instead of a prompt, which is what makes a headless setup possible:
+`init` creates the database, asks for whatever this install has not been told, and stops **before
+spending anything**. It is one flow over both halves — the finding first, then what only the sending
+needs. Every answer can come from the environment instead of a prompt, which is what makes a
+headless setup possible:
 
 | Step | Environment variables |
 |------|----------------------|
-| campaign | `OPENOUTFIND_PRODUCT_DESCRIPTION`, `OPENOUTFIND_CAMPAIGN_TARGET` |
+| campaign | `OPENOUTFIND_PRODUCT_DOCS`, `OPENOUTFIND_CAMPAIGN_TARGET` |
 | llm | `OPENOUTFIND_AI_MODEL`, `OPENOUTFIND_LLM_API_KEY` |
 | bettercontact | `OPENOUTFIND_BETTERCONTACT_API_KEY` |
 | account | `OPENOUTFIND_OPERATOR_EMAIL`, `OPENOUTFIND_COUNTRY`, `OPENOUTFIND_ACCEPT_LEGAL_NOTICE` |
 | the sender | `OUTSEND_OPERATOR_NAME` (who signs the mail), `OUTSEND_MAILBOX_ADDRESS`, `OUTSEND_MAILBOX_PASSWORD` (the provider's **app password**), optional `OUTSEND_BOOKING_LINK` |
 
-The five fields both halves share — what you sell, who for, the model and its key — are asked once
-by the finder and copied to the sender, so there is no second copy to keep in step.
+**A variable you export is an answer already given**, and the wizard skips that question rather than
+asking for it again. The fields both halves share — what you sell, who for, the model and its key —
+are asked once and exported under each child's own name (`OPENOUTFIND_PRODUCT_DOCS` and
+`OUTSEND_PRODUCT_DOCS` are the same answer), so there is no second copy to keep in step. On a
+machine with no TTY, an incomplete install fails naming every variable that would have completed it.
 
 The product description and target market are pages of prose, so pass them as files rather than
 shell-quoted strings — quoting a markdown paragraph on a command line corrupts it quietly:
@@ -68,9 +72,10 @@ openoutreach init --product-docs product.md --target target.md
 unset, say so and let them set it; do not export it yourself. The same goes for the mailbox
 credentials: ask, never guess.
 
-You never need to run `init` first — `find` does the same setup if it hasn't happened — but do run
-it when the user has not configured anything, because it fails cheaply and prints the config it
-built, so a misread product description is caught before any work.
+**`init` is the only verb that asks.** `find` creates the database if it has to, but it never
+prompts: given an unconfigured install it stops with `onboarding_incomplete`, naming every variable
+that would have satisfied it. So run `init` when the user has not configured anything — it fails
+cheaply, before any work.
 
 ## The work verb you reach for
 

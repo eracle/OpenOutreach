@@ -109,6 +109,8 @@ def main(argv=None):
         os.environ["OPENOUTREACH_DB"] = db_path
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "openoutreach.settings")
 
+    _hand_the_children_their_environment()
+
     verb = argv[1] if len(argv) > 1 else "run"
     if verb not in OURS:
         from django.core.management import execute_from_command_line
@@ -117,6 +119,33 @@ def main(argv=None):
         return
 
     sys.exit(_own_verb(verb, argv[2:]))
+
+
+def _hand_the_children_their_environment() -> None:
+    """Export the stored answers before any verb runs, this project's own or a child's.
+
+    **Every verb needs this, not just the ones that onboard.** `find` and `status` are the
+    finder's own commands reached straight through Django, and the finder reads its
+    configuration from the environment and nowhere else — so without this, an install that
+    answered every question would still be told it had answered none.
+
+    Silent when there is no schema yet: a first run reaches `run` or `init`, which
+    migrates and then asks. Anything else says so itself, in its own words.
+    """
+    import django
+
+    django.setup()
+
+    from django.db import DatabaseError
+
+    from openoutreach import wizard
+    from openoutreach.config.models import SiteConfig
+
+    try:
+        config = SiteConfig.load()
+    except DatabaseError:
+        return
+    wizard.apply_to_environment(config)
 
 
 def _own_verb(verb: str, rest: list[str]) -> int:
@@ -145,10 +174,24 @@ def _own_verb(verb: str, rest: list[str]) -> int:
 
 
 def _init(rest: list[str]) -> int:
-    """Onboard both halves in one flow, passing the finder's own `init` flags through."""
+    """Onboard the whole install in one flow, and stop before spending anything.
+
+    The two long fields come from files rather than flags: a product description is a page
+    of markdown with newlines and apostrophes in it, and shell-quoting that is a way to
+    corrupt it quietly.
+    """
+    import argparse
+
     from openoutreach import wizard
 
-    wizard.onboard(*rest)
+    parser = argparse.ArgumentParser(prog="openoutreach init", add_help=True)
+    parser.add_argument("--product-docs", metavar="FILE",
+                        help="File holding the product description (markdown).")
+    parser.add_argument("--target", metavar="FILE",
+                        help="File holding the target market description (markdown).")
+    options = parser.parse_args(rest)
+
+    wizard.onboard(product_docs=options.product_docs, target=options.target)
     return 0
 
 

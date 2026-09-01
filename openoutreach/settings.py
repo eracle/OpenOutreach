@@ -4,9 +4,9 @@
 `openoutfind` and `cold_outreach` are Django projects in their own right, and each keeps
 its own settings module — `uvx --from openoutfind outfind find 10` runs with nothing from
 this package anywhere near it. They are also *reusable apps*, and this is a third host for
-them: one `INSTALLED_APPS`, one SQLite file, one migration graph, one process. That is what
-lets the wizard write each child's `SiteConfig` through that child's own model instead of
-translating both config surfaces into env-var strings.
+them: one `INSTALLED_APPS`, one SQLite file, one migration graph, one process — so a lead
+the finder wrote and the mail the sender sent it are rows in the same store, and one
+`migrate` brings the whole install current.
 
 **What each child requires of a host lives in that child's `defaults.py`** and is splatted
 here, so a name the apps start reading arrives from one definition rather than drifting
@@ -17,8 +17,12 @@ are `find`, `send`, `status` and `run`, and the config surface is the wizard. `S
 exists because Django insists on one; naming that in the value is more honest than
 generating a secret nobody uses.
 
-**This project has no app and no model of its own.** Every field the wizard collects
-belongs to a child's singleton, so a mother model would hold nothing.
+**This project has exactly one app and one model** — `openoutreach.config.SiteConfig`, the
+answers a person gave. It is here because this is the program with a person in front of
+it: the children are agent-first and read their configuration from the environment on
+every run, keeping none of it, so somebody has to remember what was typed, and it is not
+them. Nothing else belongs here — no pipeline model, no management command. That work
+belongs in a child repo, released, then re-pinned.
 """
 from __future__ import annotations
 
@@ -71,6 +75,9 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "django.contrib.auth",
     "django.contrib.contenttypes",
+    # This host's one model: the answers a person gave, which both children then read as
+    # their environment. First, because the wizard writes it before either child runs.
+    "openoutreach.config.apps.ConfigAppConfig",
     "openoutfind.crm.apps.CrmConfig",
     "openoutfind.core.apps.CoreConfig",
     "cold_outreach.core",

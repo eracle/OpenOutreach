@@ -65,7 +65,8 @@ openoutreach run 5        # find five leads carrying an address, then send — a
 ```bash
 openoutreach                  # onboard if needed, then find and send
 openoutreach run 5            # ...with an explicit goal
-openoutreach init             # onboard only — both halves, one flow
+openoutreach init             # onboard only — one flow, every answer, nothing spent
+openoutreach init --product-docs product.md --target target.md   # ...the two long fields from files
 openoutreach find 10          # ten more qualified leads → CSV on stdout — free, cannot spend
 openoutreach find 10 emails   # ...carrying a work email (one credit each)
 openoutreach find 0           # no work — print what you already have
@@ -90,6 +91,12 @@ this package installs both and hosts them in one process, one database and one o
 | [**OpenOutFind**](https://github.com/eracle/OpenOutFind) | discovery, qualification, enrichment, the CRM | `uvx --from openoutfind outfind find 10` |
 | [**OpenOutSend**](https://github.com/eracle/OpenOutSend) | the outreach agent, the mailbox, the send guards | `uvx --from openoutsend outsend send` |
 | **OpenOutreach** (this) | one install, one wizard, one command over both | — |
+
+**The wizard is here because the children do not have one.** Both are agent-first: they read their
+configuration from `OPENOUTFIND_*` / `OUTSEND_*` on every run and remember none of it, which is
+right for a program a script or an agent drives and wrong for a person. So this is where the
+questions are asked, where the answers are kept, and where they are handed to each child in its own
+variables.
 
 **Neither child is diminished by the bundle.** Each keeps its own console script, its own settings
 module and its own test suite, and the contract between them is a public one:
@@ -151,10 +158,22 @@ arrives as a custom variable you can merge into a template.
 | 3 | **A product description + target market** | "We sell cloud cost optimization for DevOps teams at mid-market SaaS companies" |
 | 4 | **A mailbox to send from** | Its address and an **app password** — not your login password. Google Workspace works out of the box; any other provider names its SMTP/IMAP host and port |
 
-Onboarding asks for all four in one pass, and every answer can come from the environment instead —
-`OPENOUTFIND_*` for the finding, `OUTSEND_*` for the sending — which is what makes a headless
-install possible. The LLM key and the mailbox are both **verified before they are stored**: a wrong
-key is an answer at setup, not a traceback halfway through a run.
+Onboarding asks for all four in one pass and **asks only once** — the answers are kept in
+`~/.openoutreach`, and every later run exports them into the variables the children read. A question
+whose variable is already exported is not asked at all, so an operator or a unit file that sets
+`OPENOUTFIND_*` / `OUTSEND_*` never has to repeat it into a prompt; that is what makes a headless
+install possible. With no TTY and something still unanswered, setup stops **naming the variables**
+that would have answered it rather than blocking on a question nobody is there to hear.
+
+The two long fields are read from files, not flags — a markdown paragraph shell-quoted onto a
+command line corrupts quietly:
+
+```bash
+openoutreach init --product-docs product.md --target target.md
+```
+
+The LLM key is **verified at the prompt**, and the mailbox by a real SMTP login before setup
+finishes: a wrong key is an answer you can retype, not a traceback halfway through a run.
 
 The BetterContact link above is an **affiliate link** — signing up through it supports OpenOutreach,
 at no markup to you.
@@ -233,8 +252,9 @@ This repo is the orchestrator and holds no pipeline of its own — that is the p
 ├── openoutreach/
 │   ├── __main__.py     # the `openoutreach` console script: find · send · status · run
 │   ├── settings.py     # one Django registry hosting both children's apps, on one database
-│   └── wizard.py       # one onboarding, writing each child's own SiteConfig
-├── tests/              # the registry, the wizard's three gaps, the CLI's own decisions
+│   ├── config/         # the one model: the answers you gave, and the variables they export as
+│   └── wizard.py       # one onboarding — ask once, keep it, hand it to both children
+├── tests/              # the registry, the wizard's row and export, the CLI's own decisions
 ├── manage.py           # checkout shim over openoutreach/__main__.py
 ├── pyproject.toml      # package metadata, pinned children, console script
 ├── local.yml           # Docker Compose — the server deploy only

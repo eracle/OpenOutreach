@@ -47,12 +47,15 @@ classifiers = [
 # **The pins are exact, and the cost is known.** This project hosts both children's Django
 # apps in one registry and owns the one migration graph over them, so a model change in
 # either child needs a matching release here. Three repos that move together is the price
-# of a wizard that writes each child's own `SiteConfig` through that child's own model
-# instead of restating both config surfaces as env-var strings.
+# of one install, and of a wizard that hands each child the environment it reads.
 dependencies = [
     "Django>=5.2,<7.0",
-    "openoutfind==0.1.7",
-    "openoutsend==0.1.30",
+    "openoutfind==0.1.8",
+    "openoutsend==0.1.31",
+    # The wizard validates a country code against a real list of them. Declared rather
+    # than inherited from the finder: the rule above is that this file names what *this*
+    # package imports directly.
+    "pytz>=2024.1",
 ]
 
 [project.optional-dependencies]

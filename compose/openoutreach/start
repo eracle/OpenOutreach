@@ -8,7 +8,8 @@ set -o nounset
 # There is no daemon any more: the work verb is bounded by a goal, so the container runs
 # one job and exits. Whatever supervises it (a systemd timer, a cron entry, `docker compose
 # run`) decides how often — which is the right place for that decision, and is why nothing
-# here loops. `find` migrates and onboards on the way in.
+# here loops. `find` migrates on the way in; it never prompts, so a container that was not
+# given its `OPENOUTFIND_*` / `OUTSEND_*` variables exits naming the ones it lacked.
 #
 # The goal is the argument: `docker compose run openoutreach 10 emails`.
 exec openoutreach find "${@:-1}"

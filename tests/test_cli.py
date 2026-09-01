@@ -19,7 +19,7 @@ def test_only_an_explicit_help_asks_for_the_overview():
     assert not cli.wants_the_overview(["openoutreach", "help", "find"])
 
 
-def test_a_bare_invocation_is_run(monkeypatch):
+def test_a_bare_invocation_is_run(db, monkeypatch):
     """The whole first-run command is `openoutreach`, with no verb to learn first."""
     asked = []
     monkeypatch.setattr(cli, "_run", lambda rest: asked.append(rest) or 0)
