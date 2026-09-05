@@ -4,7 +4,7 @@
 
 - **Python env**: Always use `.venv/bin/python` (not system `python3`).
 - **Commits**: No `Co-Authored-By` lines. Single-line messages (no body).
-- **Dependencies**: Declared in `pyproject.toml`. **Both children are required dependencies and pinned exactly** — `openoutfind==` and `openoutsend==`. `pip install openoutreach` alone has to be the whole find-then-send flow, or the second install is the friction this package exists to remove.
+- **Dependencies**: Declared in `pyproject.toml`. **Both children are required dependencies and pinned exactly** — `openoutfind==` and `openoutsend==`. `pip install openoutreach` alone has to be the whole find-then-send flow, or the second install is the friction this package exists to remove. **Always bump the pin here after pushing a change to either child's `main`.** Both children auto-publish a new PyPI version on every green push, so the moment a fix lands there it exists as an installable release — check the new version (PyPI, or `git rev-list --count v<base>..HEAD` in the child, which is exactly the patch number CI derives), edit the pin, reinstall (`uv pip install -e ".[dev]"`), and rerun this repo's suite before calling the cross-repo change done. A stale pin here is a real install running old, unfixed child code even though the fix already shipped — do not treat the pin bump as a follow-up task.
 - **This repo holds no pipeline.** The finding is [OpenOutFind](https://github.com/eracle/OpenOutFind), the sending is [OpenOutSend](https://github.com/eracle/OpenOutSend), and both are installed packages here. **Do not add a pipeline model or a management command to this project.** If a change belongs to discovery, qualification, enrichment, the CRM, the outreach agent or the mailbox, it belongs in a child repo — land it there, release it, and bump the pin here. **The one exception is the one app that exists**: `openoutreach.config.SiteConfig`, the answers a person gave. The children read their configuration from the environment and remember none of it, so somebody has to remember what was typed, and it is not them.
 - **Nothing under `openoutreach/` may reimplement a child.** A duplicated fork of the finder lived here until it was deleted, and it had already started to diverge. What exists is the whole project: `settings.py` (the registry), `config/` (the one model), `wizard.py` (the questions, and the export into both children's variables), `__main__.py` (the verbs).
 - **`openoutreach` imports `openoutsend`, deliberately.** The old rule — *nothing under `openoutreach/` may import `openoutsend`* — was written to keep the pipe honest, and the pipe is kept honest a different way now: **both children still implement and test `outfind find --json | outsend` standalone**, and `openoutreach run` uses that same JSON Lines contract through a buffer rather than a privileged in-memory hand-off. See the `openoutreach-docs` cards `p1-e3-openoutreach-single-entrypoint` and `p1-e2-find-send-boundary-contract`.
@@ -61,8 +61,8 @@ Three modules and one app, and nothing else.
   holding every answer a person gave, and `export()` renders it as `OPENOUTFIND_*` + `OUTSEND_*`.
   Two maps, `FINDER_ENV` and `SENDER_ENV`, keyed by field — **never merged**, because most fields
   appear in both and merging silently keeps one child's variable and drops the other's. The
-  suffixes are not always the same (`OPENOUTFIND_COUNTRY` against a sender that asks nothing about
-  jurisdiction; `OUTSEND_OPERATOR_NAME` against a finder that signs nothing), which is why the
+  suffixes are not always the same (`OUTSEND_OPERATOR_NAME` against a finder that signs nothing;
+  `OPENOUTFIND_OPERATOR_COUNTRY` and `OUTSEND_OPERATOR_COUNTRY` happen to share a name), which is why the
   mapping is written down rather than derived from a prefix. **A blank field exports nothing**: to a
   child, unset means *use your default* (the sender's Google SMTP host) while a blank value
   overrides that default with nothing.
