@@ -50,7 +50,7 @@ classifiers = [
 # of one install, and of a wizard that hands each child the environment it reads.
 dependencies = [
     "Django>=5.2,<7.0",
-    "openoutfind==0.1.8",
+    "openoutfind==0.1.10",
     "openoutsend==0.1.32",
     # The wizard validates a country code against a real list of them. Declared rather
     # than inherited from the finder: the rule above is that this file names what *this*

@@ -17,7 +17,7 @@ ANSWERS = dict(
     bettercontact_api_key="bc-not-a-real-key",
     operator_name="Ada Lovelace",
     operator_email="ada@example.com",
-    country_code="us",
+    operator_country_code="us",
     accepted_legal_notice=True,
     mailbox_address="ada@example.com",
     mailbox_password="app-password",
@@ -53,12 +53,12 @@ class TestTheExport:
         assert environment["OPENOUTFIND_LLM_API_KEY"] == environment["OUTSEND_LLM_API_KEY"]
 
     def test_the_suffixes_are_not_assumed_to_match(self, configured):
-        """`COUNTRY` against a sender that asks nothing about jurisdiction, and
-        `OPERATOR_NAME` against a finder that signs nothing."""
+        """`OPERATOR_NAME` against a finder that signs nothing, and a shared
+        `OPERATOR_COUNTRY` name both children happen to spell alike."""
         environment = configured.export()
 
-        assert environment["OPENOUTFIND_COUNTRY"] == "us"
-        assert "OUTSEND_COUNTRY" not in environment
+        assert environment["OPENOUTFIND_OPERATOR_COUNTRY"] == "us"
+        assert environment["OUTSEND_OPERATOR_COUNTRY"] == "us"
         assert environment["OUTSEND_OPERATOR_NAME"] == "Ada Lovelace"
         assert "OPENOUTFIND_OPERATOR_NAME" not in environment
 
@@ -136,6 +136,20 @@ class TestWhatItAsksFor:
 
         with pytest.raises(SystemExit, match="ACCEPT_LEGAL_NOTICE"):
             wizard._ask_what_is_missing(config)
+
+
+class TestTheNewsletterDefault:
+    """Jurisdiction-aware: no opt-in-marketing law, no question."""
+
+    def test_a_non_protected_country_auto_subscribes_without_asking(self, monkeypatch):
+        monkeypatch.setattr(wizard, "_confirm", _refuse)
+
+        assert wizard._newsletter_default(SiteConfig(operator_country_code="us")) is True
+
+    def test_a_protected_country_still_asks(self, monkeypatch):
+        monkeypatch.setattr(wizard, "_confirm", lambda question: True)
+
+        assert wizard._newsletter_default(SiteConfig(operator_country_code="de")) is True
 
 
 def _refuse(*args, **kwargs):

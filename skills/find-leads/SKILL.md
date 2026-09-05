@@ -52,7 +52,7 @@ headless setup possible:
 | campaign | `OPENOUTFIND_PRODUCT_DOCS`, `OPENOUTFIND_CAMPAIGN_TARGET` |
 | llm | `OPENOUTFIND_AI_MODEL`, `OPENOUTFIND_LLM_API_KEY` |
 | bettercontact | `OPENOUTFIND_BETTERCONTACT_API_KEY` |
-| account | `OPENOUTFIND_OPERATOR_EMAIL`, `OPENOUTFIND_COUNTRY`, `OPENOUTFIND_ACCEPT_LEGAL_NOTICE` |
+| account | `OPENOUTFIND_OPERATOR_EMAIL`, `OPENOUTFIND_OPERATOR_COUNTRY`, `OPENOUTFIND_ACCEPT_LEGAL_NOTICE` |
 | the sender | `OUTSEND_OPERATOR_NAME` (who signs the mail), `OUTSEND_MAILBOX_ADDRESS`, `OUTSEND_MAILBOX_PASSWORD` (the provider's **app password**), optional `OUTSEND_BOOKING_LINK` |
 
 **A variable you export is an answer already given**, and the wizard skips that question rather than

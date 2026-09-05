@@ -34,16 +34,16 @@ FINDER_ENV = {
     "apollo_api_key": "OPENOUTFIND_APOLLO_API_KEY",
     "email_finder": "OPENOUTFIND_EMAIL_FINDER",
     "operator_email": "OPENOUTFIND_OPERATOR_EMAIL",
-    "country_code": "OPENOUTFIND_COUNTRY",
+    "operator_country_code": "OPENOUTFIND_OPERATOR_COUNTRY",
     "contacts_api_token": "OPENOUTFIND_CONTACTS_API_TOKEN",
     "accepted_legal_notice": "OPENOUTFIND_ACCEPT_LEGAL_NOTICE",
     "newsletter": "OPENOUTFIND_NEWSLETTER",
 }
 
-# And in the sender's. **The suffixes are not always the same** — `OPENOUTFIND_COUNTRY`
-# against a sender that asks nothing about jurisdiction, `OUTSEND_OPERATOR_NAME` against a
-# finder that signs nothing — which is exactly why the mapping is written down once here
-# instead of being guessed from a prefix.
+# And in the sender's. **The suffixes are not always the same** — `OPENOUTFIND_OPERATOR_COUNTRY`
+# against `OUTSEND_OPERATOR_COUNTRY`, `OUTSEND_OPERATOR_NAME` against a finder that signs
+# nothing — which is exactly why the mapping is written down once here instead of being
+# guessed from a prefix.
 SENDER_ENV = {
     "product_docs": "OUTSEND_PRODUCT_DOCS",
     "campaign_target": "OUTSEND_CAMPAIGN_TARGET",
@@ -53,6 +53,7 @@ SENDER_ENV = {
     "llm_api_base": "OUTSEND_LLM_API_BASE",
     "operator_name": "OUTSEND_OPERATOR_NAME",
     "operator_email": "OUTSEND_OPERATOR_EMAIL",
+    "operator_country_code": "OUTSEND_OPERATOR_COUNTRY",
     "mailbox_address": "OUTSEND_MAILBOX_ADDRESS",
     "mailbox_password": "OUTSEND_MAILBOX_PASSWORD",
     "smtp_host": "OUTSEND_SMTP_HOST",
@@ -93,7 +94,7 @@ class SiteConfig(models.Model):
     operator_name = models.CharField(max_length=200, blank=True, default="")
     operator_email = models.EmailField(blank=True, default="")
     # ISO-3166 alpha-2 — the operator's *jurisdiction*, not a target market.
-    country_code = models.CharField(max_length=2, blank=True, default="")
+    operator_country_code = models.CharField(max_length=2, blank=True, default="")
     # An acceptance somebody gave is a record. It is kept because it was given, and the
     # children are told about it on every run because they keep nothing.
     accepted_legal_notice = models.BooleanField(default=False)

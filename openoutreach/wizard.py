@@ -111,7 +111,7 @@ def _ask_what_is_missing(config: SiteConfig) -> None:
         _ASK[field](config)
     if not accepted:
         config.accepted_legal_notice = _accept_the_legal_notice()
-        config.newsletter = _confirm("Subscribe to the OpenOutreach newsletter?")
+        config.newsletter = _newsletter_default(config)
 
 
 def _accepted_in_environment() -> bool:
@@ -177,7 +177,7 @@ def _ask_operator(config: SiteConfig) -> None:
     _say("\n  Who is running this, and who signs the mail.")
     config.operator_name = _ask("Your name, as it should sign your mail")
     config.operator_email = _ask("Your email address", validate=_looks_like_email)
-    config.country_code = _ask(
+    config.operator_country_code = _ask(
         "Your country (ISO 3166 alpha-2, e.g. US, GB, DE) — your own jurisdiction, "
         "which decides your email rules", validate=_looks_like_country).lower()
 
@@ -241,6 +241,20 @@ def _variables_for(fields) -> list[str]:
         if variable:
             names.append(variable)
     return names
+
+
+def _newsletter_default(config: SiteConfig) -> bool:
+    """Skip the question where no opt-in-marketing law applies; keep it where one does.
+
+    ``is_gdpr_protected`` is the broad opt-in set (EU/EEA/UK/CH/CA/BR/AU/JP/KR/NZ) — an
+    operator outside it is auto-subscribed, since silence is consent nowhere but asking
+    anyway would be a redundant question for the jurisdictions that do not require it.
+    """
+    from openoutfind.core.geo import is_gdpr_protected
+
+    if not is_gdpr_protected(config.operator_country_code):
+        return True
+    return _confirm("Subscribe to the OpenOutreach newsletter?")
 
 
 def _accept_the_legal_notice() -> bool:
