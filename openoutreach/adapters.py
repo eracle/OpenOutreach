@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import smtplib
+import ssl
 import subprocess
 from typing import Any
 
@@ -38,11 +39,39 @@ def _install_pydantic_ai_shim():
 
 # ── 2. Resend Email Sending Adapter ───────────────────────────────────────────
 
+RESEND_HOST = "smtp.resend.com"
+RESEND_SMTPS_PORTS = {465, 2465}
+RESEND_STARTTLS_PORTS = {25, 587, 2587}
+RESEND_PORTS = RESEND_SMTPS_PORTS | RESEND_STARTTLS_PORTS
+
+
 def is_resend_config(host: str | None, password: str | None) -> bool:
     """Return True if the configured host or credentials indicate Resend."""
     h = (host or "").strip().lower()
     p = (password or "").strip()
-    return h == "smtp.resend.com" or p.startswith("re_")
+    return h == RESEND_HOST or p.startswith("re_")
+
+
+class _ResendSMTP(smtplib.SMTP):
+    """SMTP transport keeping accepted response for explicit STARTTLS."""
+
+    accepted_response: tuple[int | None, bytes] = (None, b"")
+
+    def data(self, msg):
+        code, response = super().data(msg)
+        self.accepted_response = (code, response)
+        return code, response
+
+
+class _ResendSMTPSSL(smtplib.SMTP_SSL):
+    """SMTP_SSL transport keeping accepted response for implicit SMTPS."""
+
+    accepted_response: tuple[int | None, bytes] = (None, b"")
+
+    def data(self, msg):
+        code, response = super().data(msg)
+        self.accepted_response = (code, response)
+        return code, response
 
 
 def _install_resend_adapter():
@@ -53,8 +82,25 @@ def _install_resend_adapter():
 
         def verify_auth_hook(host: str, port: int, username: str, password: str) -> tuple[bool, str]:
             if is_resend_config(host, password):
-                # Resend SMTP always authenticates with username "resend"
-                return orig_verify_auth(host or "smtp.resend.com", port or 587, "resend", password)
+                h = host or RESEND_HOST
+                p = int(port or 587)
+                context = ssl.create_default_context()
+                try:
+                    if p in RESEND_SMTPS_PORTS:
+                        with smtplib.SMTP_SSL(h, p, timeout=20, context=context) as smtp:
+                            smtp.login("resend", password)
+                    else:
+                        with smtplib.SMTP(h, p, timeout=20) as smtp:
+                            smtp.ehlo()
+                            if smtp.has_extn("starttls"):
+                                smtp.starttls(context=context)
+                                smtp.ehlo()
+                            smtp.login("resend", password)
+                    return True, "ok"
+                except smtplib.SMTPAuthenticationError as e:
+                    return False, f"auth rejected ({e.smtp_code}) — verifique sua chave de API Resend (formato re_...)"
+                except (smtplib.SMTPException, OSError) as e:
+                    return False, f"connection failed: {e}"
             return orig_verify_auth(host, port, username, password)
 
         smtp_mod.verify_auth = verify_auth_hook
@@ -76,8 +122,10 @@ def _install_resend_adapter():
             imap_port: int,
         ):
             if is_resend_config(host, password):
+                h = host or RESEND_HOST
+                p = int(port or 587)
                 import cold_outreach.emails.smtp as smtp_mod
-                ok, reason = smtp_mod.verify_auth(host or "smtp.resend.com", port or 587, "resend", password)
+                ok, reason = smtp_mod.verify_auth(h, p, "resend", password)
                 if not ok:
                     return None, reason
                 box, _ = self.update_or_create(
@@ -85,8 +133,8 @@ def _install_resend_adapter():
                     defaults={
                         "password": password,
                         "from_address": from_address,
-                        "host": host or "smtp.resend.com",
-                        "port": port or 587,
+                        "host": h,
+                        "port": p,
                         "imap_host": "none",
                         "imap_port": 993,
                     },
@@ -113,15 +161,38 @@ def _install_resend_adapter():
         def deliver_hook(mailbox, email_message, row) -> None:
             if is_resend_config(mailbox.host, mailbox.password):
                 from cold_outreach.emails.delivery_policy import record_acceptance, record_failure
-                from cold_outreach.emails.sender import _SMTP, SMTP_TIMEOUT_SECONDS
+                from cold_outreach.emails.sender import SMTP_TIMEOUT_SECONDS
+
+                # Resend Idempotency Key: prevents duplicate sends on network retries
+                if "Resend-Idempotency-Key" not in email_message:
+                    msg_id = getattr(row, "message_id", "") or email_message.get("Message-ID", "")
+                    clean_id = re.sub(r"[^a-zA-Z0-9_-]", "-", str(msg_id)).strip("-")
+                    row_id = getattr(row, "pk", "") or "send"
+                    email_message["Resend-Idempotency-Key"] = f"openoutreach-{row_id}-{clean_id}"[:100]
+
+                # Custom Header: prevent unwanted Gmail thread grouping for initial outreach
+                if "In-Reply-To" not in email_message and "X-Entity-Ref-ID" not in email_message:
+                    email_message["X-Entity-Ref-ID"] = email_message["Resend-Idempotency-Key"]
+
+                h = mailbox.host or RESEND_HOST
+                p = int(mailbox.port or 587)
+                context = ssl.create_default_context()
+
                 try:
-                    host = mailbox.host or "smtp.resend.com"
-                    port = mailbox.port or 587
-                    with _SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
-                        smtp.starttls()
-                        smtp.login("resend", mailbox.password)
-                        smtp.send_message(email_message)
-                        record_acceptance(row, *smtp.accepted_response)
+                    if p in RESEND_SMTPS_PORTS:
+                        with _ResendSMTPSSL(h, p, timeout=SMTP_TIMEOUT_SECONDS, context=context) as smtp:
+                            smtp.login("resend", mailbox.password)
+                            smtp.send_message(email_message)
+                            record_acceptance(row, *smtp.accepted_response)
+                    else:
+                        with _ResendSMTP(h, p, timeout=SMTP_TIMEOUT_SECONDS) as smtp:
+                            smtp.ehlo()
+                            if smtp.has_extn("starttls"):
+                                smtp.starttls(context=context)
+                                smtp.ehlo()
+                            smtp.login("resend", mailbox.password)
+                            smtp.send_message(email_message)
+                            record_acceptance(row, *smtp.accepted_response)
                 except (smtplib.SMTPException, OSError) as exc:
                     record_failure(row, exc)
                     raise

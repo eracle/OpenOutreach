@@ -492,7 +492,7 @@
                 <details>
                   <summary>Configuração SMTP / IMAP manual</summary>
                   <p class="help-line" style="margin-top: 0.5rem; font-size: 0.8rem; color: #666;">
-                    Ao usar Resend (re_...), o host smtp.resend.com e porta 587 são configurados automaticamente.
+                    <strong>Resend SMTP:</strong> Host <code>smtp.resend.com</code>. Portas suportadas: <code>587</code>, <code>25</code>, <code>2587</code> (STARTTLS) ou <code>465</code>, <code>2465</code> (SMTPS / SSL implícito). O cabeçalho <code>Resend-Idempotency-Key</code> é gerenciado automaticamente para evitar e-mails duplicados.
                   </p>
                   <label
                     >Servidor SMTP<input
@@ -502,7 +502,7 @@
                     >Porta SMTP<input
                       name="smtp_port"
                       inputmode="numeric"
-                      placeholder="587" /></label
+                      placeholder="587 (ou 465)" /></label
                   ><label
                     >Servidor IMAP <small>Opcional (não usado com Resend)</small><input
                       name="imap_host"
