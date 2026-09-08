@@ -11,5 +11,6 @@ urlpatterns = [
     path("api/config/campaign", views.configuration, {"section": "campaign"}),
     path("api/config/integrations", views.configuration, {"section": "integrations"}),
     path("api/export", views.export),
+    path("api/enrich/whatsapp", views.enrich_whatsapp),
     path("api/job", job),
 ]

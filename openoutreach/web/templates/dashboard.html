@@ -168,6 +168,13 @@
             </article>
             <article class="stat-card">
               <div class="stat-top">
+                <span>WhatsApp encontrados</span><i data-icon="whatsapp"></i>
+              </div>
+              <strong id="stat-whatsapp">—</strong>
+              <div class="stat-foot">Contatos com WhatsApp disponível</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-top">
                 <span>E-mails enviados</span><i data-icon="send"></i>
               </div>
               <strong id="stat-sent">—</strong>
@@ -235,7 +242,9 @@
               </p>
             </div>
             <div class="heading-actions">
-              <button class="button" id="export">
+              <button class="button" id="enrich-whatsapp-btn" title="Buscar e enriquecer números de WhatsApp dos leads captados">
+                <i data-icon="whatsapp"></i>Enriquecer WhatsApp</button
+              ><button class="button" id="export">
                 <i data-icon="download"></i>Exportar CSV</button
               ><button class="button primary" data-action="find">
                 <i data-icon="plus"></i>Nova busca
@@ -247,6 +256,7 @@
               <div class="filter-tabs" role="group" aria-label="Filtrar leads">
                 <button class="active" data-filter="all">Todos os leads</button
                 ><button data-filter="email">Com e-mail</button
+                ><button data-filter="whatsapp">Com WhatsApp</button
                 ><button data-filter="pending">Sem e-mail</button>
               </div>
               <label class="search"
@@ -514,6 +524,25 @@
                       placeholder="993"
                   /></label>
                 </details>
+              </article>
+              <article class="panel integration-card">
+                <div class="integration-header">
+                  <span class="integration-icon green" style="background: rgba(37, 211, 102, 0.1); color: #128c7e;"
+                    ><i data-icon="whatsapp"></i></span
+                  ><span class="pill success" id="whatsapp-status"
+                    >Ativo</span
+                  >
+                </div>
+                <h2>WhatsApp & Enriquecimento</h2>
+                <p>
+                  Enriquecimento de leads com números de WhatsApp corporativos e abertura direta no WhatsApp Web.
+                </p>
+                <div class="integration-note">
+                  <i data-icon="check-circle"></i>
+                  <p>
+                    <strong>Modo WhatsApp Integrado:</strong> Seus leads captados recebem números de celular (+55 DD 9XXXX-XXXX) mapeados por estado e links de chat direto <code>wa.me</code>.
+                  </p>
+                </div>
               </article>
             </div>
             <article class="panel operator-panel">

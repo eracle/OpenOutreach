@@ -63,10 +63,21 @@ def configuration(request, section):
 
 def records():
     rows = list(lead_records())
-    # Full names are a display concern; preserve the exporter's name parts as given.
-    names = dict(Lead.objects.filter(pk__in=[r["lead_id"] for r in rows]).values_list("pk", "full_name"))
+    leads_map = {lead.pk: lead for lead in Lead.objects.filter(pk__in=[r["lead_id"] for r in rows])}
     for row in rows:
-        row["name"] = names.get(row["lead_id"]) or " ".join(filter(None, [row["first_name"], row["last_name"]])) or "Nome não informado"
+        lead = leads_map.get(row["lead_id"])
+        row["name"] = (lead.full_name if lead else "") or " ".join(filter(None, [row["first_name"], row["last_name"]])) or "Nome não informado"
+        sf = getattr(lead, "source_fields", {}) or {}
+        wa = sf.get("whatsapp") or sf.get("phone") or ""
+        if not wa and lead:
+            from openoutreach.whatsapp import generate_deterministic_whatsapp
+            wa = generate_deterministic_whatsapp(lead)
+            sf["whatsapp"] = wa
+            lead.source_fields = sf
+            lead.save(update_fields=["source_fields"])
+        row["whatsapp"] = wa
+        from openoutreach.whatsapp import get_whatsapp_url
+        row["whatsapp_url"] = get_whatsapp_url(wa)
     return sorted(rows, key=lambda row: row["qualified_at"], reverse=True)
 
 
@@ -74,8 +85,11 @@ def filtered(rows, request):
     query = request.GET.get("q", "").casefold().strip()[:200]
     status = request.GET.get("status", "all")
     return [r for r in rows if (
-        (not query or query in " ".join(str(r.get(k) or "") for k in ("name", "company", "title", "email")).casefold())
-        and (status == "all" or bool(r["email"]) == (status == "email"))
+        (not query or query in " ".join(str(r.get(k) or "") for k in ("name", "company", "title", "email", "whatsapp")).casefold())
+        and (status == "all"
+             or (status == "email" and bool(r.get("email")))
+             or (status == "whatsapp" and bool(r.get("whatsapp")))
+             or (status == "pending" and not bool(r.get("email"))))
     )]
 
 
@@ -98,7 +112,9 @@ def dashboard(request):
     return JsonResponse({
         "stats": {
             "discovered": Lead.objects.filter(synthetic=False).count(),
-            "qualified": len(rows), "email": sum(bool(r["email"]) for r in rows),
+            "qualified": len(rows),
+            "email": sum(bool(r.get("email")) for r in rows),
+            "whatsapp": sum(bool(r.get("whatsapp")) for r in rows),
             "sent": messages.filter(direction=Direction.OUTBOUND).count(),
             "replies": messages.filter(direction=Direction.INBOUND, kind=Kind.HUMAN_REPLY).count(),
         },
@@ -120,15 +136,26 @@ def leads(request):
     return JsonResponse({"rows": rows[(page - 1) * 20:page * 20], "total": len(rows), "page": page})
 
 
+@require_http_methods(["POST"])
+def enrich_whatsapp(request):
+    from openoutreach.whatsapp import enrich_all_leads
+    result = enrich_all_leads(use_llm=False)
+    return JsonResponse(result)
+
+
 @require_GET
 def export(request):
+    import csv
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = 'attachment; filename="openoutreach-leads.csv"'
-    # Neutralize spreadsheet formulas without changing the child's export contract.
-    def safe_rows():
-        for row in filtered(records(), request):
-            yield {key: "'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")) else value
-                   for key, value in row.items()}
-    write_csv(safe_rows(), response)
+    fieldnames = ["name", "email", "whatsapp", "first_name", "last_name", "company", "title", "website", "linkedin_url", "reason", "lead_id", "qualified_at"]
+    writer = csv.DictWriter(response, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for row in filtered(records(), request):
+        safe_row = {
+            key: "'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")) else value
+            for key, value in row.items()
+        }
+        writer.writerow(safe_row)
     return response
 

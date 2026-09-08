@@ -349,6 +349,7 @@ Importante:
   * contact_location_state: Sigla do estado (ex: SP, MG, RJ, PR, etc)
   * contact_location_country: "Brazil"
   * contact_linkedin_profile_url: URL no padrão https://www.linkedin.com/in/<slug-unico-da-pessoa>
+  * contact_whatsapp: Celular com WhatsApp no formato brasileiro (+55 DD 9XXXX-XXXX) correspondente ao estado
 """
 
         res = run_agent_sync(agent.run(prompt))
@@ -378,6 +379,7 @@ Importante:
             "contact_location_state": "MG",
             "contact_location_country": "Brazil",
             "contact_linkedin_profile_url": f"https://www.linkedin.com/in/carlos-eduardo-viana-{offset + 1}",
+            "contact_whatsapp": f"+55 (31) 9876{offset % 10}-4321",
         },
         {
             "contact_full_name": f"Renata Silveira Guimarães {offset + 2}",
@@ -391,6 +393,7 @@ Importante:
             "contact_location_state": "SP",
             "contact_location_country": "Brazil",
             "contact_linkedin_profile_url": f"https://www.linkedin.com/in/renata-guimaraes-{offset + 2}",
+            "contact_whatsapp": f"+55 (11) 9912{offset % 10}-4567",
         },
         {
             "contact_full_name": f"Marcelo Tavares Castro {offset + 3}",
@@ -404,6 +407,7 @@ Importante:
             "contact_location_state": "PR",
             "contact_location_country": "Brazil",
             "contact_linkedin_profile_url": f"https://www.linkedin.com/in/marcelo-tavares-{offset + 3}",
+            "contact_whatsapp": f"+55 (41) 9965{offset % 10}-3210",
         },
     ]
 
@@ -412,16 +416,23 @@ def free_discovery_search(filters: dict, limit: int = 100, offset: int = 0):
     """Replacement for openoutfind.discovery.search when BetterContact API key is absent."""
     from openoutfind.core.config import SiteConfig
     from openoutfind.discovery import Page
+    from openoutreach.whatsapp import format_whatsapp, STATE_TO_DDD
 
     site_config = SiteConfig.load()
     leads = _generate_leads_via_llm(site_config, count=min(limit, 10), offset=offset)
 
-    # Ensure all leads have required keys and clean profile URLs
+    # Ensure all leads have required keys, clean profile URLs, and WhatsApp
     for idx, lead in enumerate(leads):
         if not lead.get("contact_linkedin_profile_url"):
             slug = re.sub(r"[^a-zA-Z0-9]", "-", (lead.get("contact_full_name") or f"lead-{offset}-{idx}").lower())
             lead["contact_linkedin_profile_url"] = f"https://www.linkedin.com/in/{slug}-{offset}-{idx}"
         lead["contact_location_country"] = lead.get("contact_location_country") or "Brazil"
+        wa = lead.get("contact_whatsapp")
+        if not wa:
+            state = lead.get("contact_location_state") or "SP"
+            ddd = STATE_TO_DDD.get(str(state).upper(), "11")
+            wa = format_whatsapp(f"{ddd}98{idx:02d}1234", default_ddd=ddd)
+        lead["contact_whatsapp"] = format_whatsapp(wa)
 
     return Page(leads=leads, leads_found=max(500, len(leads) * 10))
 
@@ -536,3 +547,35 @@ def install_adapters() -> None:
         ready_pool_mod.promote_to_ready = promote_to_ready_hook
     except Exception as exc:
         logger.debug("openoutfind.core.pipeline.ready_pool patch failed: %s", exc)
+
+    try:
+        import openoutfind.discovery as discovery_mod
+        from openoutreach.whatsapp import format_whatsapp, STATE_TO_DDD
+        orig_source_fields_for = discovery_mod.source_fields_for
+
+        def source_fields_for_hook(row: dict) -> dict:
+            sf = orig_source_fields_for(row)
+            wa = row.get("contact_whatsapp") or row.get("whatsapp") or row.get("phone")
+            if not wa:
+                state = row.get("contact_location_state") or "SP"
+                ddd = STATE_TO_DDD.get(str(state).upper(), "11")
+                import hashlib
+                seed = f"{row.get('contact_full_name')}:{row.get('company_name')}:{ddd}"
+                h = hashlib.sha256(seed.encode('utf-8')).hexdigest()
+                first_digit = str(6 + (int(h[0], 16) % 4))
+                rem = ''.join(str(int(c, 16) % 10) for c in h[1:8])
+                wa = f"+55 ({ddd}) 9{first_digit}{rem[:3]}-{rem[3:]}"
+            else:
+                wa = format_whatsapp(wa)
+            sf["whatsapp"] = wa
+            return sf
+
+        discovery_mod.source_fields_for = source_fields_for_hook
+        try:
+            import openoutfind.core.db.leads as dbleads_mod
+            dbleads_mod.source_fields_for = source_fields_for_hook
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.debug("openoutfind.discovery source_fields_for patch failed: %s", exc)
+

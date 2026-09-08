@@ -54,6 +54,7 @@ OpenOutreach — find B2B leads that fit, and email the ones that do.
 
   openoutreach find 10          ten more qualified leads → CSV on stdout
   openoutreach find 10 emails   ...with a verified work email (1 credit each)
+  openoutreach enrich-whatsapp  enriquece leads captados com WhatsApp (+55 DD 9XXXX-XXXX)
   openoutreach send             mail what is already stored
   openoutreach status           what is configured, blocked and counted
 
@@ -64,7 +65,7 @@ Django's own commands (migrate, createsuperuser) still work.
 
 #: The verbs this project answers itself. Everything else is the finder's own command
 #: registry, reached with its arguments untouched.
-OURS = ("init", "send", "run")
+OURS = ("init", "send", "run", "enrich-whatsapp")
 
 
 def wants_the_overview(argv) -> bool:
@@ -164,13 +165,30 @@ def _own_verb(verb: str, rest: list[str]) -> int:
     from openoutfind.core.management.base import format_failure
 
     try:
-        return {"init": _init, "send": _send, "run": _run}[verb](rest)
+        return {"init": _init, "send": _send, "run": _run, "enrich-whatsapp": _enrich_whatsapp}[verb](rest)
     except OpenOutFindError as exc:
         sys.stderr.write(format_failure(exc, as_json=False))
         return 1
     except OutsendError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+
+def _enrich_whatsapp(rest: list[str]) -> int:
+    """Enrich captured leads in the CRM database with verified WhatsApp numbers."""
+    from openoutreach.whatsapp import enrich_all_leads
+
+    print("Enriquecendo leads com números de WhatsApp...", file=sys.stderr)
+    use_llm = "--no-llm" not in rest
+    result = enrich_all_leads(use_llm=use_llm)
+    print(
+        f"✓ Concluído: {result['enriched']} lead(s) enriquecido(s), "
+        f"{result['already_had']} já possuíam WhatsApp (total: {result['total']}).",
+        file=sys.stderr,
+    )
+    for lead in result["leads"]:
+        print(f"  • {lead['name']} ({lead['company']}): {lead['whatsapp']} [{lead['whatsapp_url']}]")
+    return 0
 
 
 def _init(rest: list[str]) -> int:

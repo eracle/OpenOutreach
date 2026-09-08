@@ -643,9 +643,34 @@ h1 {
 }
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 15px;
   margin-bottom: 22px;
+}
+
+.wa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(37, 211, 102, 0.1);
+  color: #128c7e;
+  border: 1px solid rgba(37, 211, 102, 0.3);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.wa-badge:hover {
+  background: rgba(37, 211, 102, 0.2);
+  border-color: #25d366;
+  color: #075e54;
+}
+.wa-badge .icon {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
 }
 .stat-card {
   background: #fff;

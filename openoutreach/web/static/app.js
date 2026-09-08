@@ -31,6 +31,10 @@ const paths = {
   refresh:
     '<path d="M20 8a8 8 0 0 0-14-3L3 8m0-5v5h5M4 16a8 8 0 0 0 14 3l3-3m0 5v-5h-5"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.1"/>',
+  whatsapp:
+    '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><path d="M8.5 10a2 2 0 0 0 2 2 5 5 0 0 0 3.5 3.5l1.5-1.5a1 1 0 0 1 1-.2 8 8 0 0 0 2.5.4 1 1 0 0 1 1 1V18a1 1 0 0 1-1 1A13 13 0 0 1 5 6a1 1 0 0 1 1-1h2.8a1 1 0 0 1 1 1 8 8 0 0 0 .4 2.5 1 1 0 0 1-.2 1z"/>',
+  phone:
+    '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
 };
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -150,11 +154,25 @@ function makeDemo() {
     d.setUTCDate(d.getUTCDate() - i);
     return d.toISOString();
   };
+  const demoPhones = [
+    "+55 (11) 98765-4321",
+    "+55 (11) 99123-4567",
+    "+55 (21) 99876-5432",
+    "+55 (31) 98712-3456",
+    "+55 (41) 99654-3210",
+    "+55 (11) 98111-2233",
+    "+55 (51) 99345-6789",
+    "+55 (19) 98456-7890",
+  ];
   const rows = people.map(([name, title, company, email, reason], i) => ({
     name,
     title,
     company,
     email,
+    whatsapp: demoPhones[i] || "",
+    whatsapp_url: demoPhones[i]
+      ? `https://wa.me/${demoPhones[i].replace(/\D/g, "")}`
+      : "",
     reason,
     lead_id: `demo-${i}`,
     first_name: name.split(" ")[0],
@@ -165,7 +183,14 @@ function makeDemo() {
   }));
   const discovered = [2, 3, 1, 4, 3, 6, 4, 8, 5, 9, 6, 11, 10, 12];
   return {
-    stats: { discovered: 84, qualified: 8, email: 5, sent: 16, replies: 3 },
+    stats: {
+      discovered: 84,
+      qualified: 8,
+      email: 5,
+      whatsapp: 8,
+      sent: 16,
+      replies: 3,
+    },
     recent: rows.slice(0, 5),
     demoRows: rows,
     chart: discovered.map((value, i) => ({
@@ -285,7 +310,12 @@ function table(rows) {
       !state.query && state.filter === "all",
     );
   rows.forEach((row) => state.rows.set(String(row.lead_id), row));
-  return `<table><thead><tr><th>CONTATO</th><th>EMPRESA</th><th>E-MAIL</th><th>QUALIFICADO EM</th><th><span class="sr-only">Detalhes</span></th></tr></thead><tbody>${rows.map((row, i) => `<tr><td><div class="person"><span class="person-avatar tone-${i % 4}">${esc(initials(row.name))}</span><span><strong>${esc(row.name)}</strong><small>${esc(row.title || "Cargo não informado")}</small></span></div></td><td>${esc(row.company || "Não informada")}</td><td><span class="status-badge ${row.email ? "" : "pending"}">${row.email ? "Disponível" : "Não encontrado"}</span></td><td>${formatDate(row.qualified_at)}</td><td><button class="detail-button" data-lead="${esc(row.lead_id)}" aria-label="Ver detalhes de ${esc(row.name)}">Ver contexto ${icon("arrow")}</button></td></tr>`).join("")}</tbody></table>`;
+  return `<table><thead><tr><th>CONTATO</th><th>EMPRESA</th><th>E-MAIL</th><th>WHATSAPP</th><th>QUALIFICADO EM</th><th><span class="sr-only">Detalhes</span></th></tr></thead><tbody>${rows
+    .map(
+      (row, i) =>
+        `<tr><td><div class="person"><span class="person-avatar tone-${i % 4}">${esc(initials(row.name))}</span><span><strong>${esc(row.name)}</strong><small>${esc(row.title || "Cargo não informado")}</small></span></div></td><td>${esc(row.company || "Não informada")}</td><td><span class="status-badge ${row.email ? "" : "pending"}">${row.email ? "Disponível" : "Não encontrado"}</span></td><td>${row.whatsapp ? `<a href="${esc(row.whatsapp_url || `https://wa.me/${row.whatsapp.replace(/\D/g, "")}`)}" target="_blank" rel="noopener noreferrer" class="wa-badge" title="Abrir conversa no WhatsApp">${icon("whatsapp")} ${esc(row.whatsapp)}</a>` : '<span class="status-badge pending">Não cadastrado</span>'}</td><td>${formatDate(row.qualified_at)}</td><td><button class="detail-button" data-lead="${esc(row.lead_id)}" aria-label="Ver detalhes de ${esc(row.name)}">Ver contexto ${icon("arrow")}</button></td></tr>`,
+    )
+    .join("")}</tbody></table>`;
 }
 
 function renderChart(chart) {
@@ -322,8 +352,10 @@ function renderChart(chart) {
 
 function renderDashboard() {
   const { stats, config, recent, chart, activity } = state.data;
-  for (const key of ["discovered", "qualified", "email", "sent"])
-    $(`#stat-${key}`).textContent = number(stats[key]);
+  for (const key of ["discovered", "qualified", "email", "whatsapp", "sent"]) {
+    const el = $(`#stat-${key}`);
+    if (el) el.textContent = number(stats[key] ?? 0);
+  }
   $("#nav-count").textContent = number(stats.qualified);
   $("#qualified-foot").innerHTML = stats.discovered
     ? `<em>${Math.round((stats.qualified / stats.discovered) * 100)}% do total</em> compatíveis com seu público`
@@ -335,6 +367,7 @@ function renderDashboard() {
     ["Pessoas descobertas", stats.discovered],
     ["Matches qualificados", stats.qualified],
     ["E-mails disponíveis", stats.email],
+    ["WhatsApp encontrados", stats.whatsapp ?? stats.qualified],
     ["Mensagens enviadas", stats.sent],
   ]
     .map(
@@ -446,11 +479,12 @@ async function loadLeads() {
       const rows = state.data.demoRows.filter(
         (r) =>
           (!query ||
-            `${r.name} ${r.company} ${r.title} ${r.email || ""}`
+            `${r.name} ${r.company} ${r.title} ${r.email || ""} ${r.whatsapp || ""}`
               .toLocaleLowerCase("pt-BR")
               .includes(query)) &&
           (state.filter === "all" ||
-            Boolean(r.email) === (state.filter === "email")),
+            (state.filter === "email" && Boolean(r.email)) ||
+            (state.filter === "whatsapp" && Boolean(r.whatsapp))),
       );
       result = {
         rows: rows.slice((state.leadPage - 1) * 20, state.leadPage * 20),
@@ -509,8 +543,11 @@ function navigate() {
 function showLead(id) {
   const row = state.rows.get(id);
   if (!row) return;
+  const waUrl =
+    row.whatsapp_url ||
+    (row.whatsapp ? `https://wa.me/${row.whatsapp.replace(/\D/g, "")}` : "");
   $("#lead-detail").innerHTML =
-    `<span class="person-avatar detail-avatar">${esc(initials(row.name))}</span><h2 id="lead-detail-title">${esc(row.name)}</h2><p class="detail-subtitle">${esc(row.title || "Cargo não informado")}<br>${esc(row.company || "Empresa não informada")}</p><div class="detail-reason"><h3>${icon("sparkles")}Por que este lead combina com você</h3><p>${esc(row.reason || "Nenhum motivo registrado.")}</p></div><div class="detail-field"><span>E-mail profissional</span><strong>${esc(row.email || "Não encontrado")}</strong></div><div class="detail-field"><span>Qualificado em</span><strong>${formatDate(row.qualified_at)}</strong></div>${row.email ? '<div class="dialog-footer"><button class="button" id="copy-email">' + icon("at") + "Copiar e-mail</button></div>" : ""}`;
+    `<span class="person-avatar detail-avatar">${esc(initials(row.name))}</span><h2 id="lead-detail-title">${esc(row.name)}</h2><p class="detail-subtitle">${esc(row.title || "Cargo não informado")}<br>${esc(row.company || "Empresa não informada")}</p><div class="detail-reason"><h3>${icon("sparkles")}Por que este lead combina com você</h3><p>${esc(row.reason || "Nenhum motivo registrado.")}</p></div><div class="detail-field"><span>E-mail profissional</span><strong>${esc(row.email || "Não encontrado")}</strong></div><div class="detail-field"><span>WhatsApp / Celular</span><strong>${row.whatsapp ? `<a href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer" class="wa-badge" style="display:inline-flex;padding:4px 10px;font-size:14px;">${icon("whatsapp")} ${esc(row.whatsapp)}</a>` : "Não cadastrado"}</strong></div><div class="detail-field"><span>Qualificado em</span><strong>${formatDate(row.qualified_at)}</strong></div><div class="dialog-footer" style="display:flex;gap:8px;flex-wrap:wrap;">${row.email ? '<button class="button" id="copy-email">' + icon("at") + "Copiar e-mail</button>" : ""}${row.whatsapp ? '<a class="button button-primary" id="open-whatsapp" href="' + esc(waUrl) + '" target="_blank" rel="noopener noreferrer" style="background:#25D366;border-color:#25D366;color:#fff;">' + icon("whatsapp") + "Conversar no WhatsApp ↗</a>" : ""}</div>`;
   $("#lead-dialog").setAttribute("aria-labelledby", "lead-detail-title");
   $("#lead-dialog").showModal();
   $("#copy-email")?.addEventListener("click", async () => {
@@ -690,6 +727,25 @@ $("#prev-page").addEventListener("click", () => {
 $("#next-page").addEventListener("click", () => {
   state.leadPage++;
   loadLeads();
+});
+$("#enrich-whatsapp-btn")?.addEventListener("click", async () => {
+  if (state.demo)
+    return toast("O enriquecimento de WhatsApp está disponível no seu workspace real.");
+  const btn = $("#enrich-whatsapp-btn");
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = `${icon("refresh")} Enriquecendo…`;
+  try {
+    const res = await api("/api/enrich/whatsapp", { method: "POST" });
+    toast(`Enriquecimento concluído: ${res.enriched} leads atualizados.`);
+    await load();
+  } catch (err) {
+    toast(`Erro no enriquecimento: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    hydrateIcons(btn);
+  }
 });
 $("#export").addEventListener("click", () => {
   if (state.demo)
