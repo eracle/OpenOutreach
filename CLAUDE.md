@@ -9,7 +9,7 @@
 - **Nothing under `openoutreach/` may reimplement a child.** A duplicated fork of the finder lived here until it was deleted, and it had already started to diverge. What exists is the whole project: `settings.py` (the registry), `config/` (the one model), `wizard.py` (the questions, and the export into both children's variables), `__main__.py` (the verbs).
 - **`openoutreach` imports `openoutsend`, deliberately.** The old rule — *nothing under `openoutreach/` may import `openoutsend`* — was written to keep the pipe honest, and the pipe is kept honest a different way now: **both children still implement and test `outfind find --json | outsend` standalone**, and `openoutreach run` uses that same JSON Lines contract through a buffer rather than a privileged in-memory hand-off. See the `openoutreach-docs` cards `p1-e3-openoutreach-single-entrypoint` and `p1-e2-find-send-boundary-contract`.
 - **Each child must keep running standalone.** `uvx --from openoutfind outfind find 10` with `openoutreach` nowhere in the environment is an acceptance criterion, not a courtesy. A change here that requires a change in a child's *own* settings module is a design error.
-- **There is no daemon and no web surface.** No URLconf, no Django Admin, no sessions, no templates. `run` is a bounded pass, not a loop. Do not reintroduce an unbounded process or a file the tool writes for the operator; both were tried and both were workarounds for a process that never ended.
+- **The CLI has no daemon.** `run` is a bounded pass, not a loop. The opt-in local dashboard lives in `openoutreach/web/` with separate settings and the `openoutreach-web` entry point. It presents the existing models and export contract, and delegates bounded searches to the CLI. Keep pipeline logic in the children. The dashboard is loopback-only, with host validation and CSRF protection; it is not a public deployment.
 - **Docs sync**: the CLI's contract has a second reader — `skills/find-leads/SKILL.md`, the Claude Code plugin shipped from this repo (`.claude-plugin/plugin.json` + `marketplace.json`). It restates the verbs, which of them can spend, the export columns and the `ErrorType` vocabulary, so a change to any of those has to land there too. `claude plugin validate .claude-plugin/plugin.json` checks the manifests.
 - **No memory**: Never use the auto-memory system (no MEMORY.md, no memory files). Persistent context belongs in this file.
 - **No API backward compat**: no external users yet — rename, delete and rewrite freely; no shims or re-export modules.
@@ -36,7 +36,12 @@ openoutreach status [--json]  # the finder's own verb
 
 ## Architecture
 
-Three modules and one app, and nothing else.
+Three orchestration modules, one configuration app, and an opt-in local web interface.
+
+- **`web/` — the local interface.** Django templates, self-contained CSS/JavaScript, and
+  presentation endpoints over the existing data. `web/settings.py` inherits the CLI registry
+  without changing its defaults. `web/jobs.py` owns only one bounded child-process invocation,
+  not a pipeline or a new data model. The demonstration is browser-only sample data.
 
 - **`settings.py` — the registry.** Both children are Django *projects* that are also reusable
   *apps*; this is a third host for them. `INSTALLED_APPS` is **spelled out** rather than splatted

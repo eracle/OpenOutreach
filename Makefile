@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help logs test stop build up install setup run find send status
+.PHONY: help logs test stop build up install setup run find send status web
 
 help:
 	@perl -nle'print $& if m{^[a-zA-Z_-]+:.*?## .*$$}' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-25s\033[0m %s\n", $$1, $$2}'
@@ -22,6 +22,9 @@ send: ## mail what is already stored: make send [N=5]
 
 status: ## what is configured, blocked and counted
 	python manage.py status
+
+web: ## open the local dashboard at http://127.0.0.1:8000
+	.venv/bin/python -m openoutreach.web --port $(or $(PORT),8000)
 
 test: ## run the test suite
 	pytest

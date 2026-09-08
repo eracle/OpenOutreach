@@ -34,6 +34,9 @@ from openoutfind import defaults as find_defaults
 # Before `django.setup()`, which is why it is a call here and not a name in a dict.
 find_defaults.allow_async_unsafe()
 
+from openoutreach.adapters import install_adapters
+install_adapters()
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 BASE_DIR = ROOT_DIR

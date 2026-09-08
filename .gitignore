@@ -5,6 +5,7 @@ __pycache__/
 .vscode
 .dockerignore
 .env
+.DS_Store
 
 /.coverage
 /venv/

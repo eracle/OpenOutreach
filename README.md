@@ -45,6 +45,44 @@ no account to get banned, because there is no account.
 
 ## ⚡ Quick Start
 
+### Local web dashboard
+
+OpenOutreach also includes a responsive dashboard, in Brazilian Portuguese, for the
+same local workspace:
+
+```bash
+uv tool install openoutreach
+openoutreach-web
+```
+
+Open **http://127.0.0.1:8000**. From a source checkout:
+
+```bash
+uv venv --python 3.12
+uv pip install -e ".[dev]"
+make web
+```
+
+The dashboard provides an overview, searchable qualified leads with their qualification
+reasons, filtered CSV export, campaign and integration forms, and recent email activity.
+**Nova busca** invokes the existing finder, one bounded pass at a time; buying addresses
+is an explicit checkbox. A pass runs for at most 15 minutes and can be stopped from the
+panel. Existing results remain in the database. Email sending remains available through
+`openoutreach send` in the terminal.
+
+The **Explorar demonstração** switch shows fictional sample data without changing the
+database or calling providers. Return to your workspace to save settings or start a search.
+Saving credentials does not validate them remotely; the underlying tools validate them
+when executed. Blank secret inputs retain the saved credentials. Existing environment
+variables still take precedence over saved configuration, as with the CLI.
+
+`openoutreach-web --port 8010 --db /path/to/workspace.sqlite3` selects another port/database.
+Startup applies pending migrations. This is a **local, single-operator dashboard**, bound
+to loopback with host checks and CSRF protection; it is not an Internet-facing multi-user
+deployment. The web settings are separate from the CLI settings.
+
+### Command line
+
 ```bash
 uv tool install openoutreach
 openoutreach

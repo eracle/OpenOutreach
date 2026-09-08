@@ -153,5 +153,16 @@ class SiteConfig(models.Model):
                 if isinstance(value, bool):
                     environment[variable] = "true" if value else "false"
                 elif str(value).strip():
-                    environment[variable] = str(value).strip()
+                    val = str(value).strip()
+                    # Ensure openai_compatible prefix for LLM model if using an OpenAI-compatible base URL (like 9router)
+                    if field == "ai_model" and ":" not in val:
+                        if self.llm_api_base or any(val.startswith(p) for p in ("cbai/", "ollama/", "bzl/", "cx/")):
+                            val = f"openai_compatible:{val}"
+                    environment[variable] = val
+
+        # If Resend API key is used and SMTP host is unset, default to Resend SMTP
+        if self.mailbox_password.startswith("re_") and not environment.get("OUTSEND_SMTP_HOST"):
+            environment["OUTSEND_SMTP_HOST"] = "smtp.resend.com"
+            environment["OUTSEND_SMTP_PORT"] = "587"
+
         return environment

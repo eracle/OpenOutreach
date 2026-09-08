@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f8fa" />
+    <meta
+      name="description"
+      content="Seu espaço de prospecção inteligente. Encontre as pessoas certas e acompanhe suas conversas."
+    />
+    <title>Visão geral · OpenOutreach</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Pular para o conteúdo</a>
+    <aside class="sidebar" aria-label="Navegação principal">
+      <a class="brand" href="#overview" aria-label="OpenOutreach — visão geral"
+        ><span class="brand-mark" aria-hidden="true">o<span>↗</span></span
+        ><span>Open<span class="brand-light">Outreach</span></span></a
+      >
+      <div class="workspace">
+        <span class="workspace-icon">W</span
+        ><span>Meu workspace<small>Workspace pessoal</small></span
+        ><span class="local-dot" title="Instância local"></span>
+      </div>
+      <span class="nav-label">WORKSPACE</span>
+      <nav>
+        <a href="#overview" data-page="overview"
+          ><i data-icon="grid"></i>Visão geral</a
+        >
+        <a href="#leads" data-page="leads"
+          ><i data-icon="users"></i>Leads<span class="nav-count" id="nav-count"
+            >0</span
+          ></a
+        >
+        <a href="#campaign" data-page="campaign"
+          ><i data-icon="target"></i>Minha campanha</a
+        >
+        <a href="#activity" data-page="activity"
+          ><i data-icon="mail"></i>Atividade de e-mail</a
+        >
+      </nav>
+      <span class="nav-label second-label">GERENCIAR</span>
+      <nav>
+        <a href="#integrations" data-page="integrations"
+          ><i data-icon="plug"></i>Integrações</a
+        >
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sidebar-note">
+          <span class="small-brand">✳</span
+          ><strong>Boas conversas começam<br />com as pessoas certas.</strong>
+          <p>Prospecção com contexto.<br />Conexões com propósito.</p>
+          <a href="#campaign">Definir meu público <span>↗</span></a>
+        </div>
+        <div class="local-info">
+          <span class="local-dot"></span>Executando localmente<i
+            data-icon="shield"
+          ></i>
+        </div>
+        <a class="profile" href="#integrations"
+          ><span class="avatar" id="operator-avatar">EU</span
+          ><span id="operator-label"
+            >Meu workspace<small>Conta pessoal</small></span
+          ><i data-icon="settings"></i
+        ></a>
+      </div>
+    </aside>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="breadcrumb">
+          <span>Workspace</span><span>/</span
+          ><strong id="breadcrumb-title">Visão geral</strong>
+        </div>
+        <div class="topbar-actions">
+          <button class="demo-switch" id="demo-toggle" aria-pressed="false">
+            <span class="demo-dot"></span>Explorar demonstração</button
+          ><span class="top-divider"></span
+          ><span class="local-badge"
+            ><i data-icon="lock"></i>Seu espaço, seus dados</span
+          ><span class="avatar small" aria-hidden="true">O</span>
+        </div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div id="global-error" class="notice error" role="alert" hidden>
+          <span>Não foi possível carregar o painel.</span
+          ><button id="retry" class="button">Tentar novamente</button>
+        </div>
+        <div id="demo-banner" class="notice demo-notice" hidden>
+          <i data-icon="sparkles"></i
+          ><span
+            >Você está explorando dados de exemplo. Suas informações reais
+            continuam no seu workspace.</span
+          ><button id="exit-demo">Voltar ao meu workspace →</button>
+        </div>
+        <div id="job-banner" class="notice" role="status" hidden>
+          <span id="job-text"></span
+          ><button id="cancel-job" class="button">Interromper</button>
+        </div>
+        <section id="page-overview" class="page">
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow">SEU RADAR DE OPORTUNIDADES</div>
+              <h1>Visão geral<span class="heading-dot">.</span></h1>
+              <p>As pessoas certas. Mais contexto. Melhores conversas.</p>
+            </div>
+            <button class="button primary" data-action="find">
+              <i data-icon="plus"></i>Nova busca
+            </button>
+          </div>
+          <div class="welcome-card" id="welcome-card">
+            <div class="welcome-copy">
+              <span class="pill light"
+                ><i data-icon="sparkles"></i>PROSPECÇÃO COM INTELIGÊNCIA</span
+              >
+              <h2>Sua próxima boa conversa<br />começa aqui.</h2>
+              <p>Conte o que você vende. A gente encontra quem precisa.</p>
+              <a class="button dark" href="#campaign"
+                >Configurar minha campanha<i data-icon="arrow"></i
+              ></a>
+            </div>
+            <div class="orbit-art" aria-hidden="true">
+              <div class="orbit orbit-one"></div>
+              <div class="orbit orbit-two"></div>
+              <div class="orbit-center"><span>o</span>↗</div>
+              <div class="orbit-node node-one">JD</div>
+              <div class="orbit-node node-two">✳</div>
+              <div class="orbit-node node-three">AC</div>
+              <div class="orbit-node node-four">↗</div>
+              <div class="art-caption">
+                <span class="local-dot"></span>Conectando possibilidades
+              </div>
+            </div>
+          </div>
+          <div class="section-line">
+            <h2>Seu pipeline, em números</h2>
+            <span
+              ><span class="local-dot"></span>Dados do workspace · todo o
+              período</span
+            >
+          </div>
+          <div class="stats-grid">
+            <article class="stat-card">
+              <div class="stat-top">
+                <span>Leads descobertos</span><i data-icon="users"></i>
+              </div>
+              <strong id="stat-discovered">—</strong>
+              <div class="stat-foot">
+                <span class="stat-marker blue"></span>Pessoas encontradas
+              </div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-top">
+                <span>Leads qualificados</span><i data-icon="check-circle"></i>
+              </div>
+              <strong id="stat-qualified">—</strong>
+              <div class="stat-foot" id="qualified-foot">
+                Compatíveis com seu público
+              </div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-top">
+                <span>E-mails encontrados</span><i data-icon="at"></i>
+              </div>
+              <strong id="stat-email">—</strong>
+              <div class="stat-foot">Contatos com endereço disponível</div>
+            </article>
+            <article class="stat-card">
+              <div class="stat-top">
+                <span>E-mails enviados</span><i data-icon="send"></i>
+              </div>
+              <strong id="stat-sent">—</strong>
+              <div class="stat-foot" id="sent-foot">Conversas em movimento</div>
+            </article>
+          </div>
+          <div class="analytics-grid">
+            <article class="panel chart-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Oportunidades ao longo do tempo</h2>
+                  <p>Da descoberta ao primeiro match.</p>
+                </div>
+                <span class="period"
+                  ><i data-icon="calendar"></i>Últimos 14 dias</span
+                >
+              </div>
+              <div class="chart-legend">
+                <span><b class="legend-dot pale"></b>Descobertos</span
+                ><span><b class="legend-dot"></b>Qualificados</span>
+              </div>
+              <div
+                id="chart"
+                class="chart"
+                aria-label="Leads descobertos e qualificados nos últimos 14 dias"
+              ></div>
+            </article>
+            <article class="panel funnel-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Cada etapa conta</h2>
+                  <p>O caminho até uma conversa.</p>
+                </div>
+                <i data-icon="route"></i>
+              </div>
+              <div id="funnel" class="funnel"></div>
+              <div class="funnel-bottom">
+                <i data-icon="sparkles"></i
+                ><span
+                  >O motivo de cada match,<br />sempre à sua disposição.</span
+                >
+              </div>
+            </article>
+          </div>
+          <article class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Seus próximos bons contatos</h2>
+                <p>Os leads qualificados mais recentes do seu workspace.</p>
+              </div>
+              <a href="#leads" class="text-link"
+                >Ver todos os leads <i data-icon="arrow"></i
+              ></a>
+            </div>
+            <div id="recent-leads" class="table-wrap"></div>
+          </article>
+        </section>
+        <section id="page-leads" class="page" hidden>
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow">PESSOAS, NÃO APENAS CONTATOS</div>
+              <h1>Seus leads<span class="heading-dot">.</span></h1>
+              <p>
+                Encontre o contexto que transforma um contato em uma conversa.
+              </p>
+            </div>
+            <div class="heading-actions">
+              <button class="button" id="export">
+                <i data-icon="download"></i>Exportar CSV</button
+              ><button class="button primary" data-action="find">
+                <i data-icon="plus"></i>Nova busca
+              </button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="leads-toolbar">
+              <div class="filter-tabs" role="group" aria-label="Filtrar leads">
+                <button class="active" data-filter="all">Todos os leads</button
+                ><button data-filter="email">Com e-mail</button
+                ><button data-filter="pending">Sem e-mail</button>
+              </div>
+              <label class="search"
+                ><i data-icon="search"></i
+                ><input
+                  id="lead-search"
+                  type="search"
+                  placeholder="Buscar nome, empresa ou cargo"
+                  aria-label="Buscar leads"
+              /></label>
+            </div>
+            <div id="all-leads" class="table-wrap"></div>
+            <div class="pagination">
+              <span id="lead-total"></span>
+              <div>
+                <button
+                  class="button"
+                  id="prev-page"
+                  aria-label="Página anterior"
+                >
+                  ←</button
+                ><span id="page-number">1</span
+                ><button
+                  class="button"
+                  id="next-page"
+                  aria-label="Próxima página"
+                >
+                  →
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section id="page-campaign" class="page" hidden>
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow">O PONTO DE PARTIDA</div>
+              <h1>Minha campanha<span class="heading-dot">.</span></h1>
+              <p>
+                Quanto melhor o contexto, melhores as pessoas que você encontra.
+              </p>
+            </div>
+            <span class="pill neutral">Uma campanha por workspace</span>
+          </div>
+          <div class="form-layout">
+            <form id="campaign-form" class="panel form-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>O que você vende e para quem</h2>
+                  <p>
+                    Este contexto orienta a busca, a qualificação e os e-mails.
+                  </p>
+                </div>
+                <i data-icon="target"></i>
+              </div>
+              <div class="form-fields">
+                <label
+                  >Seu produto ou serviço<span
+                    >O que ele faz, qual problema resolve e por que alguém o
+                    escolheria.</span
+                  ><textarea
+                    name="product_docs"
+                    rows="5"
+                    maxlength="20000"
+                    required
+                    placeholder="Ex.: Uma plataforma que ajuda equipes comerciais a organizar seus contatos e acompanhar oportunidades…"
+                  ></textarea></label
+                ><label
+                  >Seu público ideal<span
+                    >Descreva tipos de empresa, cargos, mercados e o resultado
+                    esperado.</span
+                  ><textarea
+                    name="campaign_target"
+                    rows="5"
+                    maxlength="20000"
+                    required
+                    placeholder="Ex.: Diretores comerciais de empresas de tecnologia no Brasil, com equipes de 10 a 50 vendedores…"
+                  ></textarea>
+                </label>
+                <div class="form-divider"></div>
+                <label
+                  >Link para agendamento <small>Opcional</small
+                  ><input
+                    type="url"
+                    name="booking_link"
+                    placeholder="https://cal.com/seu-nome" /></label
+                ><label
+                  >Assinatura de e-mail <small>Opcional</small
+                  ><textarea
+                    name="signature"
+                    rows="3"
+                    placeholder="Seu nome, cargo e empresa"
+                  ></textarea>
+                </label>
+                <div class="form-feedback" role="status"></div>
+                <div class="form-footer">
+                  <span><i data-icon="lock"></i>Salvo no seu workspace</span
+                  ><button type="submit" class="button primary">
+                    Salvar campanha<i data-icon="check"></i>
+                  </button>
+                </div>
+              </div>
+            </form>
+            <aside class="context-card">
+              <div class="context-icon"><i data-icon="sparkles"></i></div>
+              <h2>Um bom briefing<br />faz toda a diferença.</h2>
+              <p>Pense em quem mais se beneficia do que você oferece.</p>
+              <ul>
+                <li>Explique o problema que resolve.</li>
+                <li>Descreva o perfil de empresa.</li>
+                <li>Inclua os cargos que decidem.</li>
+                <li>Defina o objetivo da conversa.</li>
+              </ul>
+              <div class="context-bottom">
+                Cada lead vem com um motivo.<br />Seu briefing é o começo dele.
+              </div>
+            </aside>
+          </div>
+        </section>
+        <section id="page-activity" class="page" hidden>
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow">CONVERSAS EM MOVIMENTO</div>
+              <h1>Atividade de e-mail<span class="heading-dot">.</span></h1>
+              <p>
+                Acompanhe os envios e as respostas registrados pelo
+                OpenOutreach.
+              </p>
+            </div>
+            <button class="button" id="refresh-activity">
+              <i data-icon="refresh"></i>Atualizar
+            </button>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Atividade recente</h2>
+                <p>As últimas 40 mensagens do seu workspace.</p>
+              </div>
+              <span class="pill neutral">Histórico de e-mail</span>
+            </div>
+            <div id="activity-list"></div>
+          </div>
+          <p class="help-line">
+            Os envios seguem a configuração e os limites do OpenOutSend. Para
+            executar um envio, use <code>openoutreach send</code> no terminal.
+          </p>
+        </section>
+        <section id="page-integrations" class="page" hidden>
+          <div class="page-heading">
+            <div>
+              <div class="eyebrow">TUDO CONECTADO</div>
+              <h1>Integrações<span class="heading-dot">.</span></h1>
+              <p>
+                Conecte a inteligência, os dados e a caixa de e-mail que você já
+                usa.
+              </p>
+            </div>
+            <span class="pill neutral"
+              ><i data-icon="shield"></i>Credenciais no seu computador</span
+            >
+          </div>
+          <form id="integrations-form">
+            <div class="integration-grid">
+              <article class="panel integration-card">
+                <div class="integration-header">
+                  <span class="integration-icon violet"
+                    ><i data-icon="sparkles"></i></span
+                  ><span class="pill neutral" id="llm-status"
+                    >Não configurado</span
+                  >
+                </div>
+                <h2>Inteligência artificial</h2>
+                <p>
+                  O modelo que entende seu público e escreve suas mensagens.
+                </p>
+                <label
+                  >Modelo<input
+                    name="ai_model"
+                    placeholder="provedor:modelo" /></label
+                ><label
+                  >Chave de API<input
+                    name="llm_api_key"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="Sua chave de API" /></label
+                ><label
+                  >URL da API <small>Opcional</small
+                  ><input
+                    name="llm_api_base"
+                    type="url"
+                    placeholder="Para provedores compatíveis"
+                /></label>
+              </article>
+              <article class="panel integration-card">
+                <div class="integration-header">
+                  <span class="integration-icon green"
+                    ><i data-icon="users"></i></span
+                  ><span class="pill neutral" id="provider-status"
+                    >Provedor Gratuito ativo</span
+                  >
+                </div>
+                <h2>Descoberta & E-mails</h2>
+                <p>
+                  Descubra pessoas e resolva e-mails profissionais gratuitamente com IA ou BetterContact.
+                </p>
+                <label
+                  >Chave BetterContact <small>Opcional</small><input
+                    name="bettercontact_api_key"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="Deixe em branco para usar Provedor Gratuito"
+                /></label>
+                <div class="integration-note">
+                  <i data-icon="sparkles"></i>
+                  <p id="provider-note">
+                    <strong>Modo Gratuito:</strong> Geração de leads inteligentes via IA local e resolução corporativa sem custo de créditos.
+                  </p>
+                </div>
+              </article>
+              <article class="panel integration-card">
+                <div class="integration-header">
+                  <span class="integration-icon orange"
+                    ><i data-icon="mail"></i></span
+                  ><span class="pill neutral" id="mailbox-status"
+                    >Não configurado</span
+                  >
+                </div>
+                <h2>Sua caixa de e-mail / Resend</h2>
+                <p>Envie e-mails com Resend (re_...) ou qualquer provedor SMTP.</p>
+                <label
+                  >Endereço de envio (From)<input
+                    name="mailbox_address"
+                    type="email"
+                    placeholder="voce@empresa.com" /></label
+                ><label
+                  >Chave Resend (re_...) ou Senha SMTP<input
+                    name="mailbox_password"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="Chave Resend (re_...) ou senha de app"
+                /></label>
+                <details>
+                  <summary>Configuração SMTP / IMAP manual</summary>
+                  <p class="help-line" style="margin-top: 0.5rem; font-size: 0.8rem; color: #666;">
+                    Ao usar Resend (re_...), o host smtp.resend.com e porta 587 são configurados automaticamente.
+                  </p>
+                  <label
+                    >Servidor SMTP<input
+                      name="smtp_host"
+                      placeholder="smtp.resend.com" /></label
+                  ><label
+                    >Porta SMTP<input
+                      name="smtp_port"
+                      inputmode="numeric"
+                      placeholder="587" /></label
+                  ><label
+                    >Servidor IMAP <small>Opcional (não usado com Resend)</small><input
+                      name="imap_host"
+                      placeholder="imap.gmail.com" /></label
+                  ><label
+                    >Porta IMAP<input
+                      name="imap_port"
+                      inputmode="numeric"
+                      placeholder="993"
+                  /></label>
+                </details>
+              </article>
+            </div>
+            <article class="panel operator-panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Quem está por trás da conversa</h2>
+                  <p>Seus dados de operador e a identificação das mensagens.</p>
+                </div>
+              </div>
+              <div class="operator-fields">
+                <label
+                  >Seu nome<input
+                    name="operator_name"
+                    maxlength="200"
+                    placeholder="Como você assina" /></label
+                ><label
+                  >Seu e-mail<input
+                    name="operator_email"
+                    type="email"
+                    placeholder="voce@empresa.com" /></label
+                ><label
+                  >País (sigla)<input
+                    name="operator_country_code"
+                    maxlength="2"
+                    placeholder="BR"
+                /></label>
+              </div>
+              <div class="legal-check">
+                <label
+                  ><input name="accepted_legal_notice" type="checkbox" /><span
+                    >Li e aceito o
+                    <a
+                      href="https://github.com/eracle/OpenOutreach/blob/main/LEGAL_NOTICE.md"
+                      target="_blank"
+                      rel="noreferrer"
+                      >aviso legal do OpenOutreach ↗</a
+                    >.</span
+                  ></label
+                >
+              </div>
+              <div class="form-feedback" role="status"></div>
+              <div class="form-footer">
+                <span
+                  >Chaves salvas ficam ocultas. Deixe em branco para
+                  mantê-las.</span
+                ><button type="submit" class="button primary">
+                  Salvar integrações<i data-icon="check"></i>
+                </button>
+              </div>
+            </article>
+          </form>
+        </section>
+        <footer class="page-footer">
+          <span
+            >OpenOutreach <span class="footer-dot">·</span> Feito para boas
+            conexões.</span
+          ><span
+            >Open source. No seu controle.<i data-icon="arrow-up-right"></i
+          ></span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="find-dialog">
+      <form id="find-form">
+        <div class="dialog-top">
+          <span class="integration-icon violet"><i data-icon="search"></i></span
+          ><button
+            class="icon-button"
+            type="button"
+            data-close
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+        <h2>Encontre seu próximo match.</h2>
+        <p>Busque novas pessoas com base no contexto da sua campanha.</p>
+        <label
+          >Quantos novos leads?<input
+            type="number"
+            name="count"
+            min="1"
+            max="100"
+            value="10"
+            required /></label
+        ><label class="checkbox-label"
+          ><input name="emails" type="checkbox" checked /><span
+            >Encontrar também o e-mail profissional<small
+              >Gratuito via padrões corporativos inteligentes ou BetterContact se configurado.</small
+            ></span
+          ></label
+        >
+        <div class="integration-note">
+          <i data-icon="info"></i>
+          <p id="find-explanation">
+            A busca utiliza seu modelo de IA e os provedores configurados. Nenhum e-mail será enviado por esta ação.
+          </p>
+        </div>
+        <div class="form-feedback" role="status"></div>
+        <div class="dialog-footer">
+          <button type="button" class="button" data-close>Cancelar</button
+          ><button type="submit" class="button primary">
+            Iniciar busca<i data-icon="arrow"></i>
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="lead-dialog">
+      <div class="dialog-top">
+        <span class="pill light">CONTEXTO DO LEAD</span
+        ><button class="icon-button" data-close aria-label="Fechar">×</button>
+      </div>
+      <div id="lead-detail"></div>
+    </dialog>
+    <div class="toast" id="toast" role="status" hidden></div>
+  </body>
+</html>

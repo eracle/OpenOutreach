@@ -68,6 +68,7 @@ dev = [
 
 [project.scripts]
 openoutreach = "openoutreach.__main__:main"
+openoutreach-web = "openoutreach.web.__main__:main"
 
 [project.urls]
 Homepage = "https://openoutreach.app"
