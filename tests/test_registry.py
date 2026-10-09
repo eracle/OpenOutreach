@@ -32,8 +32,8 @@ def test_neither_child_keeps_configuration_of_its_own():
 
 
 def test_one_database_holds_the_config_and_both_pipelines(db):
-    from cold_outreach.emails.models import Mailbox
     from openoutfind.crm.models import Lead
+    from openoutsend.emails.models import Mailbox
 
     from openoutreach.config.models import SiteConfig
 

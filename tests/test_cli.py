@@ -34,7 +34,7 @@ def test_a_bare_invocation_is_run(db, monkeypatch):
 def test_send_reaches_the_sender_with_its_own_arguments(monkeypatch):
     """The sender has no management commands, so this is a call and not a call_command."""
     passed = []
-    monkeypatch.setattr("cold_outreach.__main__.main", lambda argv: passed.append(argv) or 0)
+    monkeypatch.setattr("openoutsend.__main__.main", lambda argv: passed.append(argv) or 0)
 
     assert cli._send(["5", "--prompt-line", "opener"]) == 0
     assert passed == [["send", "5", "--prompt-line", "opener"]]

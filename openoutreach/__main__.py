@@ -159,9 +159,9 @@ def _own_verb(verb: str, rest: list[str]) -> int:
 
     django.setup()
 
-    from cold_outreach.errors import OutsendError
     from openoutfind.core.errors import OpenOutFindError
     from openoutfind.core.management.base import format_failure
+    from openoutsend.errors import OutsendError
 
     try:
         return {"init": _init, "send": _send, "run": _run}[verb](rest)
@@ -202,7 +202,7 @@ def _send(rest: list[str]) -> int:
     — so this is a call, not a `call_command`. Its own `_boot()` is safe here:
     `DJANGO_SETTINGS_MODULE` is set with `setdefault` and `django.setup()` is idempotent.
     """
-    from cold_outreach.__main__ import main as outsend_main
+    from openoutsend.__main__ import main as outsend_main
 
     return outsend_main(["send", *rest])
 
@@ -218,9 +218,9 @@ def _run(rest: list[str]) -> int:
     """
     from django.core.management import call_command
 
-    from cold_outreach.leads.ingest import ingest
     from openoutfind.core.errors import OpenOutFindError
     from openoutreach import wizard
+    from openoutsend.leads.ingest import ingest
 
     goal = _goal(rest)
     wizard.onboard()

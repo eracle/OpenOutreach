@@ -277,8 +277,8 @@ def _check_children() -> None:
     who signs. Neither is re-implemented here, so there is one place that knows what a
     find needs and one that knows what a send needs.
     """
-    from cold_outreach import first_run as sender_first_run
     from openoutfind.core import readiness as finder_readiness
+    from openoutsend import first_run as sender_first_run
 
     finder_readiness.check_ready()
     sender_first_run.check_ready()

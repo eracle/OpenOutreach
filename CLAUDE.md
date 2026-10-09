@@ -51,7 +51,7 @@ Three modules and one app, and nothing else.
   - **`django.contrib.sites`** is the finder's (`setup_crm` seeds Site 1); **`auth`** is the
     sender's (`emails.Message` points at `AUTH_USER_MODEL`) and holds the one operator both
     children read.
-  - **`OUTSEND_HOME` is set here, before `cold_outreach.defaults` is imported.** The sender
+  - **`OUTSEND_HOME` is set here, before `openoutsend.defaults` is imported.** The sender
     resolves its own root at import time and would otherwise answer `~/.openoutsend` — a second
     home appearing behind the operator's back. That import is deliberately not at the top of the
     file.
@@ -68,7 +68,7 @@ Three modules and one app, and nothing else.
   overrides that default with nothing.
 - **`wizard.py` — one onboarding.** Migrate → ask for whatever is still missing → save the row →
   `apply_to_environment` → let each child check what it was handed (`openoutfind.core.readiness`
-  and `cold_outreach.first_run`, unchanged and unwrapped, so there is one place that knows what a
+  and `openoutsend.first_run`, unchanged and unwrapped, so there is one place that knows what a
   find needs and one that knows what a send needs). Three rules:
   - **Ask only what is missing, and never twice.** A question is skipped when the row answers it
     *or the environment already carries it* — an operator who exported their own variables has
@@ -103,7 +103,7 @@ Three modules and one app, and nothing else.
     fields are pages of markdown; shell-quoting one is a way to corrupt it quietly. No finder flags
     pass through any more — the finder has no `init`, it has `check`.
   - **`send` is a call, not a `call_command`** — the sender has no management commands; its CLI is
-    `argparse` in `cold_outreach/__main__.py:main`. Its `_boot()` is safe here:
+    `argparse` in `openoutsend/__main__.py:main`. Its `_boot()` is safe here:
     `DJANGO_SETTINGS_MODULE` is set with `setdefault` and `django.setup()` is idempotent.
   - **`run` is `find --json` into a buffer, then the sender's own ingest, then `send`.** The two
     halves meet the way they meet on the command line; a privileged in-memory hand-off would be a

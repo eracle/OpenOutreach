@@ -1,7 +1,7 @@
 # openoutreach/settings.py
 """Django settings for the orchestrator: one registry hosting both children's apps.
 
-`openoutfind` and `cold_outreach` are Django projects in their own right, and each keeps
+`openoutfind` and `openoutsend` are Django projects in their own right, and each keeps
 its own settings module — `uvx --from openoutfind outfind find 10` runs with nothing from
 this package anywhere near it. They are also *reusable apps*, and this is a third host for
 them: one `INSTALLED_APPS`, one SQLite file, one migration graph, one process — so a lead
@@ -58,11 +58,11 @@ DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 # The sender resolves its own root at import time, and left alone it would answer
 # `~/.openoutsend` — a second home appearing behind the operator's back for prompt lines
-# nobody would think to look for. Set before `cold_outreach.defaults` is imported below,
+# nobody would think to look for. Set before `openoutsend.defaults` is imported below,
 # which is why that import is not at the top of the file.
 os.environ.setdefault("OUTSEND_HOME", str(STATE_DIR))
 
-from cold_outreach import defaults as send_defaults  # noqa: E402
+from openoutsend import defaults as send_defaults  # noqa: E402
 
 # Spelled out rather than splatted from each child's `defaults.APPS`: this is the list
 # that says what one process is, and reading it should not mean opening two other
@@ -80,9 +80,9 @@ INSTALLED_APPS = [
     "openoutreach.config.apps.ConfigAppConfig",
     "openoutfind.crm.apps.CrmConfig",
     "openoutfind.core.apps.CoreConfig",
-    "cold_outreach.core",
-    "cold_outreach.leads",
-    "cold_outreach.emails",
+    "openoutsend.core",
+    "openoutsend.leads",
+    "openoutsend.emails",
 ]
 
 SECRET_KEY = "openoutreach-has-no-web-surface"
