@@ -12,7 +12,7 @@ name = "openoutreach"
 version = "0.1.0"
 description = "Open-source AI lead finder: describe your product, get qualified leads with the reason each one fits."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "GPL-3.0-or-later"
 license-files = ["LICENCE.md"]
 authors = [{ name = "OpenOutreach", email = "hello@openoutreach.app" }]
@@ -33,7 +33,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Office/Business",
 ]
@@ -50,8 +49,8 @@ classifiers = [
 # of one install, and of a wizard that hands each child the environment it reads.
 dependencies = [
     "Django>=5.2,<7.0",
-    "openoutfind==0.1.41",
-    "openoutsend==0.1.64",
+    "openoutfind==0.1.57",
+    "openoutsend==0.1.72",
     # The wizard validates a country code against a real list of them. Declared rather
     # than inherited from the finder: the rule above is that this file names what *this*
     # package imports directly.
