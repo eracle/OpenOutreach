@@ -50,7 +50,7 @@ classifiers = [
 dependencies = [
     "Django>=5.2,<7.0",
     "openoutfind==0.1.78",
-    "openoutsend==0.1.72",
+    "openoutsend==0.1.73",
     # The wizard validates a country code against a real list of them. Declared rather
     # than inherited from the finder: the rule above is that this file names what *this*
     # package imports directly.
