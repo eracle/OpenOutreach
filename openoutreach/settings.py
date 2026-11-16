@@ -80,6 +80,8 @@ INSTALLED_APPS = [
     "openoutreach.config.apps.ConfigAppConfig",
     "openoutfind.crm.apps.CrmConfig",
     "openoutfind.core.apps.CoreConfig",
+    # The sender's deal machine: a deal's state and the log of its moves (AgenticFSM).
+    "agentic_fsm.backends.django",
     "openoutsend.core",
     "openoutsend.leads",
     "openoutsend.emails",
