@@ -12,7 +12,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/network/members)
-[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Open Issues](https://img.shields.io/github/issues/eracle/OpenOutreach.svg?style=flat-square&logo=github)](https://github.com/eracle/OpenOutreach/issues)
 
 <br/>
@@ -220,7 +220,7 @@ at no markup to you.
 - 📤 **Or export where you already work** — CSV in the shape the sequencer importers expect
 - ⚡ **One-command setup** — `uv tool install openoutreach && openoutreach`
 
-Every comparable tool that qualifies leads for you is paid SaaS. This one is GPLv3, runs on your
+Every comparable tool that qualifies leads for you is paid SaaS. This one is open source under Apache 2.0, runs on your
 machine, and you bring your own provider keys.
 
 ---
@@ -341,7 +341,7 @@ This project is built in spare time to provide powerful, **free** open-source gr
 
 ## ⚖️ License
 
-[GNU GPLv3](https://www.gnu.org/licenses/gpl-3.0) — see [LICENCE.md](LICENCE.md)
+[Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) — see [LICENCE.md](LICENCE.md)
 
 ---
 
