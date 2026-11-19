@@ -199,7 +199,7 @@ def _send(rest: list[str]) -> int:
     """Hand `send` and its arguments to the sender, in this process.
 
     Its `main()` is a plain argparse entry point — the sender has no management commands
-    — so this is a call, not a `call_command`. Its own `_boot()` is safe here:
+    — so this is a call, not a `call_command`. Its own `openoutsend.setup()` is safe here:
     `DJANGO_SETTINGS_MODULE` is set with `setdefault` and `django.setup()` is idempotent.
     """
     from openoutsend.__main__ import main as outsend_main

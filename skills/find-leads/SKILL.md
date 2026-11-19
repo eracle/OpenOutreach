@@ -296,8 +296,7 @@ agent's opener is written from `profile_text`, not from `reason`.
 
 The sending half has the same opt-out `--agent-qualify` does, one step later: `--agent-draft` stops
 `send` at the deal whose opener or next sequence step has been due longest instead of spending
-`OUTSEND_LLM_API_KEY`, and drops that key out of what `send` requires entirely (follow-ups still use
-it, so set `OUTSEND_FOLLOW_UPS=off` when no model is configured):
+`OUTSEND_LLM_API_KEY`, and drops that key out of what `send` requires entirely:
 
 ```bash
 openoutreach send --agent-draft

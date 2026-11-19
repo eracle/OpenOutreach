@@ -103,7 +103,7 @@ Three modules and one app, and nothing else.
     fields are pages of markdown; shell-quoting one is a way to corrupt it quietly. No finder flags
     pass through any more — the finder has no `init`, it has `check`.
   - **`send` is a call, not a `call_command`** — the sender has no management commands; its CLI is
-    `argparse` in `openoutsend/__main__.py:main`. Its `_boot()` is safe here:
+    `argparse` in `openoutsend/__main__.py:main`. Its `openoutsend.setup()` is safe here:
     `DJANGO_SETTINGS_MODULE` is set with `setdefault` and `django.setup()` is idempotent.
   - **`run` is `find --json` into a buffer, then the sender's own ingest, then `send`.** The two
     halves meet the way they meet on the command line; a privileged in-memory hand-off would be a

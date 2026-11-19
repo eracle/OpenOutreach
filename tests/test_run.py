@@ -1,6 +1,6 @@
 """`run` hands what the finder found to the sender, as cold outreach, and then sends.
 
-What the sender does with a cold deal — the opener, two follow-ups, the end — is the
+What the sender does with a cold deal — the opener, then the end — is the
 sender's to test, and it does (`openoutsend/tests/test_cold_sequence.py`). This side owns
 only the hand-off: `find --json` into a buffer, the sender's own ingest, then `send`.
 """
@@ -31,5 +31,5 @@ def test_run_enrols_what_was_found_in_the_cold_sequence_and_sends():
         assert cli._run([]) == 0
 
     deal = Deal.objects.get(lead__email=LEAD["email"])
-    assert (deal.sequence, deal.step) == ("cold", None)
+    assert (deal.sequence, deal.state) == ("cold", "awaiting_E0")
     assert sent == [[]]
