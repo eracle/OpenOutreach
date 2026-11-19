@@ -31,8 +31,6 @@ FINDER_ENV = {
     "llm_api_key": "OPENOUTFIND_LLM_API_KEY",
     "llm_api_base": "OPENOUTFIND_LLM_API_BASE",
     "bettercontact_api_key": "OPENOUTFIND_BETTERCONTACT_API_KEY",
-    "apollo_api_key": "OPENOUTFIND_APOLLO_API_KEY",
-    "email_finder": "OPENOUTFIND_EMAIL_FINDER",
     "operator_email": "OPENOUTFIND_OPERATOR_EMAIL",
     "operator_country_code": "OPENOUTFIND_OPERATOR_COUNTRY",
     "contacts_api_token": "OPENOUTFIND_CONTACTS_API_TOKEN",
@@ -81,11 +79,8 @@ class SiteConfig(models.Model):
     llm_api_base = models.CharField(max_length=500, blank=True, default="")
 
     # ── finding people ────────────────────────────────────────────
-    # BetterContact's key powers discovery (free) as well as enrichment (paid); Apollo's
-    # only resolves an address, so it never stands alone.
+    # BetterContact's key powers discovery (free) as well as enrichment (paid).
     bettercontact_api_key = models.CharField(max_length=500, blank=True, default="")
-    apollo_api_key = models.CharField(max_length=500, blank=True, default="")
-    email_finder = models.CharField(max_length=32, blank=True, default="")
 
     # ── the operator ──────────────────────────────────────────────
     # The name signs the mail; the address is where the store keys this install and where
