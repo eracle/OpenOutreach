@@ -142,11 +142,10 @@ make build / make up / make stop / make logs
 
 The suite is small on purpose: the children test their own pipelines, and duplicating that here
 would be the fork this project just deleted. What is tested is only what neither child can check
-alone — `tests/test_registry.py` (both app sets in one registry, exactly one config model, one
-database), `tests/test_wizard.py` (the row, the export into two vocabularies, and what is asked
+alone — `tests/test_registry.py` (both app sets in one registry), `tests/test_wizard.py` (the row, the export into two vocabularies, and what is asked
 for), `tests/test_cli.py` (what the entry point decides before either child is asked anything),
 `tests/test_run.py` (`run` enrols what the finder found in the sender's cold sequence, then
-sends; what the sender then mails is its own test, `openoutsend/tests/test_cold_sequence.py`).
+sends; what the sender then mails is its own test, `openoutsend/tests/test_end_to_end.py`).
 
 ## CI/CD
 

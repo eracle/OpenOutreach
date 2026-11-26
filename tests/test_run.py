@@ -1,7 +1,7 @@
 """`run` hands what the finder found to the sender, as cold outreach, and then sends.
 
 What the sender does with a cold deal — the opener, then the end — is the
-sender's to test, and it does (`openoutsend/tests/test_cold_sequence.py`). This side owns
+sender's to test, and it does (`openoutsend/tests/test_end_to_end.py`). This side owns
 only the hand-off: `find --json` into a buffer, the sender's own ingest, then `send`.
 """
 import json
